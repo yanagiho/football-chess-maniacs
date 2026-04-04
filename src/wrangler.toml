@@ -1,0 +1,52 @@
+name = "football-chess-maniacs"
+main = "worker.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Durable Objects ──
+[durable_objects]
+bindings = [
+  { name = "GAME_SESSION", class_name = "GameSession" },
+  { name = "MATCHMAKING", class_name = "Matchmaking" },
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["GameSession", "Matchmaking"]
+
+# ── D1 Database ──
+[[d1_databases]]
+binding = "DB"
+database_name = "fcms"
+database_id = "9326989a-a33e-487b-bf07-bc82f7a943eb"
+
+# ── KV Namespace ──
+[[kv_namespaces]]
+binding = "KV"
+id = "2f0ad03ea9924313afdf187a359170c7"
+
+# ── R2 Bucket ──
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "fcms-storage"
+
+# ── Queues (Producer) ──
+[[queues.producers]]
+binding = "MATCH_RESULT_QUEUE"
+queue = "fcms-match-results"
+
+# ── Queues (Consumer) ──
+[[queues.consumers]]
+queue = "fcms-match-results"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# ── Environment Variables ──
+[vars]
+CORS_ORIGIN = "https://manics.example.com"
+PLATFORM_API_BASE = "https://api.football-century.example.com"
+
+# ── Secrets (set via `wrangler secret put`) ──
+# PLATFORM_JWKS_URL
+# PLATFORM_SERVICE_API_KEY
+# PLATFORM_HMAC_SECRET

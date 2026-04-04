@@ -1,0 +1,159 @@
+// ============================================================
+// worker.ts — Cloudflare Workers エントリポイント（Hono）
+// ============================================================
+
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
+
+import authRoutes from './api/auth';
+import teamRoutes from './api/team';
+import matchRoutes from './api/match';
+import replayRoutes from './api/replay';
+import { jwtMiddleware } from './middleware/jwt_verify';
+import { rateLimitMiddleware, RATE_LIMITS } from './middleware/rate_limit';
+
+// ── Durable Objects 再エクスポート ──
+export { GameSession } from './durable/game_session';
+export { Matchmaking } from './durable/matchmaking';
+
+// ── 環境バインディング型定義 ──
+export interface Env {
+  Bindings: {
+    // Durable Objects
+    GAME_SESSION: DurableObjectNamespace;
+    MATCHMAKING: DurableObjectNamespace;
+    // D1
+    DB: D1Database;
+    // KV
+    KV: KVNamespace;
+    // R2
+    R2: R2Bucket;
+    // Queues
+    MATCH_RESULT_QUEUE: Queue;
+    // Vars
+    CORS_ORIGIN: string;
+    PLATFORM_API_BASE: string;
+    // Secrets
+    PLATFORM_JWKS_URL: string;
+    PLATFORM_SERVICE_API_KEY: string;
+    PLATFORM_HMAC_SECRET: string;
+  };
+  Variables: {
+    userId: string;
+  };
+}
+
+const app = new Hono<Env>();
+
+// ── グローバルミドルウェア ──
+
+// CORS（§7-1: ゲームオリジンのみ許可）
+app.use('*', async (c, next) => {
+  const corsMiddleware = cors({
+    origin: c.env.CORS_ORIGIN,
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400,
+  });
+  return corsMiddleware(c, next);
+});
+
+// セキュリティヘッダー（§7-1: HSTS, CSP等）
+app.use('*', secureHeaders({
+  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    connectSrc: ["'self'", 'wss://manics.example.com', 'https://api.football-century.example.com'],
+    imgSrc: ["'self'", 'https://r2.example.com'],
+  },
+  xFrameOptions: 'DENY',
+  xContentTypeOptions: 'nosniff',
+  referrerPolicy: 'strict-origin-when-cross-origin',
+}));
+
+// ── ヘルスチェック ──
+app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
+
+// ── Webhook（認証不要、独自署名検証） ──
+app.route('/webhook', authRoutes);
+
+// ── WebSocket エンドポイント（JWT検証はDO内で実行） ──
+app.route('/match', matchRoutes);
+
+// ── REST API（JWT認証 + レート制限が必要なルート） ──
+const api = new Hono<Env>();
+api.use('*', jwtMiddleware());
+api.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
+
+api.route('/teams', teamRoutes);
+api.route('/matches', matchRoutes);
+api.route('/replays', replayRoutes);
+
+app.route('/api', api);
+
+// ── Queues Consumer（試合結果の非同期永続化 §5-2） ──
+
+export default {
+  fetch: app.fetch,
+
+  /** Queues Consumer: 試合結果をD1/R2に永続化 */
+  async queue(
+    batch: MessageBatch,
+    env: Env['Bindings'],
+  ): Promise<void> {
+    for (const msg of batch.messages) {
+      const data = msg.body as {
+        matchId: string;
+        homeUserId: string;
+        awayUserId: string;
+        scoreHome: number;
+        scoreAway: number;
+        reason: string;
+        disconnectLoser?: string;
+        turnLog: unknown[];
+        finishedAt: string;
+      };
+
+      try {
+        // D1: 試合サマリ更新
+        await env.DB.prepare(
+          'UPDATE matches SET status = ?, score_home = ?, score_away = ?, finished_at = ? WHERE id = ?',
+        )
+          .bind('completed', data.scoreHome, data.scoreAway, data.finishedAt, data.matchId)
+          .run();
+
+        // R2: 詳細ログ（棋譜）保存
+        const logData = JSON.stringify({
+          matchId: data.matchId,
+          homeUserId: data.homeUserId,
+          awayUserId: data.awayUserId,
+          turns: data.turnLog,
+          finishedAt: data.finishedAt,
+        });
+
+        // gzip圧縮してR2に保存
+        const compressed = await compressGzip(logData);
+        await env.R2.put(`replays/${data.matchId}.json.gz`, compressed, {
+          customMetadata: {
+            matchId: data.matchId,
+            finishedAt: data.finishedAt,
+          },
+        });
+
+        msg.ack();
+      } catch (e) {
+        console.error(`Failed to persist match ${data.matchId}:`, e);
+        msg.retry();
+      }
+    }
+  },
+};
+
+/** テキストをgzip圧縮 */
+async function compressGzip(text: string): Promise<ArrayBuffer> {
+  const stream = new Blob([text]).stream();
+  const compressed = stream.pipeThrough(new CompressionStream('gzip'));
+  return new Response(compressed).arrayBuffer();
+}

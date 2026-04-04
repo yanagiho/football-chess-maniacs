@@ -8,8 +8,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0",
     "typescript": "^5.5.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20260404.1",
+    "hono": "^4.12.10"
   }
 }

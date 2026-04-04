@@ -6,7 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals", "@cloudflare/workers-types/2023-07-01"]
   },
   "include": ["src/**/*"]
 }
