@@ -1,0 +1,577 @@
+openapi: 3.0.3
+info:
+  title: FOOTBALL CENTURY Platform API
+  version: '1.1'
+  description: |
+    FOOTBALL CENTURYシリーズ共通プラットフォームAPI (v1.1 Final)。
+    Identity, Commerce, Entitlement, Community, Social, Moderation機能を統合提供する。
+    本定義はAntigravityによる自動実装の正本（Source of Truth）である。
+servers:
+  - url: https://api.football-century.example.com
+    description: Production
+  - url: https://stg-api.football-century.example.com
+    description: Staging
+security:
+  - bearerAuth: [] # Default: All endpoints require Auth
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Profile
+  - name: Commerce
+  - name: Entitlements
+  - name: Forum
+  - name: Messaging
+  - name: Social
+  - name: Moderation
+  - name: Admin
+  - name: Webhooks
+
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      security: [] # Public
+      tags: [Admin]
+      operationId: healthCheck
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  time: { type: string, format: date-time }
+
+  /v1/auth/register:
+    post:
+      summary: Register with email/password
+      tags: [Auth]
+      security: [] # Public
+      operationId: authRegister
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/auth/login:
+    post:
+      summary: Login with email/password
+      tags: [Auth]
+      security: [] # Public
+      operationId: authLogin
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/users/me:
+    get:
+      summary: Get current user
+      tags: [Users]
+      operationId: getMe
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /v1/profile/me:
+    patch:
+      summary: Update my profile
+      tags: [Profile]
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+
+  /v1/entitlements/check:
+    post:
+      summary: Check user entitlement
+      tags: [Entitlements]
+      operationId: checkEntitlement
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntitlementCheckRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementCheckResponse'
+
+  /v1/commerce/purchase:
+    post:
+      summary: Create a purchase session (Stripe Checkout)
+      description: |
+        購入セッションを作成し、決済画面へのURL (checkout_url) を返却する。
+        実際の権利付与はWebhook経由で行われる。
+      tags: [Commerce]
+      operationId: createPurchase
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseCreateRequest'
+      responses:
+        '201':
+          description: Created (Session initiated)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/forum/categories:
+    get:
+      summary: List forum categories
+      tags: [Forum]
+      security: [] # Public read
+      operationId: listForumCategories
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumCategoryListResponse'
+
+  /v1/forum/threads:
+    get:
+      summary: List threads in category
+      tags: [Forum]
+      security: [] # Public read
+      operationId: listForumThreads
+      parameters:
+        - name: category_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ForumThread' }
+    post:
+      summary: Create new thread
+      tags: [Forum]
+      operationId: createForumThread
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForumThreadCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumThread'
+
+  /v1/forum/posts:
+    get:
+      summary: List posts in thread
+      tags: [Forum]
+      security: [] # Public read
+      operationId: listForumPosts
+      parameters:
+        - name: thread_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ForumPost' }
+    post:
+      summary: Create post (reply)
+      tags: [Forum]
+      operationId: createForumPost
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForumPostCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumPost'
+
+  /v1/dm/messages:
+    post:
+      summary: Send DM
+      tags: [Messaging]
+      operationId: sendDM
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DMSendRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DMMessage'
+
+  /v1/social/friends/requests:
+    post:
+      summary: Send friend request
+      tags: [Social]
+      operationId: sendFriendRequest
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendRequestCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+
+  /v1/moderation/reports:
+    post:
+      summary: Create report
+      tags: [Moderation]
+      operationId: createReport
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /v1/webhooks/stripe:
+    post:
+      summary: Stripe Webhook receiver
+      tags: [Webhooks]
+      security: []
+      operationId: stripeWebhook
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Accepted (Idempotent)
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 必須。ネットワーク再送時の重複処理防止キー。
+    PageToken:
+      in: query
+      name: page_token
+      schema: { type: string }
+
+  headers:
+    X-Trace-Id:
+      description: Trace ID for logs.
+      schema: { type: string }
+
+  responses:
+    ErrorResponse:
+      description: Standard error response
+      headers:
+        X-Trace-Id: { $ref: '#/components/headers/X-Trace-Id' }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error_code, message, trace_id, retryable]
+      properties:
+        error_code: { type: string }
+        message: { type: string }
+        trace_id: { type: string }
+        retryable: { type: boolean }
+        details: { type: object }
+
+    AuthTokenResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer }
+        token_type: { type: string }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        locale: { type: string, example: ja-JP }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    User:
+      type: object
+      required: [user_id, state]
+      properties:
+        user_id: { type: string, format: uuid }
+        email_masked: { type: string }
+        state: { type: string }
+
+    Profile:
+      type: object
+      required: [user_id, display_name]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        bio: { type: string }
+        avatar_public: { type: boolean }
+
+    ProfileUpdateRequest:
+      type: object
+      properties:
+        display_name: { type: string }
+        bio: { type: string }
+        avatar_public: { type: boolean }
+
+    EntitlementCheckRequest:
+      type: object
+      required: [sku]
+      properties:
+        sku: { type: string }
+        action: { type: string }
+        context: { type: object }
+
+    EntitlementCheckResponse:
+      type: object
+      required: [allowed, sku, state]
+      properties:
+        allowed: { type: boolean }
+        reason: { type: string }
+        sku: { type: string }
+        state: { type: string }
+        end_at: { type: string, format: date-time }
+
+    PurchaseCreateRequest:
+      type: object
+      required: [sku, price_id, provider]
+      properties:
+        sku: { type: string }
+        price_id: { type: string }
+        quantity: { type: integer, default: 1 }
+        provider: { type: string, enum: [stripe] }
+        return_url: { type: string, description: "決済完了後の戻り先URL" }
+
+    PurchaseResponse:
+      type: object
+      required: [purchase_id, status, checkout_url]
+      properties:
+        purchase_id: { type: string, format: uuid }
+        status: { type: string, enum: [pending] }
+        checkout_url: { type: string, description: "Stripe Checkout URL. 必須。" }
+
+    ForumCategoryListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              category_id: { type: string, format: uuid }
+              name: { type: string }
+
+    ForumThread:
+      type: object
+      required: [thread_id, title]
+      properties:
+        thread_id: { type: string, format: uuid }
+        title: { type: string }
+        created_at: { type: string, format: date-time }
+
+    ForumThreadCreateRequest:
+      type: object
+      required: [category_id, title, body]
+      properties:
+        category_id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+
+    ForumPost:
+      type: object
+      required: [post_id, body]
+      properties:
+        post_id: { type: string, format: uuid }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+
+    ForumPostCreateRequest:
+      type: object
+      required: [thread_id, body]
+      properties:
+        thread_id: { type: string, format: uuid }
+        body: { type: string }
+
+    DMSendRequest:
+      type: object
+      required: [recipient_id, body]
+      properties:
+        recipient_id: { type: string, format: uuid }
+        body: { type: string }
+
+    DMMessage:
+      type: object
+      required: [message_id, body]
+      properties:
+        message_id: { type: string, format: uuid }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+
+    FriendRequestCreateRequest:
+      type: object
+      required: [to_user_id]
+      properties:
+        to_user_id: { type: string, format: uuid }
+
+    FriendRequest:
+      type: object
+      required: [request_id, status]
+      properties:
+        request_id: { type: string, format: uuid }
+        status: { type: string }
+
+    ReportCreateRequest:
+      type: object
+      required: [target_type, target_id, reason_code]
+      properties:
+        target_type: { type: string, enum: [user, forum_post, dm_message] }
+        target_id: { type: string, format: uuid }
+        reason_code: { type: string }
+        detail: { type: string }
+
+    Report:
+      type: object
+      required: [report_id, status]
+      properties:
+        report_id: { type: string, format: uuid }
+        status: { type: string }

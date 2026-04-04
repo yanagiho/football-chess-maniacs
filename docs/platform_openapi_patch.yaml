@@ -1,0 +1,265 @@
+# Football Century Platform API — 追加エンドポイント（v1.2）
+# 既存の openapi.yaml に以下を追加する
+
+# ============================================
+# 追加パス（paths に追記）
+# ============================================
+
+  /.well-known/jwks.json:
+    get:
+      summary: JWT public key set (JWKS)
+      description: |
+        各ゲームサーバーがJWTトークンの署名を検証するために使用する公開鍵セット。
+        ゲーム側はこのエンドポイントをキャッシュ（推奨TTL: 24時間）して利用する。
+      security: []
+      tags: [Auth]
+      operationId: getJWKS
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKSResponse'
+
+  /v1/auth/refresh:
+    post:
+      summary: Refresh access token
+      description: |
+        リフレッシュトークンを使用して新しいアクセストークンを発行する。
+        ゲームセッションが長時間（最大2時間）に及ぶため、クライアントはアクセストークン
+        期限切れ前にこのエンドポイントを呼び出す必要がある。
+      tags: [Auth]
+      security: []
+      operationId: authRefresh
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/entitlements:
+    get:
+      summary: List user entitlements
+      description: |
+        指定ユーザーが所持する全エンタイトルメント（有効なもの）のリストを返す。
+        ゲーム側はこのリストを取得し、ゲーム内のマスタデータと結合して
+        所持アイテム一覧を構築する。tagパラメータでゲーム別にフィルタ可能。
+      tags: [Entitlements]
+      operationId: listEntitlements
+      parameters:
+        - name: tag
+          in: query
+          description: SKUのプレフィクスでフィルタ（例: "fcms_" でFootball Chess関連のみ）
+          schema: { type: string }
+        - name: state
+          in: query
+          description: エンタイトルメントの状態でフィルタ
+          schema: { type: string, enum: [active, revoked, expired] }
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementListResponse'
+
+  /v1/commerce/catalog:
+    get:
+      summary: List catalog items
+      description: |
+        購入可能なカタログアイテムの一覧を返す。
+        tagパラメータでゲーム別にフィルタ可能（例: "fcms_"）。
+        ゲーム側のショップ画面で使用する。
+      tags: [Commerce]
+      security: []
+      operationId: listCatalog
+      parameters:
+        - name: tag
+          in: query
+          description: SKUのプレフィクスでフィルタ
+          schema: { type: string }
+        - name: type
+          in: query
+          description: アイテムタイプでフィルタ
+          schema: { type: string, enum: [subscription, consumable, bundle] }
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogListResponse'
+
+  /v1/social/friends:
+    get:
+      summary: List my friends
+      description: |
+        自分のフレンド一覧を返す。各フレンドのuser_idとdisplay_nameを含む。
+        ゲーム側のフレンドマッチ画面や招待機能で使用する。
+      tags: [Social]
+      operationId: listFriends
+      parameters:
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendListResponse'
+
+  /v1/webhooks/game-notify:
+    post:
+      summary: Register game webhook endpoint
+      description: |
+        ゲームサーバーがWebhook通知の受信URLを登録する。
+        プラットフォームは購入完了・エンタイトルメント変更等のイベント発生時に
+        登録されたURLにPOSTで通知を送信する。
+        通知にはHMAC-SHA256署名が付与される。
+      tags: [Webhooks]
+      operationId: registerGameWebhook
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GameWebhookRegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameWebhookRegistration'
+
+# ============================================
+# 追加スキーマ（components/schemas に追記）
+# ============================================
+
+    JWKSResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty: { type: string, example: RSA }
+              kid: { type: string }
+              use: { type: string, example: sig }
+              alg: { type: string, example: RS256 }
+              n: { type: string }
+              e: { type: string }
+
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+
+    EntitlementListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entitlement'
+        next_page_token: { type: string }
+
+    Entitlement:
+      type: object
+      required: [entitlement_id, sku, state]
+      properties:
+        entitlement_id: { type: string, format: uuid }
+        sku: { type: string }
+        kind: { type: string }
+        state: { type: string, enum: [active, revoked, expired] }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+
+    CatalogListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogItem'
+        next_page_token: { type: string }
+
+    CatalogItem:
+      type: object
+      required: [sku, type, name, is_active]
+      properties:
+        sku: { type: string }
+        type: { type: string }
+        name: { type: string }
+        is_active: { type: boolean }
+        tags: { type: array, items: { type: string } }
+        prices:
+          type: array
+          items:
+            type: object
+            properties:
+              price_id: { type: string }
+              currency: { type: string }
+              amount_cents: { type: integer }
+
+    FriendListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id: { type: string, format: uuid }
+              display_name: { type: string }
+              since: { type: string, format: date-time }
+        next_page_token: { type: string }
+
+    GameWebhookRegisterRequest:
+      type: object
+      required: [game_id, url, events, secret]
+      properties:
+        game_id:
+          type: string
+          description: ゲーム識別子（例: "fcms", "fc_rpg"）
+        url:
+          type: string
+          description: 通知先URL（例: "https://fcms-api.example.com/webhook/platform"）
+        events:
+          type: array
+          items:
+            type: string
+            enum: [entitlement.created, entitlement.revoked, purchase.completed, purchase.refunded]
+          description: 受信するイベントタイプ
+        secret:
+          type: string
+          description: HMAC-SHA256署名用の共有シークレット
+
+    GameWebhookRegistration:
+      type: object
+      required: [webhook_id, game_id, url, events]
+      properties:
+        webhook_id: { type: string, format: uuid }
+        game_id: { type: string }
+        url: { type: string }
+        events: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
