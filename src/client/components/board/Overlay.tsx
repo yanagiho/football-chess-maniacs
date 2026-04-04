@@ -1,0 +1,432 @@
+// ============================================================
+// Overlay.tsx — Canvas オーバーレイ（§1-3, §6-2）
+// ZOCハイライト・移動範囲・パスライン・シュートコース
+// オフサイドライン・ゾーン境界線・移動矢印
+// PC: マウスホバー予測線（§3-6）
+// ============================================================
+
+import React, { useRef, useEffect } from 'react';
+import type { HexCoord, HexCell, PieceData, OrderData, ActionMode } from '../../types';
+
+interface OverlayProps {
+  width: number;
+  height: number;
+  highlightHexes: HexCoord[];
+  zocHexes: { own: HexCoord[]; opponent: HexCoord[] };
+  offsideLine: number | null;
+  selectedPieceId: string | null;
+  actionMode: ActionMode;
+  orders: Map<string, OrderData>;
+  pieces: PieceData[];
+  hexMap: HexCell[];
+  showZoneBorders: boolean;
+  /** PC用: マウスカーソルのボード座標（null ならホバー無し） */
+  hoverCoord: HexCoord | null;
+}
+
+/** flat-top HEX の半径（hex_map.json の間隔から算出） */
+const HEX_R = 26;
+/** flat-top HEX の角度オフセット（0°が右） */
+const FLAT_TOP_OFFSET = 0;
+
+export default function Overlay({
+  width,
+  height,
+  highlightHexes,
+  zocHexes,
+  offsideLine,
+  selectedPieceId,
+  actionMode,
+  orders,
+  pieces,
+  hexMap,
+  showZoneBorders,
+  hoverCoord,
+}: OverlayProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // セル検索用のMap（高速化）
+    const cellMap = new Map<string, HexCell>();
+    for (const c of hexMap) cellMap.set(`${c.col},${c.row}`, c);
+    const findCell = (coord: HexCoord) => cellMap.get(`${coord.col},${coord.row}`);
+
+    // ================================================================
+    // 1. ゾーン境界線（§1-3: 常時, ON/OFF切替可）
+    // ================================================================
+    if (showZoneBorders) {
+      drawZoneBorders(ctx, hexMap, cellMap);
+    }
+
+    // ================================================================
+    // 2. ZOC表示（§1-3: コマ選択時のみ）
+    // ================================================================
+    if (selectedPieceId) {
+      // 自分ZOC → 薄い青
+      for (const hex of zocHexes.own) {
+        const cell = findCell(hex);
+        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(60, 120, 220, 0.20)');
+      }
+      // 相手ZOC → 薄い赤
+      for (const hex of zocHexes.opponent) {
+        const cell = findCell(hex);
+        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(220, 60, 60, 0.20)');
+      }
+    }
+
+    // ================================================================
+    // 3. 移動可能範囲（§6-2）
+    // ================================================================
+    const opponentZocSet = new Set(zocHexes.opponent.map((z) => `${z.col},${z.row}`));
+
+    for (const hex of highlightHexes) {
+      const cell = findCell(hex);
+      if (!cell) continue;
+
+      if (opponentZocSet.has(`${hex.col},${hex.row}`)) {
+        // §6-2 ZOC進入 → 赤緑の縞模様
+        drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(80, 200, 80, 0.18)');
+        drawHexStripes(ctx, cell.x, cell.y, HEX_R);
+      } else {
+        // §6-2 移動可能 → 緑のハイライト
+        drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(80, 200, 80, 0.30)');
+      }
+      // 外枠
+      drawHexOutline(ctx, cell.x, cell.y, HEX_R, 'rgba(80, 200, 80, 0.5)', 1);
+    }
+
+    // ================================================================
+    // 4. 指示済みコマの移動矢印
+    // ================================================================
+    for (const [, order] of orders) {
+      if (order.action !== 'move' || !order.targetHex) continue;
+      const piece = pieces.find((p) => p.id === order.pieceId);
+      if (!piece) continue;
+      const fromCell = findCell(piece.coord);
+      const toCell = findCell(order.targetHex);
+      if (!fromCell || !toCell) continue;
+      drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,255,255,0.55)', 2, 10);
+    }
+
+    // ================================================================
+    // 5. パスライン（§6-2: 青い線 / ZOC通過でオレンジ）
+    // ================================================================
+    for (const [, order] of orders) {
+      if (order.action !== 'pass' || !order.targetPieceId) continue;
+      const passer = pieces.find((p) => p.id === order.pieceId);
+      const receiver = pieces.find((p) => p.id === order.targetPieceId);
+      if (!passer || !receiver) continue;
+      const fromCell = findCell(passer.coord);
+      const toCell = findCell(receiver.coord);
+      if (!fromCell || !toCell) continue;
+
+      const crossesZoc = doesLineCrossZoc(
+        fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
+      );
+      const color = crossesZoc ? 'rgba(255, 160, 40, 0.75)' : 'rgba(60, 140, 255, 0.70)';
+      drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, color, 2.5, [8, 5]);
+      // パス先に小さな円
+      drawDot(ctx, toCell.x, toCell.y, 5, color);
+    }
+
+    // ================================================================
+    // 6. シュートコース（§6-2: 赤い線）
+    // ================================================================
+    for (const [, order] of orders) {
+      if (order.action !== 'shoot' || !order.targetHex) continue;
+      const shooter = pieces.find((p) => p.id === order.pieceId);
+      if (!shooter) continue;
+      const fromCell = findCell(shooter.coord);
+      const toCell = findCell(order.targetHex);
+      if (!fromCell || !toCell) continue;
+      drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255, 50, 50, 0.80)', 3, 12);
+    }
+
+    // ================================================================
+    // 7. オフサイドライン（§6-2: 黄色の点線, §1-3: 常時ON/OFF切替可）
+    // ================================================================
+    if (offsideLine !== null) {
+      // 同一 row の先頭セルの y を取得
+      const cell = hexMap.find((h) => h.row === offsideLine);
+      if (cell) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(0, cell.y);
+        ctx.lineTo(width, cell.y);
+        ctx.strokeStyle = 'rgba(255, 220, 40, 0.55)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 7]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+
+    // ================================================================
+    // 8. PC マウスホバー予測線（§3-6）
+    // ================================================================
+    if (hoverCoord && selectedPieceId) {
+      const selPiece = pieces.find((p) => p.id === selectedPieceId);
+      if (selPiece) {
+        const fromCell = findCell(selPiece.coord);
+        const toCell = findCell(hoverCoord);
+        if (fromCell && toCell) {
+          if (actionMode === 'pass') {
+            // パスライン予測
+            const crosses = doesLineCrossZoc(
+              fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
+            );
+            const c = crosses ? 'rgba(255,160,40,0.40)' : 'rgba(60,140,255,0.40)';
+            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, c, 1.5, [6, 4]);
+          } else if (actionMode === 'shoot') {
+            // シュートコース予測
+            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,50,50,0.40)', 1.5, [6, 4]);
+          } else {
+            // 移動予測線
+            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,255,255,0.30)', 1.5, [4, 4]);
+          }
+        }
+      }
+    }
+  }, [
+    width, height, highlightHexes, zocHexes, offsideLine,
+    selectedPieceId, actionMode, orders, pieces, hexMap,
+    showZoneBorders, hoverCoord,
+  ]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: 2 }}
+    />
+  );
+}
+
+// ================================================================
+// 描画ヘルパー
+// ================================================================
+
+/** flat-top HEX を塗りつぶす */
+function drawHex(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i + FLAT_TOP_OFFSET;
+    const hx = cx + r * Math.cos(angle);
+    const hy = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(hx, hy);
+    else ctx.lineTo(hx, hy);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+/** flat-top HEX のアウトライン */
+function drawHexOutline(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string, lineWidth: number) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i + FLAT_TOP_OFFSET;
+    const hx = cx + r * Math.cos(angle);
+    const hy = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(hx, hy);
+    else ctx.lineTo(hx, hy);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+}
+
+/** §6-2 ZOC進入の赤緑縞模様（HEXにクリップして斜線） */
+function drawHexStripes(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  ctx.save();
+  // HEXでクリップ
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i + FLAT_TOP_OFFSET;
+    const hx = cx + r * Math.cos(angle);
+    const hy = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(hx, hy);
+    else ctx.lineTo(hx, hy);
+  }
+  ctx.closePath();
+  ctx.clip();
+
+  // 赤い斜線
+  ctx.strokeStyle = 'rgba(200, 60, 60, 0.30)';
+  ctx.lineWidth = 2;
+  const step = 6;
+  for (let d = -r * 2; d < r * 2; d += step) {
+    ctx.beginPath();
+    ctx.moveTo(cx + d, cy - r);
+    ctx.lineTo(cx + d + r, cy + r);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** 破線 */
+function drawDashedLine(
+  ctx: CanvasRenderingContext2D,
+  x1: number, y1: number, x2: number, y2: number,
+  color: string, lineWidth: number, dash: number[],
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/** 矢印 */
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  x1: number, y1: number, x2: number, y2: number,
+  color: string, lineWidth: number, headLen: number,
+) {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = lineWidth;
+
+  // シャフト
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  // ヘッド
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(
+    x2 - headLen * Math.cos(angle - Math.PI / 6),
+    y2 - headLen * Math.sin(angle - Math.PI / 6),
+  );
+  ctx.lineTo(
+    x2 - headLen * Math.cos(angle + Math.PI / 6),
+    y2 - headLen * Math.sin(angle + Math.PI / 6),
+  );
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 小さなドット */
+function drawDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+// ================================================================
+// ゾーン境界線（§1-3）
+// ================================================================
+
+/** ゾーン/レーンが切り替わるセルの境界を検出して線を引く */
+function drawZoneBorders(
+  ctx: CanvasRenderingContext2D,
+  hexMap: HexCell[],
+  cellMap: Map<string, HexCell>,
+) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+
+  // row 方向でゾーン境界を検出
+  const zoneByRow = new Map<number, string>();
+  for (const cell of hexMap) {
+    if (!zoneByRow.has(cell.row)) zoneByRow.set(cell.row, cell.zone);
+  }
+  const rows = [...zoneByRow.entries()].sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][1] !== rows[i - 1][1]) {
+      // ゾーン変更行 → 水平線
+      const prevCells = hexMap.filter((c) => c.row === rows[i - 1][0]);
+      const currCells = hexMap.filter((c) => c.row === rows[i][0]);
+      if (prevCells.length > 0 && currCells.length > 0) {
+        const y = (prevCells[0].y + currCells[0].y) / 2;
+        const minX = Math.min(...currCells.map((c) => c.x));
+        const maxX = Math.max(...currCells.map((c) => c.x));
+        ctx.beginPath();
+        ctx.moveTo(minX - HEX_R, y);
+        ctx.lineTo(maxX + HEX_R, y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // col 方向でレーン境界を検出
+  const laneByCol = new Map<number, string>();
+  for (const cell of hexMap) {
+    if (!laneByCol.has(cell.col)) laneByCol.set(cell.col, cell.lane);
+  }
+  const cols = [...laneByCol.entries()].sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < cols.length; i++) {
+    if (cols[i][1] !== cols[i - 1][1]) {
+      const prevCells = hexMap.filter((c) => c.col === cols[i - 1][0]);
+      const currCells = hexMap.filter((c) => c.col === cols[i][0]);
+      if (prevCells.length > 0 && currCells.length > 0) {
+        const x = (prevCells[0].x + currCells[0].x) / 2;
+        const minY = Math.min(...currCells.map((c) => c.y));
+        const maxY = Math.max(...currCells.map((c) => c.y));
+        ctx.beginPath();
+        ctx.moveTo(x, minY - HEX_R);
+        ctx.lineTo(x, maxY + HEX_R);
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
+// ================================================================
+// パスコースがZOCを横切るか判定（§6-2 パスコース危険）
+// ================================================================
+
+function doesLineCrossZoc(
+  x1: number, y1: number, x2: number, y2: number,
+  opponentZocHexes: HexCoord[],
+  cellMap: Map<string, HexCell>,
+): boolean {
+  for (const hex of opponentZocHexes) {
+    const cell = cellMap.get(`${hex.col},${hex.row}`);
+    if (!cell) continue;
+    // 線分とHEX中心との距離がHEX_R以下なら交差とみなす
+    const dist = pointToSegmentDist(cell.x, cell.y, x1, y1, x2, y2);
+    if (dist < HEX_R) return true;
+  }
+  return false;
+}
+
+/** 点から線分への最短距離 */
+function pointToSegmentDist(
+  px: number, py: number,
+  ax: number, ay: number, bx: number, by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const projX = ax + t * dx;
+  const projY = ay + t * dy;
+  return Math.hypot(px - projX, py - projY);
+}

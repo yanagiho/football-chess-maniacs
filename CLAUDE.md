@@ -2,8 +2,8 @@
 
 ## プロジェクト概要
 
-HEXグリッド上で行うサッカー×チェス型ボードゲームのゲームエンジン（TypeScript）。
-仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md`
+HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeScript）。
+仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md`
 
 ---
 
@@ -13,26 +13,71 @@ HEXグリッド上で行うサッカー×チェス型ボードゲームのゲー
 src/
 ├── data/
 │   └── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
-└── engine/
-    ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
-    ├── dice.ts               # 判定式: calcProbability / judge / calcZocModifier
-    ├── shoot.ts              # §7-2 シュート判定チェーン
-    ├── pass.ts               # §7-3 パスカット1・2
-    ├── tackle.ts             # §7-4 タックル判定
-    ├── foul.ts               # §7-5 ファウル判定
-    ├── collision.ts          # §7-6 競合判定
-    ├── offside.ts            # §9-5 オフサイド判定
-    ├── movement.ts           # フェーズ1: コマ移動・ZOC停止・タックル・ファウル
-    ├── ball.ts               # フェーズ2: シュート・パス配送・パスカット
-    ├── special.ts            # フェーズ3: オフサイド処理
-    ├── turn_processor.ts     # processTurn — フェーズ0〜3 オーケストレーション
-    ├── index.ts              # 全モジュール再エクスポート
-    └── __tests__/
-        ├── shoot.test.ts
-        ├── pass.test.ts
-        ├── tackle.test.ts
-        ├── offside.test.ts
-        └── turn_processor.test.ts
+├── engine/                   # ゲームエンジン（判定式・ターン処理）
+│   ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
+│   ├── dice.ts               # 判定式: calcProbability / judge / calcZocModifier
+│   ├── shoot.ts              # §7-2 シュート判定チェーン
+│   ├── pass.ts               # §7-3 パスカット1・2
+│   ├── tackle.ts             # §7-4 タックル判定
+│   ├── foul.ts               # §7-5 ファウル判定
+│   ├── collision.ts          # §7-6 競合判定
+│   ├── offside.ts            # §9-5 オフサイド判定
+│   ├── movement.ts           # フェーズ1: コマ移動・ZOC停止・タックル・ファウル
+│   ├── ball.ts               # フェーズ2: シュート・パス配送・パスカット
+│   ├── special.ts            # フェーズ3: オフサイド処理
+│   ├── turn_processor.ts     # processTurn — フェーズ0〜3 オーケストレーション
+│   ├── index.ts              # 全モジュール再エクスポート
+│   └── __tests__/
+├── worker.ts                 # Cloudflare Workers エントリポイント（Hono）
+├── wrangler.toml             # Cloudflare設定（DO/D1/KV/R2/Queues）
+├── durable/
+│   ├── game_session.ts       # ゲームセッションDO（Hibernation API）
+│   └── matchmaking.ts        # マッチメイキングDO（リージョンシャード）
+├── api/
+│   ├── auth.ts               # プラットフォーム認証・Webhook
+│   ├── team.ts               # チーム編成CRUD（D1）
+│   ├── match.ts              # マッチング・セッション接続
+│   └── replay.ts             # リプレイ取得（R2）
+├── middleware/
+│   ├── jwt_verify.ts         # JWT検証（JWKS）
+│   ├── rate_limit.ts         # レート制限（KV）
+│   └── validation.ts         # 入力バリデーション（§7-3 全14項目）
+└── client/                   # React フロントエンド（Cloudflare Pages）
+    ├── App.tsx               # ルートコンポーネント
+    ├── main.tsx              # エントリポイント
+    ├── index.html            # HTMLテンプレート
+    ├── types.ts              # クライアント型定義
+    ├── pages/
+    │   ├── Title.tsx          # タイトル画面
+    │   ├── ModeSelect.tsx     # モード選択
+    │   ├── TeamSelect.tsx     # チーム選択
+    │   ├── Formation.tsx      # フォーメーション設定
+    │   ├── Matching.tsx       # マッチング待機
+    │   ├── Battle.tsx         # 対戦画面（スマホ§2 / PC§3 統合）
+    │   ├── HalfTime.tsx       # ハーフタイム
+    │   ├── Result.tsx         # 結果画面
+    │   └── Replay.tsx         # リプレイ画面
+    ├── components/
+    │   ├── board/
+    │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1）
+    │   │   ├── Piece.tsx      # コマ表示（ポジション別色 §6-1）
+    │   │   ├── Overlay.tsx    # Canvas: ZOC/パスライン/オフサイドライン
+    │   │   └── Controls.tsx   # ズーム/パン制御
+    │   ├── ui/
+    │   │   ├── Timer.tsx      # ターンタイマー（§2-2）
+    │   │   ├── ActionBar.tsx  # スマホ用アクションバー（§2-4）
+    │   │   ├── SidePanel.tsx  # PC用左右パネル（§3-4, §3-5）
+    │   │   └── PresetButtons.tsx # プリセット行動（§2-7）
+    │   └── minigame/
+    │       ├── FKGame.tsx     # FKミニゲーム（§4-1）
+    │       ├── CKGame.tsx     # CKミニゲーム（§4-2）
+    │       └── PKGame.tsx     # PKミニゲーム（§4-3）
+    ├── hooks/
+    │   ├── useWebSocket.ts    # WebSocket通信
+    │   ├── useGameState.ts    # ゲーム状態管理（useReducer）
+    │   └── useDeviceType.ts   # スマホ/PC判定
+    └── data/
+        └── hex_map.json       # HEX座標マップ（コピー）
 ```
 
 ---
@@ -54,6 +99,16 @@ src/
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
 | ユニットテスト | 判定式全体・統合 | ✅ 210 tests passing |
+| worker.ts + api/* | Hono REST API + WebSocket | ✅ |
+| durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 | ✅ |
+| durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
+| middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
+| wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
+| client/pages/* | 全9画面（タイトル〜リプレイ） | ✅ |
+| client/components/board/* | HEXボード（背景+Canvas+DOM §6-1） | ✅ |
+| client/components/ui/* | タイマー・アクションバー・パネル・プリセット | ✅ |
+| client/components/minigame/* | FK/CK/PK ミニゲーム（§4-1〜§4-3） | ✅ |
+| client/hooks/* | WebSocket・状態管理・デバイス判定 | ✅ |
 
 ---
 
