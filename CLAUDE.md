@@ -3,7 +3,7 @@
 ## プロジェクト概要
 
 HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeScript）。
-仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md`
+仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md` / COM AI設計: `docs/com_ai_spec.md`
 
 ---
 
@@ -28,6 +28,20 @@ src/
 │   ├── turn_processor.ts     # processTurn — フェーズ0〜3 オーケストレーション
 │   ├── index.ts              # 全モジュール再エクスポート
 │   └── __tests__/
+├── ai/                       # COM AIエンジン（ルールベース + Gemma）
+│   ├── evaluator.ts          # §4 局面評価（盤面スコアリング）
+│   ├── legal_moves.ts        # §5 合法手生成（全コマの合法手列挙）
+│   ├── rule_based.ts         # ルールベース最善手選択（フォールバック）
+│   ├── prompt_builder.ts     # §2 難易度別プロンプト生成（ビギナー/レギュラー/マニアック）
+│   ├── gemma_client.ts       # §9-1 Workers AI (Gemma) 呼び出し（タイムアウト制御）
+│   ├── output_parser.ts      # §9-3 Gemma出力のパース＋検証
+│   ├── fallback.ts           # §9-4 フォールバック制御（障害パターン別対応）
+│   ├── com_ai.ts             # §1-1 統合COM AIクラス（安全層→判断層→検証層）
+│   ├── index.ts              # 全モジュール再エクスポート
+│   └── bootstrap/            # §3 ブートストラップパイプライン
+│       ├── auto_play.ts      # ルールベースAI同士の自動対戦
+│       ├── data_extract.ts   # 盤面→指示ペアの抽出（JSONL）
+│       └── run.ts            # 10,000試合実行スクリプト
 ├── worker.ts                 # Cloudflare Workers エントリポイント（Hono）
 ├── wrangler.toml             # Cloudflare設定（DO/D1/KV/R2/Queues）
 ├── durable/
@@ -53,28 +67,28 @@ src/
     │   ├── TeamSelect.tsx     # チーム選択
     │   ├── Formation.tsx      # フォーメーション設定
     │   ├── Matching.tsx       # マッチング待機
-    │   ├── Battle.tsx         # 対戦画面（スマホ§2 / PC§3 統合）
+    │   ├── Battle.tsx         # 対戦画面（スマホ§2 / PC§3 完全分離）
     │   ├── HalfTime.tsx       # ハーフタイム
     │   ├── Result.tsx         # 結果画面
     │   └── Replay.tsx         # リプレイ画面
     ├── components/
     │   ├── board/
     │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1）
-    │   │   ├── Piece.tsx      # コマ表示（ポジション別色 §6-1）
-    │   │   ├── Overlay.tsx    # Canvas: ZOC/パスライン/オフサイドライン
-    │   │   └── Controls.tsx   # ズーム/パン制御
+    │   │   ├── Piece.tsx      # コマ表示（スプライト画像+フォールバック §6-1）
+    │   │   ├── Overlay.tsx    # Canvas: ZOC/パスライン/ゾーン境界線/ホバー予測線
+    │   │   └── Controls.tsx   # ズーム/パン（ピンチ/ホイール/中クリック）
     │   ├── ui/
     │   │   ├── Timer.tsx      # ターンタイマー（§2-2）
-    │   │   ├── ActionBar.tsx  # スマホ用アクションバー（§2-4）
-    │   │   ├── SidePanel.tsx  # PC用左右パネル（§3-4, §3-5）
-    │   │   └── PresetButtons.tsx # プリセット行動（§2-7）
+    │   │   ├── ActionBar.tsx  # スマホ: アクションバー+ベンチスライドアップ（§2-4）
+    │   │   ├── SidePanel.tsx  # PC: 左パネル(§3-4)+右パネル(§3-5)
+    │   │   └── PresetButtons.tsx # プリセット行動（§2-7 長押しメニュー）
     │   └── minigame/
     │       ├── FKGame.tsx     # FKミニゲーム（§4-1）
     │       ├── CKGame.tsx     # CKミニゲーム（§4-2）
     │       └── PKGame.tsx     # PKミニゲーム（§4-3）
     ├── hooks/
-    │   ├── useWebSocket.ts    # WebSocket通信
-    │   ├── useGameState.ts    # ゲーム状態管理（useReducer）
+    │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証）
+    │   ├── useGameState.ts    # ゲーム状態管理（useReducer + プリセット）
     │   └── useDeviceType.ts   # スマホ/PC判定
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
@@ -105,10 +119,19 @@ src/
 | middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
 | wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
 | client/pages/* | 全9画面（タイトル〜リプレイ） | ✅ |
-| client/components/board/* | HEXボード（背景+Canvas+DOM §6-1） | ✅ |
-| client/components/ui/* | タイマー・アクションバー・パネル・プリセット | ✅ |
+| client/components/board/* | HEXボード（背景画像+Canvas+DOM §6-1 レイヤー分離） | ✅ |
+| client/components/ui/* | タイマー・アクションバー(ベンチ)・パネル・プリセット | ✅ |
 | client/components/minigame/* | FK/CK/PK ミニゲーム（§4-1〜§4-3） | ✅ |
 | client/hooks/* | WebSocket・状態管理・デバイス判定 | ✅ |
+| ai/evaluator.ts | §4 局面評価（ボール位置+配置+ZOC支配+得点差） | ✅ |
+| ai/legal_moves.ts | §5 合法手生成（移動/ドリブル/パス/シュート/交代） | ✅ |
+| ai/rule_based.ts | §1-3 ルールベースAI（フォールバック/ブートストラップ） | ✅ |
+| ai/prompt_builder.ts | §2 難易度別プロンプト（ビギナー/レギュラー/マニアック + 7時代） | ✅ |
+| ai/gemma_client.ts | §9-1 Workers AI呼び出し（500msタイムアウト） | ✅ |
+| ai/output_parser.ts | §9-3 Gemma出力パース＋検証（コードブロック除去対応） | ✅ |
+| ai/fallback.ts | §9-4 フォールバック制御（4障害パターン対応） | ✅ |
+| ai/com_ai.ts | §1-1 統合COM AI（安全層→判断層→検証層パイプライン） | ✅ |
+| ai/bootstrap/* | §3-1 Phase 1 自動対戦＋学習データ生成（JSONL出力） | ✅ 53ms/試合 |
 
 ---
 
@@ -143,13 +166,26 @@ src/
 - タックル成功後にファウルが成立した場合、**タックルを無効化してFK/PKを与える**
 - イベント順: `TACKLE` → `BALL_ACQUIRED(tackler)` → `FOUL`（ボールはドリブラーに戻る）
 
+### COM AI構造（§1-1）
+- **安全層**: 合法手生成（数学的に正確）+ 盤面評価 → 50ms以内
+- **判断層**: Gemma推論（Workers AI）→ 300ms目標、500msタイムアウト
+- **検証層**: 出力パース + 合法性チェック → 10ms以内
+- フォールバック: Gemma障害時は自動でルールベース最善手に切替（プレイヤー影響ゼロ）
+- モデルID: 環境変数 `AI_MODEL_ID` から取得（コード変更なしにモデル入替可能）
+
+### ブートストラップ（§3-1）
+- `npm run bootstrap`: ルールベースAI同士で10,000試合を自動実行
+- 出力: `training_data/` にJSONL形式（1試合180レコード ≈ 合計180万レコード）
+- 性能: 53ms/試合（直列12.5時間、`--offset` で複数プロセス並列可）
+
 ---
 
 ## テスト
 
 ```bash
-npm test          # vitest run（全210テスト）
+npm test              # vitest run（全210テスト）
 npm run test:watch
+npm run bootstrap:small  # AI自動対戦テスト（10試合）
 ```
 
 ### テスト上の注意点
@@ -163,5 +199,6 @@ npm run test:watch
 ## 設定ファイル
 
 - `package.json`: `"type": "module"`, vitest ^2.1.0, TypeScript ^5.5.0
-- `tsconfig.json`: target ES2022, module ESNext, moduleResolution bundler, strict
+- `tsconfig.json`: target ES2022, module ESNext, moduleResolution bundler, jsx react-jsx, strict
 - `vitest.config.ts`: globals: false, environment: node
+- `vite.config.ts`: root=src/client, React plugin, 出力=dist/

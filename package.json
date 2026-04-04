@@ -8,13 +8,16 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "bootstrap": "npx tsx src/ai/bootstrap/run.ts",
+    "bootstrap:small": "npx tsx src/ai/bootstrap/run.ts --matches 10 --parallel 2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.0",
     "vite": "^5.4.21",
     "vitest": "^2.1.0"
