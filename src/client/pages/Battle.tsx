@@ -5,7 +5,7 @@
 // ============================================================
 
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import type { Page, GameEvent, HexCoord, ActionMode, PieceData } from '../types';
+import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position } from '../types';
 import { POSITION_COLORS } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -18,9 +18,56 @@ import PresetButtons from '../components/ui/PresetButtons';
 interface BattleProps {
   onNavigate: (page: Page) => void;
   matchId?: string;
+  gameMode?: GameMode;
 }
 
-export default function Battle({ onNavigate, matchId }: BattleProps) {
+/** COM対戦用の初期コマ配置（auto_play.ts と同一） */
+function createInitialPieces(): PieceData[] {
+  const template: Array<{ pos: Position; cost: Cost; col: number; row: number }> = [
+    { pos: 'GK', cost: 1,   col: 10, row: 1 },
+    { pos: 'DF', cost: 1,   col: 7,  row: 5 },
+    { pos: 'DF', cost: 1.5, col: 13, row: 5 },
+    { pos: 'SB', cost: 1,   col: 4,  row: 6 },
+    { pos: 'SB', cost: 1,   col: 16, row: 6 },
+    { pos: 'VO', cost: 1,   col: 10, row: 9 },
+    { pos: 'MF', cost: 1,   col: 7,  row: 12 },
+    { pos: 'MF', cost: 1,   col: 13, row: 12 },
+    { pos: 'OM', cost: 2,   col: 10, row: 15 },
+    { pos: 'WG', cost: 1.5, col: 4,  row: 17 },
+    { pos: 'FW', cost: 2.5, col: 10, row: 19 },
+  ];
+
+  const pieces: PieceData[] = [];
+  for (let i = 0; i < template.length; i++) {
+    const t = template[i];
+    pieces.push({
+      id: `h${String(i + 1).padStart(2, '0')}`,
+      team: 'home',
+      position: t.pos,
+      cost: t.cost,
+      coord: { col: t.col, row: t.row },
+      hasBall: false,
+      moveRange: 4,
+      isBench: false,
+    });
+    pieces.push({
+      id: `a${String(i + 1).padStart(2, '0')}`,
+      team: 'away',
+      position: t.pos,
+      cost: t.cost,
+      coord: { col: t.col, row: 33 - t.row },
+      hasBall: false,
+      moveRange: 4,
+      isBench: false,
+    });
+  }
+  // キックオフ: home FW にボール
+  const homeFW = pieces.find((p) => p.team === 'home' && p.position === 'FW');
+  if (homeFW) homeFW.hasBall = true;
+  return pieces;
+}
+
+export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
   const device = useDeviceType();
   const isMobile = device === 'mobile' || device === 'tablet';
   const {
@@ -37,6 +84,22 @@ export default function Battle({ onNavigate, matchId }: BattleProps) {
 
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [disconnectBanner, setDisconnectBanner] = useState<string | null>(null);
+
+  // ── COM対戦: ゲーム状態を即座に初期化 ──
+  // refガードなし: StrictModeの再マウントでも正常に初期化する
+  useEffect(() => {
+    const isCom = gameMode === 'com' || matchId?.startsWith('com_');
+    if (!isCom) return;
+
+    console.log('[Battle] COM init: creating pieces, matchId=', matchId);
+    const pieces = createInitialPieces();
+    dispatch({
+      type: 'INIT_MATCH',
+      matchId: matchId ?? `com_${Date.now()}`,
+      myTeam: 'home',
+      board: { pieces },
+    });
+  }, [gameMode, matchId, dispatch]);
 
   // スマホ: 未指示コマ一覧展開（§2-2 指示カウントタップ）
   const [showUnorderedList, setShowUnorderedList] = useState(false);

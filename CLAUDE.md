@@ -57,17 +57,17 @@ src/
 │   ├── rate_limit.ts         # レート制限（KV）
 │   └── validation.ts         # 入力バリデーション（§7-3 全14項目）
 └── client/                   # React フロントエンド（Cloudflare Pages）
-    ├── App.tsx               # ルートコンポーネント
-    ├── main.tsx              # エントリポイント
+    ├── App.tsx               # ルート（ページ遷移 + gameMode管理）
+    ├── main.tsx              # エントリポイント（React.StrictMode）
     ├── index.html            # HTMLテンプレート
-    ├── types.ts              # クライアント型定義
+    ├── types.ts              # クライアント型定義（GameMode含む）
     ├── pages/
     │   ├── Title.tsx          # タイトル画面
-    │   ├── ModeSelect.tsx     # モード選択
+    │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com → onSelectMode）
     │   ├── TeamSelect.tsx     # チーム選択
-    │   ├── Formation.tsx      # フォーメーション設定
-    │   ├── Matching.tsx       # マッチング待機
-    │   ├── Battle.tsx         # 対戦画面（スマホ§2 / PC§3 完全分離）
+    │   ├── Formation.tsx      # フォーメーション設定（コスト16上限・選手入替モーダル）
+    │   ├── Matching.tsx       # マッチング待機（COM: 1秒で即遷移 / Online: WS待ち）
+    │   ├── Battle.tsx         # 対戦画面（COM: クライアントで初期化 / スマホ§2 / PC§3）
     │   ├── HalfTime.tsx       # ハーフタイム
     │   ├── Result.tsx         # 結果画面
     │   └── Replay.tsx         # リプレイ画面
@@ -131,7 +131,9 @@ src/
 | ai/output_parser.ts | §9-3 Gemma出力パース＋検証（コードブロック除去対応） | ✅ |
 | ai/fallback.ts | §9-4 フォールバック制御（4障害パターン対応） | ✅ |
 | ai/com_ai.ts | §1-1 統合COM AI（安全層→判断層→検証層パイプライン） | ✅ |
-| ai/bootstrap/* | §3-1 Phase 1 自動対戦＋学習データ生成（JSONL出力） | ✅ 53ms/試合 |
+| ai/bootstrap/* | §3-1 Phase 1 自動対戦＋学習データ生成（JSONL出力） | ✅ |
+| Formation.tsx | 選手入替モーダル（コスト16上限バリデーション） | ✅ |
+| COM対戦フロー | モード選択→即マッチング→バトル初期化（サーバー不要） | ✅ |
 
 ---
 
@@ -141,6 +143,14 @@ src/
 - 22 列（col 0-21）× 34 行（row 0-33）
 - 奇数列は偶数列より下にオフセット
 - ZOC = 隣接6HEX、ZOC2 = 外周12HEX
+
+### 攻撃方向（重要）
+- **home → row 33 方向に攻撃**（ball.ts: `GOAL_ROW.home = 33`）
+- **away → row 0 方向に攻撃**（ball.ts: `GOAL_ROW.away = 0`）
+- hex_map.json のゾーン名は絶対座標: row 0-5=ディフェンシブGサード, row 28-33=ファイナルサード
+- homeのシュート可能ゾーン: ファイナルサード/アタッキングサード（row 22-33）
+- awayのシュート可能ゾーン: ディフェンシブGサード/ディフェンシブサード（row 0-11）
+- **AIの方向計算はhexDistance（cube座標）ベースを使用**（odd-q offsetのrow差ベースは非対称になるため禁止）
 
 ### 判定式
 ```
@@ -177,6 +187,18 @@ src/
 - `npm run bootstrap`: ルールベースAI同士で10,000試合を自動実行
 - 出力: `training_data/` にJSONL形式（1試合180レコード ≈ 合計180万レコード）
 - 性能: 53ms/試合（直列12.5時間、`--offset` で複数プロセス並列可）
+- バランス検証済: Home 24.8% / Away 24.0% / Draw 51.2%, 平均3.52点/試合
+
+### COM対戦フロー
+- モード選択で`com`を選択 → App.tsxの`gameMode` stateに保存
+- Matching.tsxでCOM時は1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
+- Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
+- **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない（1回目のcleanupでtimerキャンセル→2回目でref=trueのためスキップ）。タイマー系のuseEffectではrefガードを使わないこと
+
+### フロントエンド未実装（TODO）
+- オンライン対戦のWebSocket接続（Matching.tsx, Battle.tsx）
+- ターン確定時のサーバー送信（Battle.tsx handleConfirm）
+- COM対戦のAIターン処理（Battle.tsx、ルールベースAIのクライアント実行）
 
 ---
 
@@ -185,6 +207,7 @@ src/
 ```bash
 npm test              # vitest run（全210テスト）
 npm run test:watch
+npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
 ```
 
@@ -193,6 +216,13 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 - テストデータの列順: `[positionA, costA, positionB, costB, expected]`（位置と cost は交互）
 - ポジション修正テストの expected 値は**全修正を適用した結果**であること
 - オフサイド統合テストの守備コマは **pass コース・FW移動経路と別の列に配置**（ZOC干渉を避けるため）
+
+### COM対戦の動作確認
+1. `npm run dev` でフロントエンド起動
+2. ブラウザで `http://localhost:5173` にアクセス
+3. 対戦する → COM対戦 → チーム選択 → フォーメーション → マッチング開始
+4. 1秒後にバトル画面に遷移、HEXボード上にコマ22枚が表示される
+5. Consoleログ: `[Matching] COM mode` → `[App] matchFound` → `[Battle] COM init`
 
 ---
 

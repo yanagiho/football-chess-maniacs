@@ -1,10 +1,10 @@
 // ============================================================
 // App.tsx — アプリケーションルート
-// ページ遷移管理。
+// ページ遷移管理。ゲームモード追跡。
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
-import type { Page } from './types';
+import type { Page, GameMode } from './types';
 
 import Title from './pages/Title';
 import ModeSelect from './pages/ModeSelect';
@@ -19,10 +19,16 @@ import Replay from './pages/Replay';
 export default function App() {
   const [page, setPage] = useState<Page>('title');
   const [matchId, setMatchId] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<GameMode>('com');
 
   const navigate = useCallback((p: Page) => setPage(p), []);
 
+  const handleSelectMode = useCallback((mode: GameMode) => {
+    setGameMode(mode);
+  }, []);
+
   const handleMatchFound = useCallback((id: string) => {
+    console.log('[App] matchFound:', id, '→ navigating to battle');
     setMatchId(id);
     setPage('battle');
   }, []);
@@ -51,14 +57,24 @@ export default function App() {
 
       <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
         {page === 'title' && <Title onNavigate={navigate} />}
-        {page === 'modeSelect' && <ModeSelect onNavigate={navigate} />}
+        {page === 'modeSelect' && (
+          <ModeSelect onNavigate={navigate} onSelectMode={handleSelectMode} />
+        )}
         {page === 'teamSelect' && <TeamSelect onNavigate={navigate} />}
         {page === 'formation' && <Formation onNavigate={navigate} />}
         {page === 'matching' && (
-          <Matching onNavigate={navigate} onMatchFound={handleMatchFound} />
+          <Matching
+            onNavigate={navigate}
+            onMatchFound={handleMatchFound}
+            gameMode={gameMode}
+          />
         )}
         {page === 'battle' && (
-          <Battle onNavigate={navigate} matchId={matchId ?? undefined} />
+          <Battle
+            onNavigate={navigate}
+            matchId={matchId ?? undefined}
+            gameMode={gameMode}
+          />
         )}
         {page === 'halfTime' && (
           <HalfTime

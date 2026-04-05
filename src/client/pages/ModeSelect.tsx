@@ -3,13 +3,12 @@
 // ============================================================
 
 import React from 'react';
-import type { Page } from '../types';
+import type { Page, GameMode } from '../types';
 
 interface ModeSelectProps {
   onNavigate: (page: Page) => void;
+  onSelectMode: (mode: GameMode) => void;
 }
-
-type GameMode = 'ranked' | 'casual' | 'com';
 
 const MODES: { id: GameMode; label: string; desc: string }[] = [
   { id: 'ranked', label: 'ランクマッチ', desc: 'レーティングに基づく真剣勝負' },
@@ -17,8 +16,9 @@ const MODES: { id: GameMode; label: string; desc: string }[] = [
   { id: 'com', label: 'COM対戦', desc: 'AIと練習試合' },
 ];
 
-export default function ModeSelect({ onNavigate }: ModeSelectProps) {
-  const handleSelect = (_mode: GameMode) => {
+export default function ModeSelect({ onNavigate, onSelectMode }: ModeSelectProps) {
+  const handleSelect = (mode: GameMode) => {
+    onSelectMode(mode);
     onNavigate('teamSelect');
   };
 

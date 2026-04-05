@@ -91,6 +91,9 @@ export interface GameEvent {
   [key: string]: unknown;
 }
 
+/** ゲームモード */
+export type GameMode = 'ranked' | 'casual' | 'com';
+
 /** 画面遷移 */
 export type Page =
   | 'title'
