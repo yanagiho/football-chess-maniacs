@@ -58,11 +58,14 @@ const SHOOT_ZONES: ShootZone[] = ['top_left', 'top_center', 'top_right', 'bottom
 // ── ゴール位置（シュート射程判定用） ──
 
 function goalCoord(attackingTeam: Team): HexCoord {
-  // home が攻める方向 = row 小 → ゴールは row=0 付近
-  return attackingTeam === 'home' ? { col: 10, row: 0 } : { col: 10, row: 33 };
+  // ball.ts と一致: home → row 33（ファイナルサード方向）、away → row 0（ディフェンシブGサード方向）
+  return attackingTeam === 'home' ? { col: 10, row: 33 } : { col: 10, row: 0 };
 }
 
-// ── シュート射程（アタッキングサード以上からシュート可能） ──
+// ── シュート射程（相手ゴール付近のゾーンからシュート可能） ──
+// hex_map.json のゾーン名は絶対座標: row 0-5=ディフェンシブG, row 28-33=ファイナル
+// home は row 33 方向に攻撃 → ファイナルサード/アタッキングサード でシュート可能
+// away は row 0 方向に攻撃 → ディフェンシブGサード/ディフェンシブサード でシュート可能
 
 const SHOOTABLE_ZONES_HOME = new Set<string>(['ファイナルサード', 'アタッキングサード']);
 const SHOOTABLE_ZONES_AWAY = new Set<string>(['ディフェンシブGサード', 'ディフェンシブサード']);

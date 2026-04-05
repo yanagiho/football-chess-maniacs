@@ -139,8 +139,8 @@ function shouldApplyPreset(piece: PieceData, preset: 'forward' | 'backward' | 'd
 }
 
 function getPresetTarget(coord: HexCoord, preset: 'forward' | 'backward' | 'defend' | 'attack', myTeam: Team): HexCoord | null {
-  // home は row 減少が前方、away は row 増加が前方
-  const dir = (preset === 'forward' || preset === 'attack') ? -1 : 1;
+  // home は row 増加が前方（ゴール=row33）、away は row 減少が前方（ゴール=row0）
+  const dir = (preset === 'forward' || preset === 'attack') ? 1 : -1;
   const teamDir = myTeam === 'home' ? dir : -dir;
   const newRow = coord.row + teamDir;
   if (newRow < 0 || newRow > 33) return null;

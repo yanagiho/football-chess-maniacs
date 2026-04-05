@@ -48,18 +48,20 @@ const boardContext: BoardContext = {
 // ================================================================
 
 function createInitialPieces(): Piece[] {
+  // home は row 33 方向に攻撃（ball.ts: GOAL_ROW.home = 33）
+  // GK は自陣ゴール（row 0-1）付近、FWは中盤〜敵陣（row 19）付近
   const home: Array<{ pos: Position; cost: Cost; col: number; row: number }> = [
-    { pos: 'GK', cost: 1,   col: 10, row: 32 },
-    { pos: 'DF', cost: 1,   col: 7,  row: 28 },
-    { pos: 'DF', cost: 1.5, col: 13, row: 28 },
-    { pos: 'SB', cost: 1,   col: 4,  row: 27 },
-    { pos: 'SB', cost: 1.5, col: 16, row: 27 },
-    { pos: 'VO', cost: 2,   col: 10, row: 24 },
-    { pos: 'MF', cost: 1,   col: 7,  row: 21 },
-    { pos: 'MF', cost: 1.5, col: 13, row: 21 },
-    { pos: 'OM', cost: 2,   col: 10, row: 18 },
-    { pos: 'WG', cost: 1.5, col: 4,  row: 16 },
-    { pos: 'FW', cost: 2.5, col: 10, row: 14 },
+    { pos: 'GK', cost: 1,   col: 10, row: 1 },
+    { pos: 'DF', cost: 1,   col: 7,  row: 5 },
+    { pos: 'DF', cost: 1.5, col: 13, row: 5 },
+    { pos: 'SB', cost: 1,   col: 4,  row: 6 },
+    { pos: 'SB', cost: 1.5, col: 16, row: 6 },
+    { pos: 'VO', cost: 2,   col: 10, row: 9 },
+    { pos: 'MF', cost: 1,   col: 7,  row: 12 },
+    { pos: 'MF', cost: 1.5, col: 13, row: 12 },
+    { pos: 'OM', cost: 2,   col: 10, row: 15 },
+    { pos: 'WG', cost: 1.5, col: 4,  row: 17 },
+    { pos: 'FW', cost: 2.5, col: 10, row: 19 },
   ];
 
   // away は盤面反転: row → 33 - row
@@ -85,43 +87,54 @@ function createInitialPieces(): Piece[] {
     });
   }
 
-  // ボールをhome FWに付与（キックオフ）
-  const homeFW = pieces.find((p) => p.team === 'home' && p.position === 'FW');
-  if (homeFW) homeFW.hasBall = true;
-
+  // ボールは playMatch 側で giveBallTo で付与
   return pieces;
+}
+
+/** 指定チームの指定ポジションにボールを付与（全コマのhasBallをリセット後） */
+function giveBallTo(pieces: Piece[], team: Team, position: Position): void {
+  for (const p of pieces) p.hasBall = false;
+  const target = pieces.find((p) => p.team === team && p.position === position);
+  if (target) {
+    target.hasBall = true;
+  } else {
+    // フォールバック: チーム内で誰かに付与
+    const any = pieces.find((p) => p.team === team);
+    if (any) any.hasBall = true;
+  }
 }
 
 // ================================================================
 // 試合結果の型
 // ================================================================
 
-export interface MatchResult {
+/** 軽量サマリ（メモリに蓄積しても安全） */
+export interface MatchSummary {
   matchId: string;
   scoreHome: number;
   scoreAway: number;
   totalTurns: number;
   winner: 'home' | 'away' | 'draw';
-  /** 全ターンの記録 */
-  turnRecords: TurnRecord[];
   durationMs: number;
 }
 
+/** 1ターンの記録 */
 export interface TurnRecord {
   turn: number;
-  /** ターン開始時のボード状態 */
   boardBefore: Piece[];
-  /** home の指示 */
   homeOrders: Order[];
-  /** away の指示 */
   awayOrders: Order[];
-  /** ターン実行後のイベント */
   events: GameEvent[];
-  /** ターン実行後のボード状態 */
   boardAfter: Piece[];
   scoreHome: number;
   scoreAway: number;
 }
+
+/**
+ * ターン毎のコールバック。
+ * メモリに蓄積せず、1ターンずつストリーミング処理するために使う。
+ */
+export type TurnCallback = (record: TurnRecord, summary: MatchSummary) => void;
 
 // ================================================================
 // 自動対戦メイン
@@ -134,51 +147,60 @@ const MAX_FIELD_COST = 16;
 /**
  * §3-1 Phase 1: ルールベースAI同士の1試合を自動実行する。
  *
- * @param matchId  試合識別子
- * @returns 試合結果（全ターンの盤面→指示ペア含む）
+ * @param matchId         試合識別子
+ * @param onTurn          ターン毎のコールバック
+ * @param firstKickoff    前半キックオフ側（デフォルト'home'。交互にすることで公平性を確保）
+ * @returns 試合サマリ
  */
-export function playMatch(matchId: string): MatchResult {
+export function playMatch(matchId: string, onTurn?: TurnCallback, firstKickoff: Team = 'home'): MatchSummary {
   const start = Date.now();
+  const secondKickoff: Team = firstKickoff === 'home' ? 'away' : 'home';
 
   let pieces = createInitialPieces();
+  giveBallTo(pieces, firstKickoff, 'FW');
   let board: Board = { pieces, snapshot: [] };
   let scoreHome = 0;
   let scoreAway = 0;
-  let homeSubsRemaining = MAX_SUBS;
-  let awaySubsRemaining = MAX_SUBS;
 
-  const turnRecords: TurnRecord[] = [];
+  // ボール所有権追跡（消失時のリカバリ用）
+  let lastBallTeam: Team = firstKickoff;
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    // ── ハーフタイム: 初期配置リセット + 後半キックオフ ──
+    if (turn === 46) {
+      pieces = createInitialPieces();
+      giveBallTo(pieces, secondKickoff, 'FW');
+      board = { pieces, snapshot: [] };
+      lastBallTeam = secondKickoff;
+    }
+
     const boardBefore = pieces.map((p) => ({ ...p }));
 
     // ── home AI ──
-    const homeInput: RuleBasedInput = {
+    const homeResult = generateRuleBasedOrders({
       pieces,
       myTeam: 'home',
       scoreHome,
       scoreAway,
       turn,
       maxTurn: MAX_TURNS,
-      remainingSubs: homeSubsRemaining,
-      benchPieces: [], // 簡略: ベンチなし（Phase 1 ではフル11枚で対戦）
+      remainingSubs: MAX_SUBS,
+      benchPieces: [],
       maxFieldCost: MAX_FIELD_COST,
-    };
-    const homeResult = generateRuleBasedOrders(homeInput);
+    });
 
     // ── away AI ──
-    const awayInput: RuleBasedInput = {
+    const awayResult = generateRuleBasedOrders({
       pieces,
       myTeam: 'away',
       scoreHome,
       scoreAway,
       turn,
       maxTurn: MAX_TURNS,
-      remainingSubs: awaySubsRemaining,
+      remainingSubs: MAX_SUBS,
       benchPieces: [],
       maxFieldCost: MAX_FIELD_COST,
-    };
-    const awayResult = generateRuleBasedOrders(awayInput);
+    });
 
     // ── ターン実行 ──
     const turnResult: TurnResult = processTurn(
@@ -188,13 +210,19 @@ export function playMatch(matchId: string): MatchResult {
       boardContext,
     );
 
-    // ── 得点チェック ──
+    // ── 得点チェック + 得点後キックオフ ──
+    let goalScoredBy: Team | null = null;
     for (const event of turnResult.events) {
       if (event.type === 'SHOOT') {
         if (event.result.outcome === 'goal') {
           const shooter = boardBefore.find((p) => p.id === event.shooterId);
-          if (shooter?.team === 'home') scoreHome++;
-          else scoreAway++;
+          if (shooter?.team === 'home') {
+            scoreHome++;
+            goalScoredBy = 'home';
+          } else {
+            scoreAway++;
+            goalScoredBy = 'away';
+          }
         }
       }
     }
@@ -203,25 +231,47 @@ export function playMatch(matchId: string): MatchResult {
     pieces = turnResult.board.pieces;
     board = turnResult.board;
 
-    turnRecords.push({
-      turn,
-      boardBefore,
-      homeOrders: homeResult.orders,
-      awayOrders: awayResult.orders,
-      events: turnResult.events,
-      boardAfter: pieces.map((p) => ({ ...p })),
-      scoreHome,
-      scoreAway,
-    });
+    // ── 得点後: 初期配置リセット + 失点側キックオフ ──
+    if (goalScoredBy) {
+      const kickoffTeam: Team = goalScoredBy === 'home' ? 'away' : 'home';
+      pieces = createInitialPieces();
+      giveBallTo(pieces, kickoffTeam, 'FW');
+      board = { pieces, snapshot: [] };
+      lastBallTeam = kickoffTeam;
+    }
 
-    // ボール消失チェック: 誰もボールを持っていない場合はhome GKに付与
+    // ── ボール消失チェック: 直前にボールを持っていたチームの相手GKに付与（ゴールキック相当） ──
     if (!pieces.some((p) => p.hasBall)) {
-      const gk = pieces.find((p) => p.team === 'home' && p.position === 'GK');
-      if (gk) gk.hasBall = true;
+      const recoveryTeam: Team = lastBallTeam === 'home' ? 'away' : 'home';
+      giveBallTo(pieces, recoveryTeam, 'GK');
+      lastBallTeam = recoveryTeam;
+    } else {
+      const holder = pieces.find((p) => p.hasBall);
+      if (holder) lastBallTeam = holder.team;
+    }
+
+    // コールバック（ストリーミング処理）
+    if (onTurn) {
+      const summary: MatchSummary = {
+        matchId, scoreHome, scoreAway, totalTurns: turn,
+        winner: scoreHome > scoreAway ? 'home' : scoreAway > scoreHome ? 'away' : 'draw',
+        durationMs: Date.now() - start,
+      };
+      onTurn(
+        {
+          turn,
+          boardBefore,
+          homeOrders: homeResult.orders,
+          awayOrders: awayResult.orders,
+          events: turnResult.events,
+          boardAfter: pieces.map((p) => ({ ...p })),
+          scoreHome,
+          scoreAway,
+        },
+        summary,
+      );
     }
   }
-
-  const durationMs = Date.now() - start;
 
   return {
     matchId,
@@ -229,7 +279,6 @@ export function playMatch(matchId: string): MatchResult {
     scoreAway,
     totalTurns: MAX_TURNS,
     winner: scoreHome > scoreAway ? 'home' : scoreAway > scoreHome ? 'away' : 'draw',
-    turnRecords,
-    durationMs,
+    durationMs: Date.now() - start,
   };
 }

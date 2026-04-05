@@ -58,10 +58,18 @@ const ZONE_ATTACK_DIRECTION: Record<Zone, number> = {
   'ディフェンシブGサード': 0,
 };
 
-/** ゾーンを自チーム攻撃方向に正規化（awayは反転） */
+/**
+ * ゾーンを自チーム攻撃方向に正規化。
+ *
+ * hex_map.json のゾーン名は絶対座標:
+ *   row 0-5 = ディフェンシブGサード, row 28-33 = ファイナルサード
+ *
+ * home は row 33 方向に攻撃 → ファイナルサードが「攻撃最前線」→ そのまま
+ * away は row 0 方向に攻撃 → ディフェンシブGサードが「攻撃最前線」→ 反転が必要
+ */
 function normalizeZone(zone: Zone, team: Team): Zone {
   if (team === 'home') return zone;
-  // away は盤面が反転: ファイナル⇔ディフェンシブG, アタッキング⇔ディフェンシブ, ミドルA⇔ミドルD
+  // away はゾーン名を反転して「自チーム視点の攻撃度」に変換
   const flip: Record<Zone, Zone> = {
     'ファイナルサード': 'ディフェンシブGサード',
     'アタッキングサード': 'ディフェンシブサード',

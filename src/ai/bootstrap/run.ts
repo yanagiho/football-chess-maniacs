@@ -3,34 +3,35 @@
 // run.ts — 10,000試合の実行スクリプト（§3-1 Phase 1）
 //
 // 使い方:
-//   npx tsx src/ai/bootstrap/run.ts [--matches 10000] [--output training_data] [--batch 100]
+//   npx tsx src/ai/bootstrap/run.ts [--matches 10000] [--output training_data] [--batch 10]
 //
 // 出力:
 //   training_data/
-//   ├── matches_00001_00100.jsonl   # 学習データ（100試合ずつ分割）
-//   ├── matches_00101_00200.jsonl
+//   ├── matches_00001_00010.jsonl
 //   ├── ...
-//   └── stats.json                 # 全体統計
+//   └── stats.json
 //
-// §3-2: 1試合90ターン×50ms/ターン ≈ 4.5秒/試合。
-//        10,000試合 ≈ 12.5時間（直列）。
-//        並列化は run.ts を複数プロセスで --offset 付き実行で対応。
+// メモリ対策:
+//   - 1試合ずつ実行し、ターン毎にストリーミング書き込み
+//   - allMatchResults にはサマリのみ保持（TurnRecordsを蓄積しない）
+//   - バッチ毎にファイルを分割して1ファイルが巨大にならないよう制御
 // ============================================================
 
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { createWriteStream, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { playMatch, type MatchResult } from './auto_play.js';
-import { extractTrainingData, toJsonl, calcDatasetStats, type TrainingRecord } from './data_extract.js';
+import { playMatch, type MatchSummary } from './auto_play.js';
+import { extractTurnRecords, createStatsAccumulator } from './data_extract.js';
 
 // ================================================================
 // CLI 引数パース
 // ================================================================
 
-function parseArgs(): { totalMatches: number; outputDir: string; batchSize: number; offset: number } {
+function parseArgs() {
   const args = process.argv.slice(2);
   let totalMatches = 10_000;
   let outputDir = 'training_data';
-  let batchSize = 100;
+  let batchSize = 10;
   let offset = 0;
 
   for (let i = 0; i < args.length; i++) {
@@ -60,7 +61,7 @@ function parseArgs(): { totalMatches: number; outputDir: string; batchSize: numb
 function main() {
   const { totalMatches, outputDir, batchSize, offset } = parseArgs();
 
-  console.log(`=== FCMS Bootstrap: Phase 1 ===`);
+  console.log('=== FCMS Bootstrap: Phase 1 ===');
   console.log(`Matches: ${totalMatches} (offset: ${offset})`);
   console.log(`Output: ${outputDir}/`);
   console.log(`Batch size: ${batchSize}`);
@@ -71,51 +72,64 @@ function main() {
   }
 
   const overallStart = Date.now();
-  const allMatchResults: MatchResult[] = [];
+  const statsAcc = createStatsAccumulator();
   const totalBatches = Math.ceil(totalMatches / batchSize);
 
   for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
     const batchStart = batchIdx * batchSize;
     const batchEnd = Math.min(batchStart + batchSize, totalMatches);
-
-    const batchStartTime = Date.now();
     const globalStart = offset + batchStart;
     const globalEnd = offset + batchEnd;
 
+    const batchStartTime = Date.now();
     process.stdout.write(
       `[${batchIdx + 1}/${totalBatches}] Matches ${globalStart + 1}–${globalEnd}... `,
     );
 
-    const batchResults: MatchResult[] = [];
-    const batchRecords: TrainingRecord[] = [];
+    // ── バッチ用のファイルをストリーム書き込みで開く ──
+    const filename = `matches_${String(globalStart + 1).padStart(5, '0')}_${String(globalEnd).padStart(5, '0')}.jsonl`;
+    const stream = createWriteStream(join(outputDir, filename));
+
+    let batchRecordCount = 0;
+    let batchDurationSum = 0;
 
     for (let i = batchStart; i < batchEnd; i++) {
       const matchId = `m_${String(offset + i + 1).padStart(5, '0')}`;
-      const result = playMatch(matchId);
-      batchResults.push(result);
-      batchRecords.push(...extractTrainingData(result));
+      let matchRecordCount = 0;
+
+      // 1試合ずつ実行。キックオフを交互（偶数=home、奇数=away）で公平性確保。
+      const firstKickoff = i % 2 === 0 ? 'home' as const : 'away' as const;
+      const summary = playMatch(matchId, (turnRecord, currentSummary) => {
+        const records = extractTurnRecords(turnRecord, currentSummary);
+        for (const rec of records) {
+          stream.write(JSON.stringify(rec) + '\n');
+          matchRecordCount++;
+        }
+      }, firstKickoff);
+
+      statsAcc.addMatch(summary, matchRecordCount);
+      batchRecordCount += matchRecordCount;
+      batchDurationSum += summary.durationMs;
     }
 
-    allMatchResults.push(...batchResults);
+    // ストリームを閉じる
+    stream.end();
 
-    // JSONL出力
-    const filename = `matches_${String(globalStart + 1).padStart(5, '0')}_${String(globalEnd).padStart(5, '0')}.jsonl`;
-    writeFileSync(join(outputDir, filename), toJsonl(batchRecords));
-
+    const batchCount = batchEnd - batchStart;
     const batchDuration = ((Date.now() - batchStartTime) / 1000).toFixed(1);
-    const avgMs = batchResults.length > 0
-      ? Math.round(batchResults.reduce((s, m) => s + m.durationMs, 0) / batchResults.length)
-      : 0;
+    const avgMs = batchCount > 0 ? Math.round(batchDurationSum / batchCount) : 0;
 
-    const completed = allMatchResults.length;
+    const stats = statsAcc.getStats();
     const elapsed = Math.round((Date.now() - overallStart) / 1000);
-    const eta = completed > 0
-      ? ((Date.now() - overallStart) / completed * (totalMatches - completed) / 60_000).toFixed(1)
+    const remaining = totalMatches - stats.totalMatches;
+    const eta = stats.totalMatches > 0
+      ? ((Date.now() - overallStart) / stats.totalMatches * remaining / 60_000).toFixed(1)
       : '?';
 
     console.log(
-      `${batchResults.length} matches, ${batchRecords.length} records, ` +
-      `${batchDuration}s (${avgMs}ms/match) | ${completed}/${totalMatches} ETA ~${eta}min`,
+      `${batchCount} matches, ${batchRecordCount} records, ` +
+      `${batchDuration}s (${avgMs}ms/match) | ` +
+      `${stats.totalMatches}/${totalMatches} [${elapsed}s] ETA ~${eta}min`,
     );
   }
 
@@ -123,15 +137,15 @@ function main() {
   // 全体統計
   // ================================================================
 
-  const stats = calcDatasetStats(allMatchResults);
+  const finalStats = statsAcc.getStats();
   const totalDuration = Date.now() - overallStart;
 
   const statsOutput = {
-    ...stats,
+    ...finalStats,
     totalDurationMs: totalDuration,
     totalDurationMin: +(totalDuration / 60_000).toFixed(1),
-    avgMatchDurationMs: allMatchResults.length > 0
-      ? Math.round(allMatchResults.reduce((s, m) => s + m.durationMs, 0) / allMatchResults.length)
+    avgMatchDurationMs: finalStats.totalMatches > 0
+      ? Math.round(totalDuration / finalStats.totalMatches)
       : 0,
     config: { totalMatches, batchSize, offset },
   };
@@ -140,9 +154,9 @@ function main() {
 
   console.log('');
   console.log('=== Complete ===');
-  console.log(`Matches: ${stats.totalMatches} | Records: ~${stats.totalRecords}`);
-  console.log(`Home ${stats.homeWins} / Away ${stats.awayWins} / Draw ${stats.draws}`);
-  console.log(`Avg goals: ${stats.avgGoalsPerMatch.toFixed(2)}/match`);
+  console.log(`Matches: ${finalStats.totalMatches} | Records: ${finalStats.totalRecords}`);
+  console.log(`Home ${finalStats.homeWins} / Away ${finalStats.awayWins} / Draw ${finalStats.draws}`);
+  console.log(`Avg goals: ${finalStats.avgGoalsPerMatch.toFixed(2)}/match`);
   console.log(`Duration: ${(totalDuration / 1000).toFixed(0)}s (${(totalDuration / 60_000).toFixed(1)}min)`);
   console.log(`Output: ${outputDir}/`);
 }

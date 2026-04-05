@@ -171,12 +171,64 @@ function selectBallHolderAction(
   myTeam: Team,
   allLegalMoves: PieceLegalMoves[],
 ): Order {
-  const { pieceId, legalActions } = pm;
-
-  // シュートチャンスがあれば最優先
+  const { pieceId, legalActions, currentHex } = pm;
   const shoots = legalActions.filter((a) => a.action === 'shoot');
-  if (shoots.length > 0) {
-    // ブロック推定が低いゾーンを選択
+  const passes = legalActions.filter((a) => a.action === 'pass' && a.targetPieceId);
+
+  // ゴールまでの距離
+  const goalRow = myTeam === 'home' ? 33 : 0;
+  const distToGoal = Math.abs(currentHex.row - goalRow);
+
+  // ── 1. 前方パス（ビルドアップ優先。パスカットでボール失う機会を作る） ──
+  if (passes.length > 0) {
+    const scoredPasses = passes.map((p) => {
+      const receiver = allPieces.find((pc) => pc.id === p.targetPieceId);
+      if (!receiver) return { action: p, score: -100 };
+
+      const forwardScore = moveDirectionScore(currentHex, receiver.coord, myTeam, strategy);
+      const cutProb = parseEstimateFromNote(p.note, 'パスカット推定');
+      const score = forwardScore * 5 - cutProb * 0.8;
+      return { action: p, score };
+    }).sort((a, b) => b.score - a.score);
+
+    if (scoredPasses.length > 0 && scoredPasses[0].score > 0) {
+      const best = scoredPasses[0].action;
+      const cutProb = parseEstimateFromNote(best.note, 'パスカット推定');
+      if (cutProb <= 45) {
+        return actionToOrder(pieceId, best, allPieces);
+      }
+    }
+  }
+
+  // ── 2. 近距離シュート（ゴールまで4HEX以内かつブロック推定30%以下） ──
+  if (shoots.length > 0 && distToGoal <= 4) {
+    const bestShoot = shoots.reduce((best, s) => {
+      const blockEst = parseEstimateFromNote(s.note, 'ブロック推定');
+      const bestBlockEst = parseEstimateFromNote(best.note, 'ブロック推定');
+      return blockEst < bestBlockEst ? s : best;
+    });
+    const blockEst = parseEstimateFromNote(bestShoot.note, 'ブロック推定');
+    if (blockEst <= 30) {
+      return actionToOrder(pieceId, bestShoot);
+    }
+  }
+
+  // ── 3. ドリブルで前進（ZOC外、攻撃方向） ──
+  const dribbles = legalActions
+    .filter((a) => a.action === 'dribble' && !a.note.includes('ZOC内'))
+    .map((a) => ({
+      action: a,
+      dirScore: moveDirectionScore(currentHex, a.targetHex!, myTeam, strategy),
+    }))
+    .filter((d) => d.dirScore > 0)
+    .sort((a, b) => b.dirScore - a.dirScore);
+
+  if (dribbles.length > 0) {
+    return actionToOrder(pieceId, dribbles[0].action);
+  }
+
+  // ── 4. 中距離シュート（ドリブル不可の場合、ゴールまで6HEX以内） ──
+  if (shoots.length > 0 && distToGoal <= 6) {
     const bestShoot = shoots.reduce((best, s) => {
       const blockEst = parseEstimateFromNote(s.note, 'ブロック推定');
       const bestBlockEst = parseEstimateFromNote(best.note, 'ブロック推定');
@@ -185,44 +237,36 @@ function selectBallHolderAction(
     return actionToOrder(pieceId, bestShoot);
   }
 
-  // パスオプションの評価
-  const passes = legalActions.filter((a) => a.action === 'pass');
-  if (passes.length > 0 && (strategy === 'attack' || strategy === 'desperate_attack' || strategy === 'balanced')) {
-    // パスカット確率が最も低いパスを選択
-    const bestPass = passes.reduce((best, p) => {
+  // ── 5. ZOC内ドリブル前進 ──
+  const zocDribbles = legalActions
+    .filter((a) => a.action === 'dribble')
+    .map((a) => ({
+      action: a,
+      dirScore: moveDirectionScore(currentHex, a.targetHex!, myTeam, strategy),
+    }))
+    .filter((d) => d.dirScore > 0)
+    .sort((a, b) => b.dirScore - a.dirScore);
+
+  if (zocDribbles.length > 0) {
+    return actionToOrder(pieceId, zocDribbles[0].action);
+  }
+
+  // ── 6. 遠距離シュート（他に選択肢がない場合、ゴール10HEX以内） ──
+  if (shoots.length > 0 && distToGoal <= 10) {
+    return actionToOrder(pieceId, shoots[0]);
+  }
+
+  // ── 7. 後方パス（安全弁） ──
+  if (passes.length > 0) {
+    const safest = passes.reduce((best, p) => {
       const cutEst = parseEstimateFromNote(p.note, 'パスカット推定');
       const bestCutEst = parseEstimateFromNote(best.note, 'パスカット推定');
       return cutEst < bestCutEst ? p : best;
     });
-
-    const cutProb = parseEstimateFromNote(bestPass.note, 'パスカット推定');
-    // パスカット確率が40%以下ならパス
-    if (cutProb <= 40) {
-      return actionToOrder(pieceId, bestPass);
-    }
+    return actionToOrder(pieceId, safest, allPieces);
   }
 
-  // ドリブルで前進（ZOC外を優先）
-  const dribbles = legalActions
-    .filter((a) => a.action === 'dribble' && !a.note.includes('ZOC内'))
-    .sort((a, b) => {
-      // 攻撃方向に近い方を優先
-      const dirA = moveDirectionScore(pm.currentHex, a.targetHex!, myTeam, strategy);
-      const dirB = moveDirectionScore(pm.currentHex, b.targetHex!, myTeam, strategy);
-      return dirB - dirA;
-    });
-
-  if (dribbles.length > 0) {
-    return actionToOrder(pieceId, dribbles[0]);
-  }
-
-  // ZOC内のドリブルでも前進
-  const anyDribble = legalActions.filter((a) => a.action === 'dribble');
-  if (anyDribble.length > 0) {
-    return actionToOrder(pieceId, anyDribble[0]);
-  }
-
-  // フォールバック: 静止
+  // ── 6. フォールバック: 静止 ──
   return { pieceId, type: 'stay' };
 }
 
@@ -307,10 +351,13 @@ function scoreMoveTarget(
   return score;
 }
 
-/** 攻撃方向への移動スコア */
+/** 攻撃方向への移動スコア（hexDistanceベースでodd-q非対称を排除） */
 function moveDirectionScore(from: HexCoord, to: HexCoord, myTeam: Team, strategy: Strategy): number {
-  // homeは row 減少が攻撃方向、awayは row 増加が攻撃方向
-  const attackDir = myTeam === 'home' ? from.row - to.row : to.row - from.row;
+  // ゴール座標への距離が縮まるほど高スコア
+  const goal: HexCoord = myTeam === 'home' ? { col: 10, row: 33 } : { col: 10, row: 0 };
+  const distBefore = hexDistance(from, goal);
+  const distAfter = hexDistance(to, goal);
+  const attackDir = distBefore - distAfter; // 正=ゴールに近づいた
 
   if (strategy === 'attack' || strategy === 'desperate_attack') {
     return attackDir * 2;
@@ -320,11 +367,12 @@ function moveDirectionScore(from: HexCoord, to: HexCoord, myTeam: Team, strategy
   return attackDir; // balanced
 }
 
-/** ポジションとゾーンの親和性スコア */
+/** ポジションとゾーンの親和性スコア（hexDistanceベース） */
 function positionZoneAffinity(position: string, coord: HexCoord, myTeam: Team): number {
-  // 簡易実装: ゾーンがポジションに「合っている」かどうか
-  const row = coord.row;
-  const attackRow = myTeam === 'home' ? 33 - row : row; // 0=自陣奥, 33=相手ゴール
+  // ゴールまでのhexDistanceで位置を正規化（0=ゴール至近, 33=自陣奥）
+  const goal: HexCoord = myTeam === 'home' ? { col: 10, row: 33 } : { col: 10, row: 0 };
+  const distToGoal = hexDistance(coord, goal);
+  const attackRow = 33 - distToGoal; // 0=自陣奥, 33=相手ゴール至近
 
   switch (position) {
     case 'GK':
@@ -351,7 +399,15 @@ function positionZoneAffinity(position: string, coord: HexCoord, myTeam: Team): 
 // ================================================================
 
 /** LegalAction → Order 変換 */
-function actionToOrder(pieceId: string, action: LegalAction): Order {
+function actionToOrder(pieceId: string, action: LegalAction, allPieces?: Piece[]): Order {
+  // パスの場合: 受け手コマの座標を target にセット
+  // （engine/ball.ts はpassOrder.target の座標にいるコマを受け手として検索する）
+  if (action.action === 'pass' && action.targetPieceId && allPieces) {
+    const receiver = allPieces.find((p) => p.id === action.targetPieceId);
+    if (receiver) {
+      return { pieceId, type: 'pass', target: receiver.coord };
+    }
+  }
   return {
     pieceId,
     type: action.action,
