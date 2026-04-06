@@ -3,7 +3,7 @@
 ## プロジェクト概要
 
 HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeScript）。
-仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md` / COM AI設計: `docs/com_ai_spec.md` / 編成画面仕様: `docs/formation-spec.md`
+仕様書: `docs/fcms_spec_v3.md`(v9.1) / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md`(v1.3) / COM AI設計: `docs/com_ai_spec.md` / 編成画面仕様: `docs/formation-spec.md`
 
 ---
 
@@ -57,39 +57,39 @@ src/
 │   ├── rate_limit.ts         # レート制限（KV）
 │   └── validation.ts         # 入力バリデーション（§7-3 全14項目）
 └── client/                   # React フロントエンド（Cloudflare Pages）
-    ├── App.tsx               # ルート（ページ遷移 + gameMode管理）
+    ├── App.tsx               # ルート（ページ遷移 + gameMode + formationData + authToken管理）
     ├── main.tsx              # エントリポイント（React.StrictMode）
     ├── index.html            # HTMLテンプレート
-    ├── types.ts              # クライアント型定義（GameMode含む）
+    ├── types.ts              # クライアント型定義（GameMode, FormationData, WsMessage, MAX_ROW等）
     ├── pages/
     │   ├── Title.tsx          # タイトル画面
     │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com → onSelectMode）
     │   ├── TeamSelect.tsx     # チーム選択
-    │   ├── Formation.tsx      # 編成画面v2（手持ちコマ制・プリセット6種・セーブスロット・ミニピッチ配置）
-    │   ├── Matching.tsx       # マッチング待機（COM: 1秒で即遷移 / Online: WS待ち）
-    │   ├── Battle.tsx         # 対戦画面（COM AI接続済・演出付き・リプレイ / スマホ§2 / PC§3）
+    │   ├── Formation.tsx      # 編成画面v2（→onFormationConfirmでApp.tsxへデータ引継ぎ）
+    │   ├── Matching.tsx       # マッチング待機（COM: 1秒即遷移 / Online: WS接続+キュー参加）
+    │   ├── Battle.tsx         # 対戦画面（processTurn接続済・演出・ゴールリスタート・flipY）
     │   ├── HalfTime.tsx       # ハーフタイム
     │   ├── Result.tsx         # 結果画面
     │   └── Replay.tsx         # リプレイ画面
     ├── components/
     │   ├── board/
-    │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1）
+    │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1、flipY座標反転対応）
     │   │   ├── PieceIcon.tsx  # コマアイコンSVG（ui_spec v1.2 §6-1: ランク表記/枠装飾/敵味方色）
     │   │   ├── Piece.tsx      # コマ表示ラッパー（PieceIcon + PA外警告/交代マーク）
-    │   │   ├── Overlay.tsx    # Canvas: ZOC/パスライン/ゾーン境界線/ホバー予測線
+    │   │   ├── Overlay.tsx    # Canvas: 移動矢印(白)/ドリブル矢印(緑)/パスライン/シュート線/ZOC/ゾーン境界
     │   │   └── Controls.tsx   # ズーム/パン（ピンチ/ホイール/中クリック）
     │   ├── ui/
-    │   │   ├── Timer.tsx      # ターンタイマー（3分/180秒、MM:SS表示、AT赤表示）
-    │   │   ├── ActionBar.tsx  # スマホ: アクションバー+ベンチスライドアップ（§2-4）
+    │   │   ├── Timer.tsx      # ターンタイマー（60秒カウントダウン、プログレスバー、(M:SS)形式）
+    │   │   ├── ActionBar.tsx  # スマホ: アクションバー（ドリブル/パス/シュート/交代/確定）+ベンチスライドアップ
     │   │   ├── SidePanel.tsx  # PC: 左パネル(§3-4)+右パネル(§3-5)
-    │   │   └── PresetButtons.tsx # プリセット行動（§2-7 長押しメニュー）
+    │   │   └── PresetButtons.tsx # プリセット行動（§2-7）※Battle.tsxからは未使用（廃止）
     │   └── minigame/
     │       ├── FKGame.tsx     # FKミニゲーム（§4-1）
     │       ├── CKGame.tsx     # CKミニゲーム（§4-2）
     │       └── PKGame.tsx     # PKミニゲーム（§4-3）
     ├── hooks/
-    │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証）
-    │   ├── useGameState.ts    # ゲーム状態管理（useReducer + プリセット + RESOLVE/NEXT_TURN + AT）
+    │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証、自動再接続）
+    │   ├── useGameState.ts    # ゲーム状態管理（useReducer + APPLY_ENGINE_RESULT + NEXT_TURN + AT）
     │   └── useDeviceType.ts   # スマホ/PC判定
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
@@ -120,10 +120,10 @@ src/
 | middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
 | wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
 | client/pages/* | 全9画面（タイトル〜リプレイ） | ✅ |
-| client/components/board/* | HEXボード + PieceIcon SVGコマアイコン（§6-1 v1.2 ランク優先デザイン） | ✅ |
-| client/components/ui/* | タイマー・アクションバー(ベンチ)・パネル・プリセット | ✅ |
+| client/components/board/* | HEXボード + PieceIcon SVGコマアイコン（§6-1 v1.2）+ flipY座標反転 | ✅ |
+| client/components/ui/* | タイマー(60秒)・アクションバー(ドリブル/パス/シュート/交代)・パネル | ✅ |
 | client/components/minigame/* | FK/CK/PK ミニゲーム（§4-1〜§4-3） | ✅ |
-| client/hooks/* | WebSocket・状態管理・デバイス判定 | ✅ |
+| client/hooks/* | WebSocket(マッチメイキング+ゲームセッション)・状態管理・デバイス判定 | ✅ |
 | ai/evaluator.ts | §4 局面評価（ボール位置+配置+ZOC支配+得点差） | ✅ |
 | ai/legal_moves.ts | §5 合法手生成（移動/ドリブル/パス/シュート/交代） | ✅ |
 | ai/rule_based.ts | §1-3 ルールベースAI（フォールバック/ブートストラップ） | ✅ |
@@ -133,11 +133,17 @@ src/
 | ai/fallback.ts | §9-4 フォールバック制御（4障害パターン対応） | ✅ |
 | ai/com_ai.ts | §1-1 統合COM AI（安全層→判断層→検証層パイプライン） | ✅ |
 | ai/bootstrap/* | §3-1 Phase 1 自動対戦＋学習データ生成（JSONL出力） | ✅ |
-| Formation.tsx | 編成画面v2（手持ちコマ制・カードグリッド入替・プリセット6種・セーブスロット10枠・Premium課金フラグ・ミニピッチ配置+HEXスナップ移動） | ✅ |
-| COM対戦フロー | モード選択→即マッチング→バトル初期化→COM AI自動命令→ターン進行（サーバー不要） | ✅ |
-| Battle.tsx 演出 | KICK OFF / HALF TIME / SECOND HALF / FULL TIME のCSSアニメーション演出 | ✅ |
-| Battle.tsx リプレイ | RESOLVE_TURN→2.5秒アニメーション→NEXT_TURN、resolving中タイマー停止+操作不可 | ✅ |
+| Formation.tsx | 編成画面v2（手持ちコマ制・プリセット6種・セーブスロット10枠・ミニピッチ配置・onFormationConfirm引継ぎ） | ✅ |
+| COM対戦フロー | モード選択→即マッチング→バトル初期化→processTurn全判定→ターン進行 | ✅ |
+| processTurn接続 | Battle.tsx→processTurn（Phase0〜3）でシュート/パスカット/タックル/ファウル/競合/オフサイド判定が動作 | ✅ |
+| ゴール処理 | ゴール判定→スコア加算→GOAL!演出→初期配置リスタート→失点チームキックオフ | ✅ |
+| Battle.tsx 演出 | KICK OFF / HALF TIME / SECOND HALF / FULL TIME / GOAL! のCSSアニメーション演出 | ✅ |
+| Battle.tsx 実行 | APPLY_ENGINE_RESULT→2.5秒「実行」表示→NEXT_TURN、8秒安全タイムアウト | ✅ |
 | Battle.tsx AT | 前後半各1〜3ターンのアディショナルタイム（ランダム決定、赤色表示） | ✅ |
+| 試合時間表示 | 90分制サッカー風（3分刻み: 0:00〜42:00、45+N、45:00〜87:00、90+N）、残り持ち時間(M:SS)併記 | ✅ |
+| ボール操作UI | ドリブル/パス/シュート自動判定、アクションガイドテキスト、キーボード(D/Q/W) | ✅ |
+| flipY座標反転 | homeプレイヤーは常に下から上に攻める表示（HexBoard.tsx） | ✅ |
+| オンラインWS | Matching→マッチメイキングWS、Battle→ゲームセッションWS、TURN_INPUT送信 | ✅（クライアント側実装済、テスト未実施） |
 
 ---
 
@@ -154,6 +160,7 @@ src/
 - hex_map.json のゾーン名は絶対座標: row 0-5=ディフェンシブGサード, row 28-33=ファイナルサード
 - homeのシュート可能ゾーン: ファイナルサード/アタッキングサード（row 22-33）
 - awayのシュート可能ゾーン: ディフェンシブGサード/ディフェンシブサード（row 0-11）
+- **画面表示**: 両プレイヤーとも自分の画面では下から上に攻める（homeはflipY=trueでrow→33-rowに反転表示）
 - **AIの方向計算はhexDistance（cube座標）ベースを使用**（odd-q offsetのrow差ベースは非対称になるため禁止）
 
 ### 判定式（ランク帯システム）
@@ -175,11 +182,12 @@ src/
   - 同ランク帯の0.5差（1vs1.5, 2vs2.5）→ ±2（最大）
 - **設計意図**: 0.5の課金が同ランク帯ミラーマッチで最大効果。異ランク帯差は一律1でポジション修正等で覆せる
 
-### フェーズ処理
+### フェーズ処理（processTurn）
 - **フェーズ0**: スナップショット取得（移動前位置を記録）
-- **フェーズ1**: 移動（前ターンのZOCマップで停止判定）
-- **フェーズ2**: ボール処理（パス配送先はフェーズ1後の位置）
+- **フェーズ1**: 移動（ZOCマップで停止判定→競合→タックル→ファウル）
+- **フェーズ2**: ボール処理（シュート判定チェーン→パス配送→パスカット1・2）
 - **フェーズ3**: オフサイド判定（**スナップショット位置**で判定）
+- **COM対戦ではBattle.tsxから直接processTurnを呼び出し**、全判定が実行される
 
 ### オフサイド
 - 受け手のスナップショット(移動前)位置で判定
@@ -210,7 +218,7 @@ src/
 - **ハーフタイム**: 前半AT終了後（3秒演出→後半開始）
 - **後半**: ターン16〜30 + AT（1〜3ターン、ランダム）
 - **合計**: 30〜36ターン
-- **試合時間表示**: 90分制サッカー風（1ターン=3分刻み）。前半: 0:00〜42:00、AT: 45+1/45+2/45+3。後半: 45:00〜87:00、AT: 90+1/90+2/90+3。残り持ち時間は小さく併記
+- **試合時間表示**: 90分制サッカー風（1ターン=3分刻み）。前半: 0:00〜42:00、AT: 45+1/45+2/45+3。後半: 45:00〜87:00、AT: 90+1/90+2/90+3。残り持ち時間は小さく(M:SS)で併記
 - AT中は表示が赤色
 
 ### 対戦画面の演出
@@ -218,7 +226,7 @@ src/
 - **HALF TIME**: 前半終了時、スケールイン + スコア表示（金色）
 - **SECOND HALF**: ハーフタイム後、スケールアウト→後半開始
 - **FULL TIME**: 試合終了時、スケールイン + 振動 + スコア + 「結果を見る」ボタン
-- **GOAL!**: ゴール時、金色テキスト + スコア表示（2秒）→初期配置リスタート
+- **GOAL!**: ゴール時、金色テキスト + スコア表示（2秒）→両チーム初期配置リスタート→失点チームキックオフ
 - **Turn X**: 通常ターン切替のフラッシュ（1.2秒）
 - **実行**: ターン確定後→「実行」バナー表示（2.5秒）→次ターン。resolving中はタイマー停止+確定ボタン無効。8秒安全タイムアウト
 
@@ -226,9 +234,30 @@ src/
 - モード選択で`com`を選択 → App.tsxの`gameMode` stateに保存
 - Matching.tsxでCOM時は1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
 - Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
-- **COM AIターン処理**: `handleConfirm` → プレイヤー命令をエンジン形式に変換 → `generateRuleBasedOrders`でaway命令生成 → **`processTurn`（Phase0〜3）でシュート/パスカット/タックル/ファウル/競合/オフサイド判定を実行** → `APPLY_ENGINE_RESULT` → 2.5秒実行表示 → ゴール時は「GOAL!」演出+初期配置リスタート → `NEXT_TURN`
-- **processTurn接続**: エンジンの全判定（dice/shoot/pass/tackle/foul/collision/offside）がCOM対戦で動作。ゴール時はスコア加算＋両チーム初期フォーメーション復帰＋失点チームキックオフ
-- **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない（1回目のcleanupでtimerキャンセル→2回目でref=trueのためスキップ）。タイマー系のuseEffectではrefガードを使わないこと
+- **COM AIターン処理の流れ**:
+  1. `handleConfirm` → プレイヤー命令を `clientOrderToEngine` でエンジン形式に変換
+  2. `generateRuleBasedOrders` でaway命令生成（エンジンOrder互換）
+  3. `EngineBoard` 構築（フィールドコマのみ）
+  4. **`processTurn(board, homeOrders, awayOrders, boardContext)` 実行** — Phase0〜3で全判定
+  5. `hasGoal()` でゴール判定 → スコア加算
+  6. `enginePiecesToClient()` でクライアント形式に戻す
+  7. `APPLY_ENGINE_RESULT` dispatch → resolving状態
+  8. 2.5秒後: ゴール時は`GOAL!`演出(2秒) → `createGoalRestartPieces` で初期配置リスタート → `NEXT_TURN`、ゴールなしは直接 `NEXT_TURN`
+- **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない。タイマー系のuseEffectではrefガードを使わないこと
+
+### ボール操作UI
+- **ボール非保持者タップ → 移動先HEXタップ → 移動命令**
+- **ボール保持者タップ → HEXタップで自動判定**:
+  - 味方コマがいる → パス
+  - シュートゾーン（home: row≥22, away: row≤11）→ シュート
+  - それ以外 → ドリブル
+- **明示モード**: ドリブル(D), パス(Q), シュート(W) キー/ボタンで切替
+- アクションガイドテキストが画面下部に表示
+
+### フォーメーション → バトル引継ぎ
+- Formation.tsx → `onFormationConfirm(FormationData)` → App.tsxのstate → Battle.tsxのprop
+- `FormationData = { starters: FormationPiece[], bench: FormationPiece[] }`
+- Battle.tsx: `createInitialPieces(formationData)` でhomeチーム配置、awayはデフォルト4-4-2
 
 ### PieceIcon（コマアイコン ui_spec v1.2 §6-1）
 - パス: `src/client/components/board/PieceIcon.tsx`
@@ -250,11 +279,12 @@ src/
 - カードグリッド: ポジション8種フィルター、使用中=半透明、コスト超過=グレーアウト
 - セーブスロット: 1〜10番号固定、`isPremium` フラグで課金切替（デフォルトtrue）
 - ミニピッチ上にコマを視覚配置、タップでHEXスナップ移動（`percentToHex` 逆変換）
+- 「マッチング開始」で `onFormationConfirm` 経由でApp.tsxへデータ引継ぎ
 
-### フロントエンド未実装（TODO）
-- オンライン対戦のWebSocket接続（Matching.tsx → `/match/ws`、Battle.tsx → `/api/matches/:matchId/ws`）
-- ターン確定時のサーバー送信（Battle.tsx の TURN_INPUT メッセージ送信）
-- サーバー側は全て実装済み（Matchmaking DO / GameSession DO / API）、クライアント側の `useWebSocket` 接続のみ未実装
+### オンライン対戦（クライアント側実装済、E2Eテスト未実施）
+- **Matching.tsx**: ranked/casual時に `/match/ws` へWebSocket接続、`JOIN_QUEUE` 送信、`MATCH_FOUND` で遷移
+- **Battle.tsx**: `/match/:matchId/ws` へWebSocket接続、`TURN_INPUT` 送信、`TURN_RESULT`/`INPUT_ACCEPTED`/`RECONNECT` 等を処理
+- サーバー側は全て実装済み（Matchmaking DO / GameSession DO / API）
 - `wrangler dev --local` + `npm run dev` の並列起動でオンライン対戦テスト可能
 
 ---
@@ -279,9 +309,10 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 2. ブラウザで `http://localhost:5173` にアクセス
 3. 対戦する → COM対戦 → チーム選択 → フォーメーション → マッチング開始
 4. 1秒後にバトル画面に遷移、「KICK OFF」演出 → HEXボード上にコマ22枚が表示
-5. コマをタップして命令を出す → 「✓ ターン確定」→ リプレイ2.5秒 → 次ターン
-6. 前半15ターン+AT → 「HALF TIME」演出 → 「SECOND HALF」→ 後半15ターン+AT → 「FULL TIME」→ 結果画面
-7. Consoleログ: `[Battle] COM init` → `[GameState] INIT_MATCH: AT1=X, AT2=Y` → `[Battle] COM AI generated N orders`
+5. コマをタップして命令を出す → 「✓ ターン確定」→「実行」2.5秒 → 次ターン
+6. ゴール時: 「GOAL!」演出 → 初期配置リスタート → 失点チームキックオフ
+7. 前半15ターン+AT → 「HALF TIME」演出 → 「SECOND HALF」→ 後半15ターン+AT → 「FULL TIME」→ 結果画面
+8. Consoleログ: `[Battle] COM init` → `[Battle] processTurn: N events` → `[Battle] GOAL! home scores` 等
 
 ---
 
