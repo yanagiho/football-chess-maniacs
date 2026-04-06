@@ -16,7 +16,7 @@ interface TimerProps {
   isAdditionalTime?: boolean;
 }
 
-const DEFAULT_DURATION = 180_000; // 3分
+const DEFAULT_DURATION = 60_000; // 1分
 
 export default function Timer({
   turnStartedAt,
@@ -66,26 +66,13 @@ export default function Timer({
   const barColor = isAdditionalTime ? '#ff4444' : isUrgent ? '#ff4444' : '#44cc44';
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      {/* ターン表示 */}
-      {turnLabel && (
-        <span style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: isAdditionalTime ? '#ff4444' : '#94a3b8',
-          marginRight: 2,
-        }}>
-          {turnLabel}
-        </span>
-      )}
-
-      <span style={{ fontSize: '1.1em' }}>⏱</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
       <div
         style={{
-          width: isMobile ? 50 : 70,
-          height: 6,
-          background: 'rgba(255,255,255,0.2)',
-          borderRadius: 3,
+          width: isMobile ? 36 : 50,
+          height: 4,
+          background: 'rgba(255,255,255,0.15)',
+          borderRadius: 2,
           overflow: 'hidden',
         }}
       >
@@ -94,7 +81,7 @@ export default function Timer({
             width: `${progress * 100}%`,
             height: '100%',
             background: barColor,
-            borderRadius: 3,
+            borderRadius: 2,
             transition: 'width 0.2s linear',
             animation: isUrgent ? 'urgentBlink 0.5s infinite' : undefined,
           }}
@@ -102,16 +89,14 @@ export default function Timer({
       </div>
       <span
         style={{
-          fontWeight: 'bold',
           fontVariantNumeric: 'tabular-nums',
           color: timerColor,
           animation: isUrgent ? 'urgentBlink 0.5s infinite' : undefined,
-          minWidth: '3.5em',
-          textAlign: 'right',
-          fontSize: isMobile ? 14 : 15,
+          fontSize: isMobile ? 11 : 12,
+          opacity: 0.8,
         }}
       >
-        {minutes}:{String(seconds).padStart(2, '0')}
+        ({minutes}:{String(seconds).padStart(2, '0')})
       </span>
     </div>
   );

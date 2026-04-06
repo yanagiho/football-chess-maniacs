@@ -10,8 +10,9 @@
 // ズーム/パン: CSS transform(scale/translate) でレイヤー全体を変換
 // ============================================================
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import type { PieceData, HexCoord, HexCell, OrderData, ActionMode } from '../../types';
+import { MAX_ROW } from '../../types';
 import hexMapData from '../../data/hex_map.json';
 import Piece from './Piece';
 import Overlay from './Overlay';
@@ -79,6 +80,8 @@ interface HexBoardProps {
   isMobile: boolean;
   showZoneBorders?: boolean;
   myTeam?: 'home' | 'away';
+  /** Y座標を反転して表示（homeプレイヤーが常に画面下側に来るようにする） */
+  flipY?: boolean;
 }
 
 export default function HexBoard({
@@ -94,10 +97,39 @@ export default function HexBoard({
   isMobile,
   showZoneBorders = true,
   myTeam = 'home',
+  flipY = false,
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
   const [hoverCoord, setHoverCoord] = useState<HexCoord | null>(null);
+
+  // ── flipY: 表示用にコマ座標を反転 ──
+  // ゲーム座標(col, row) → 表示座標(col, MAX_ROW - row) でhomeが画面下に来る
+  const flipRow = useCallback((row: number) => flipY ? MAX_ROW - row : row, [flipY]);
+
+  /** 表示用コマ（座標反転済み） */
+  const displayPieces = useMemo(() => {
+    if (!flipY) return pieces;
+    return pieces.map(p => ({
+      ...p,
+      coord: { col: p.coord.col, row: MAX_ROW - p.coord.row },
+    }));
+  }, [pieces, flipY]);
+
+  /** 表示用指示（targetHex座標反転済み） */
+  const displayOrders = useMemo(() => {
+    if (!flipY) return orders;
+    const flipped = new Map<string, OrderData>();
+    for (const [id, order] of orders) {
+      flipped.set(id, {
+        ...order,
+        targetHex: order.targetHex
+          ? { col: order.targetHex.col, row: MAX_ROW - order.targetHex.row }
+          : undefined,
+      });
+    }
+    return flipped;
+  }, [orders, flipY]);
 
   // ── 初期表示: ボード全体をフィット ──
   useEffect(() => {
@@ -131,7 +163,8 @@ export default function HexBoard({
     if (!isMobile || !selectedPieceId || !containerRef.current) return;
     const piece = pieces.find((p) => p.id === selectedPieceId);
     if (!piece) return;
-    const cell = cellLookup.get(`${piece.coord.col},${piece.coord.row}`);
+    const displayRow = flipRow(piece.coord.row);
+    const cell = cellLookup.get(`${piece.coord.col},${displayRow}`);
     if (!cell) return;
 
     const rect = containerRef.current.getBoundingClientRect();
@@ -169,18 +202,21 @@ export default function HexBoard({
         return;
       }
 
-      // そのHEXにコマがあるか
+      // 表示座標 → ゲーム座標に変換
+      const gameRow = flipRow(cell.row);
+
+      // そのHEXにコマがあるか（ゲーム座標で比較）
       const pieceOnHex = pieces.find(
-        (p) => p.coord.col === cell.col && p.coord.row === cell.row,
+        (p) => p.coord.col === cell.col && p.coord.row === gameRow,
       );
 
       if (pieceOnHex) {
         onSelectPiece(pieceOnHex.id);
       } else {
-        onHexClick({ col: cell.col, row: cell.row });
+        onHexClick({ col: cell.col, row: gameRow });
       }
     },
-    [pieces, onSelectPiece, onHexClick, screenToBoard, wasDragging],
+    [pieces, onSelectPiece, onHexClick, screenToBoard, wasDragging, flipRow],
   );
 
   // ── PC マウスホバー（§3-6 予測線） ──
@@ -263,6 +299,7 @@ export default function HexBoard({
         {/* ════════════════════════════════════════
             レイヤー 2: Canvas オーバーレイ（§6-1）
             ZOCハイライト・移動範囲・パスライン等
+            ※ displayPieces/displayOrders で表示座標系を使用
             ════════════════════════════════════════ */}
         <Overlay
           width={BOARD_WIDTH}
@@ -272,8 +309,8 @@ export default function HexBoard({
           offsideLine={offsideLine}
           selectedPieceId={selectedPieceId}
           actionMode={actionMode}
-          orders={orders}
-          pieces={pieces}
+          orders={displayOrders}
+          pieces={displayPieces}
           hexMap={hexMap}
           showZoneBorders={showZoneBorders}
           hoverCoord={hoverCoord}
@@ -282,8 +319,9 @@ export default function HexBoard({
         {/* ════════════════════════════════════════
             レイヤー 3: コマレイヤー（§6-1）
             スプライト画像を座標マップに従って絶対配置
+            ※ displayPieces で表示座標系を使用
             ════════════════════════════════════════ */}
-        {pieces.map((piece) => {
+        {displayPieces.map((piece) => {
           const cell = cellLookup.get(`${piece.coord.col},${piece.coord.row}`);
           if (!cell) return null;
           return (
@@ -293,8 +331,8 @@ export default function HexBoard({
               x={cell.x}
               y={cell.y}
               isSelected={piece.id === selectedPieceId}
-              hasOrder={orders.has(piece.id)}
-              order={orders.get(piece.id)}
+              hasOrder={displayOrders.has(piece.id)}
+              order={displayOrders.get(piece.id)}
               myTeam={myTeam}
             />
           );

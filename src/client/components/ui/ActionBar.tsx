@@ -111,6 +111,14 @@ export default function ActionBar({
         {/* §2-4 戻るボタン */}
         <ActionButton label="←" onClick={onUndo} disabled={!hasOrders} />
 
+        {/* ドリブルモード（ボール保持時のみ） */}
+        <ActionButton
+          label="ドリブル"
+          onClick={() => onSetMode(actionMode === 'dribble' ? null : 'dribble')}
+          disabled={!hasBall}
+          active={actionMode === 'dribble'}
+        />
+
         {/* パスモード（ボール保持時のみ） */}
         <ActionButton
           label="パス"

@@ -62,7 +62,7 @@ export interface GameState {
   scoreHome: number;
   scoreAway: number;
   myTeam: Team;
-  status: 'waiting' | 'playing' | 'resolving' | 'halftime' | 'finished';
+  status: 'waiting' | 'playing' | 'resolving' | 'halftime' | 'finished' | 'waiting_opponent';
   turnStartedAt: number | null;
   /** 今ターンの指示 */
   orders: Map<string, OrderData>;
@@ -95,6 +95,23 @@ export interface GameEvent {
   [key: string]: unknown;
 }
 
+/** 編成画面から引き継ぐフォーメーションデータ */
+export interface FormationPiece {
+  id: string;
+  position: Position;
+  cost: Cost;
+  col: number;
+  row: number;
+}
+
+export interface FormationData {
+  starters: FormationPiece[];
+  bench: FormationPiece[];
+}
+
+/** ボード最大行（0-33） */
+export const MAX_ROW = 33;
+
 /** ゲームモード */
 export type GameMode = 'ranked' | 'casual' | 'com';
 
@@ -109,3 +126,20 @@ export type Page =
   | 'halfTime'
   | 'result'
   | 'replay';
+
+/** マッチメイキングWebSocketメッセージ型 */
+export type MatchmakingWsMessage =
+  | { type: 'MATCHMAKING_CONNECTED'; region: string }
+  | { type: 'QUEUE_JOINED'; position: number }
+  | { type: 'MATCH_FOUND'; matchId: string; opponent: string; team?: Team }
+  | { type: 'COM_SUGGESTED'; message: string; waitTimeSeconds: number }
+  | { type: 'PONG' }
+  | { type: 'ERROR'; message: string };
+
+/** WebSocket接続先ベースURL取得（dev: wrangler devポート, prod: 同一オリジン） */
+export function getWsBaseUrl(): string {
+  if (typeof window === 'undefined') return 'ws://localhost:8787';
+  if (location.port === '5173') return 'ws://localhost:8787';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}`;
+}

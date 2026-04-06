@@ -103,16 +103,23 @@ export default function Overlay({
     }
 
     // ================================================================
-    // 4. 指示済みコマの移動矢印
+    // 4. 指示済みコマの移動矢印（白）+ ドリブル矢印（緑）
     // ================================================================
     for (const [, order] of orders) {
-      if (order.action !== 'move' || !order.targetHex) continue;
+      if (!order.targetHex) continue;
+      if (order.action !== 'move' && order.action !== 'dribble') continue;
       const piece = pieces.find((p) => p.id === order.pieceId);
       if (!piece) continue;
       const fromCell = findCell(piece.coord);
       const toCell = findCell(order.targetHex);
       if (!fromCell || !toCell) continue;
-      drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,255,255,0.55)', 2, 10);
+      if (order.action === 'dribble') {
+        // ドリブル: 緑の太い矢印
+        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(80, 200, 80, 0.70)', 3, 12);
+      } else {
+        // 移動: 白の矢印
+        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,255,255,0.55)', 2, 10);
+      }
     }
 
     // ================================================================

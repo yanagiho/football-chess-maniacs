@@ -6,7 +6,7 @@
 // ============================================================
 
 import React, { useState, useCallback, useMemo } from 'react';
-import type { Page } from '../types';
+import type { Page, FormationData } from '../types';
 import type { Cost, Position } from '../components/board/PieceIcon';
 import PieceIcon, { costToRank } from '../components/board/PieceIcon';
 import { useDeviceType } from '../hooks/useDeviceType';
@@ -38,6 +38,8 @@ type SlotArray = (SaveSlot | null)[];
 
 interface FormationProps {
   onNavigate: (page: Page) => void;
+  /** 編成確定時のコールバック（スタメン・ベンチをApp.tsxへ引き渡す） */
+  onFormationConfirm?: (data: FormationData) => void;
   /** 課金済みフラグ（セーブ機能の利用可否）。デフォルト true（テスト用） */
   isPremium?: boolean;
 }
@@ -180,7 +182,7 @@ function applyPreset(presetKey: string, owned: OwnedPiece[]): StarterPiece[] {
 
 // ── メインコンポーネント ──────────────────────────────────
 
-export default function Formation({ onNavigate, isPremium = true }: FormationProps) {
+export default function Formation({ onNavigate, onFormationConfirm, isPremium = true }: FormationProps) {
   const device = useDeviceType();
   const isMobile = device === 'mobile' || device === 'tablet';
 
@@ -433,7 +435,20 @@ export default function Formation({ onNavigate, isPremium = true }: FormationPro
       <div style={{ display: 'flex', gap: 12, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', justifyContent: 'center' }}>
         <button onClick={() => onNavigate('teamSelect')} style={btnStyle('#334155')}>戻る</button>
         <button
-          onClick={() => onNavigate('matching')}
+          onClick={() => {
+            if (onFormationConfirm) {
+              onFormationConfirm({
+                starters: starters.map(s => ({
+                  id: s.id, position: s.position, cost: s.cost, col: s.col, row: s.row,
+                })),
+                bench: bench.map(b => ({
+                  id: b.id, position: b.position, cost: b.cost, col: 0, row: 0,
+                })),
+              });
+            } else {
+              onNavigate('matching');
+            }
+          }}
           disabled={!isValid}
           style={btnStyle(isValid ? '#16a34a' : '#334155', !isValid ? 0.5 : 1)}
         >

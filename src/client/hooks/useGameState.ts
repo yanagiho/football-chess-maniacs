@@ -5,6 +5,9 @@
 import { useReducer, useCallback, useMemo } from 'react';
 import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team } from '../types';
 
+/** 前半/後半の基本ターン数 */
+const HALF_TURNS = 15;
+
 type GameAction =
   | { type: 'SELECT_PIECE'; pieceId: string | null }
   | { type: 'SET_ACTION_MODE'; mode: ActionMode }
@@ -18,7 +21,9 @@ type GameAction =
   | { type: 'INIT_MATCH'; matchId: string; myTeam: Team; board: GameState['board'] }
   | { type: 'RESOLVE_TURN' }
   | { type: 'NEXT_TURN' }
-  | { type: 'RESUME_SECOND_HALF' };
+  | { type: 'RESUME_SECOND_HALF' }
+  | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
+  | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number };
 
 /** ランダムなアディショナルタイム（1〜3） */
 function randomAT(): number {
@@ -148,10 +153,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'NEXT_TURN': {
-      const HALF = 15;
+      // safety: resolving以外から呼ばれた場合もフォールバック（リプレイスキップ等）
+      if (state.status !== 'resolving' && state.status !== 'playing') {
+        console.warn(`[GameState] NEXT_TURN called in unexpected status: ${state.status}`);
+      }
+
       const nextTurn = state.turn + 1;
-      const halfEnd = HALF + state.additionalTime1;    // 前半終了ターン
-      const fullEnd = HALF * 2 + state.additionalTime1 + state.additionalTime2; // 後半終了ターン
+      const halfEnd = HALF_TURNS + state.additionalTime1;    // 前半終了ターン
+      const fullEnd = HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2; // 後半終了ターン
 
       // RESOLVE_TURN済み（resolving状態）ならコマ移動済み、それ以外は今ここで適用
       const movedPieces = state.status === 'resolving'
@@ -184,6 +193,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         orders: new Map(),
         selectedPieceId: null,
         actionMode: null,
+        status: 'playing',
         turnStartedAt: Date.now(),
       };
     }
@@ -194,6 +204,47 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         status: 'playing',
         turnStartedAt: Date.now(),
       };
+
+    case 'APPLY_ENGINE_RESULT': {
+      // COM対戦: エンジンの processTurn 結果を反映して resolving 状態に入る
+      return {
+        ...state,
+        board: { pieces: action.pieces },
+        scoreHome: action.scoreHome,
+        scoreAway: action.scoreAway,
+        status: 'resolving',
+        turnStartedAt: null,
+        orders: new Map(),
+        selectedPieceId: null,
+        actionMode: null,
+      };
+    }
+
+    case 'APPLY_TURN_RESULT': {
+      // オンライン対戦: サーバーからのターン結果を反映（ハーフタイム/試合終了の判定付き）
+      const halfEnd = HALF_TURNS + state.additionalTime1;
+      const fullEnd = HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2;
+
+      let newStatus: GameState['status'] = 'playing';
+      if (action.turn > fullEnd) {
+        newStatus = 'finished';
+      } else if (state.turn <= halfEnd && action.turn > halfEnd) {
+        newStatus = 'halftime';
+      }
+
+      return {
+        ...state,
+        board: action.board,
+        turn: action.turn,
+        scoreHome: action.scoreHome,
+        scoreAway: action.scoreAway,
+        status: newStatus,
+        orders: new Map(),
+        selectedPieceId: null,
+        actionMode: null,
+        turnStartedAt: newStatus === 'playing' ? Date.now() : null,
+      };
+    }
 
     case 'APPLY_PRESET': {
       const newOrders = new Map(state.orders);

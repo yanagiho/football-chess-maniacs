@@ -4,7 +4,7 @@
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
-import type { Page, GameMode } from './types';
+import type { Page, GameMode, Team, FormationData } from './types';
 
 import Title from './pages/Title';
 import ModeSelect from './pages/ModeSelect';
@@ -20,6 +20,10 @@ export default function App() {
   const [page, setPage] = useState<Page>('title');
   const [matchId, setMatchId] = useState<string | null>(null);
   const [gameMode, setGameMode] = useState<GameMode>('com');
+  const [myTeam, setMyTeam] = useState<Team>('home');
+  const [formationData, setFormationData] = useState<FormationData | null>(null);
+  // JWT認証トークン（ログインフロー実装後にセット。localStorageフォールバック）
+  const [authToken] = useState<string>(() => localStorage.getItem('fcms_token') ?? '');
 
   const navigate = useCallback((p: Page) => setPage(p), []);
 
@@ -27,9 +31,16 @@ export default function App() {
     setGameMode(mode);
   }, []);
 
-  const handleMatchFound = useCallback((id: string) => {
-    console.log('[App] matchFound:', id, '→ navigating to battle');
+  const handleFormationConfirm = useCallback((data: FormationData) => {
+    console.log('[App] formationConfirm: starters=', data.starters.length, 'bench=', data.bench.length);
+    setFormationData(data);
+    setPage('matching');
+  }, []);
+
+  const handleMatchFound = useCallback((id: string, team?: Team) => {
+    console.log('[App] matchFound:', id, 'team:', team, '→ navigating to battle');
     setMatchId(id);
+    setMyTeam(team ?? 'home');
     setPage('battle');
   }, []);
 
@@ -61,12 +72,15 @@ export default function App() {
           <ModeSelect onNavigate={navigate} onSelectMode={handleSelectMode} />
         )}
         {page === 'teamSelect' && <TeamSelect onNavigate={navigate} />}
-        {page === 'formation' && <Formation onNavigate={navigate} />}
+        {page === 'formation' && (
+          <Formation onNavigate={navigate} onFormationConfirm={handleFormationConfirm} />
+        )}
         {page === 'matching' && (
           <Matching
             onNavigate={navigate}
             onMatchFound={handleMatchFound}
             gameMode={gameMode}
+            authToken={authToken}
           />
         )}
         {page === 'battle' && (
@@ -74,6 +88,9 @@ export default function App() {
             onNavigate={navigate}
             matchId={matchId ?? undefined}
             gameMode={gameMode}
+            authToken={authToken}
+            myTeam={myTeam}
+            formationData={formationData}
           />
         )}
         {page === 'halfTime' && (

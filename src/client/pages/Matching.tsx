@@ -4,19 +4,92 @@
 // オンライン対戦: WebSocket接続 → キュー参加 → マッチ成立通知待ち
 // ============================================================
 
-import React, { useState, useEffect, useRef } from 'react';
-import type { Page, GameMode } from '../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type { Page, GameMode, Team, MatchmakingWsMessage } from '../types';
+import { getWsBaseUrl } from '../types';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 interface MatchingProps {
   onNavigate: (page: Page) => void;
-  onMatchFound: (matchId: string) => void;
+  onMatchFound: (matchId: string, team?: Team) => void;
   gameMode: GameMode;
+  authToken: string;
 }
 
-export default function Matching({ onNavigate, onMatchFound, gameMode }: MatchingProps) {
+export default function Matching({ onNavigate, onMatchFound, gameMode, authToken }: MatchingProps) {
   const [elapsed, setElapsed] = useState(0);
-  const [status, setStatus] = useState<'searching' | 'found' | 'com_suggested'>('searching');
+  const [status, setStatus] = useState<'searching' | 'found' | 'com_suggested' | 'error'>('searching');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const startTimeRef = useRef(Date.now());
+  const matchFoundRef = useRef(false);
+
+  // ── マッチメイキングWS メッセージ処理 ──
+  const handleMmMessage = useCallback((msg: unknown) => {
+    const data = msg as MatchmakingWsMessage;
+    console.log('[Matching] WS message:', data.type);
+
+    switch (data.type) {
+      case 'MATCHMAKING_CONNECTED':
+        // 接続成功 → キュー参加
+        wsSend({
+          type: 'JOIN_QUEUE',
+          rating: 1500, // TODO: プレイヤーの実レーティング
+          teamId: 'default', // TODO: 選択したチームID
+        });
+        break;
+
+      case 'QUEUE_JOINED':
+        console.log('[Matching] Queue joined, position:', data.position);
+        break;
+
+      case 'MATCH_FOUND':
+        if (!matchFoundRef.current) {
+          matchFoundRef.current = true;
+          console.log('[Matching] Match found:', data.matchId);
+          setStatus('found');
+          onMatchFound(data.matchId, data.team);
+        }
+        break;
+
+      case 'COM_SUGGESTED':
+        setStatus('com_suggested');
+        break;
+
+      case 'ERROR':
+        console.error('[Matching] WS error:', data.message);
+        setErrorMsg(data.message);
+        setStatus('error');
+        break;
+    }
+  }, [onMatchFound]);
+
+  // ── WebSocket接続（オンライン対戦用） ──
+  const wsUrl = `${getWsBaseUrl()}/match/ws`;
+  const { connect: wsConnect, disconnect: wsDisconnect, send: wsSend, status: wsStatus } = useWebSocket({
+    url: wsUrl,
+    token: authToken,
+    onMessage: handleMmMessage,
+    onDisconnect: () => {
+      if (!matchFoundRef.current && status === 'searching') {
+        console.log('[Matching] WS disconnected');
+      }
+    },
+    autoReconnect: true,
+  });
+
+  // ── オンライン対戦: WS接続開始 ──
+  useEffect(() => {
+    if (gameMode === 'com') return;
+    if (!authToken) {
+      setErrorMsg('ログインが必要です');
+      setStatus('error');
+      return;
+    }
+
+    console.log('[Matching] Online mode: connecting to matchmaking WS');
+    wsConnect();
+    return () => wsDisconnect();
+  }, [gameMode, authToken, wsConnect, wsDisconnect]);
 
   // ── COM対戦: 即座にマッチング成立 ──
   // refガードなし: React StrictModeの再マウントでもtimerが正常に動くようにする
@@ -43,15 +116,13 @@ export default function Matching({ onNavigate, onMatchFound, gameMode }: Matchin
     return () => clearInterval(interval);
   }, [gameMode]);
 
-  // §4-2 30秒超でCOM提案（オンライン対戦のみ）
+  // §4-2 30秒超でCOM提案（オンライン対戦のみ — サーバー側COM_SUGGESTEDのフォールバック）
   useEffect(() => {
     if (gameMode === 'com') return;
     if (elapsed >= 30 && status === 'searching') {
       setStatus('com_suggested');
     }
   }, [elapsed, status, gameMode]);
-
-  // TODO: オンライン対戦のWebSocket接続
 
   // ── COM対戦時は専用のUI ──
   if (gameMode === 'com') {
@@ -101,7 +172,19 @@ export default function Matching({ onNavigate, onMatchFound, gameMode }: Matchin
 
       <div style={{ fontSize: 12, color: '#666' }}>
         {elapsed < 10 ? '±200' : elapsed < 20 ? '±400' : '全リージョン'}
+        {wsStatus !== 'connected' && wsStatus !== 'disconnected' && (
+          <span style={{ marginLeft: 8, color: '#888' }}>({wsStatus})</span>
+        )}
       </div>
+
+      {status === 'error' && errorMsg && (
+        <div style={{
+          padding: '12px 16px', background: 'rgba(200,50,50,0.15)',
+          borderRadius: 8, color: '#f88', fontSize: 13, maxWidth: 300, textAlign: 'center',
+        }}>
+          {errorMsg}
+        </div>
+      )}
 
       {status === 'com_suggested' && (
         <div style={{

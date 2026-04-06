@@ -205,26 +205,29 @@ src/
 - バランス検証済: Home 24.8% / Away 24.0% / Draw 51.2%, 平均3.52点/試合（※ランク帯システム導入前のデータ。再検証が必要）
 
 ### ターン構成
-- **1ターン = 3分（180秒）**
+- **1ターン = 60秒**
 - **前半**: ターン1〜15 + AT（1〜3ターン、ランダム）
 - **ハーフタイム**: 前半AT終了後（3秒演出→後半開始）
 - **後半**: ターン16〜30 + AT（1〜3ターン、ランダム）
 - **合計**: 30〜36ターン
-- AT中は表示が赤色（「15+2」「30+1」等）
+- **試合時間表示**: 90分制サッカー風（1ターン=3分刻み）。前半: 0:00〜42:00、AT: 45+1/45+2/45+3。後半: 45:00〜87:00、AT: 90+1/90+2/90+3。残り持ち時間は小さく併記
+- AT中は表示が赤色
 
 ### 対戦画面の演出
 - **KICK OFF**: 試合開始時、下からスライドイン + 「1st Half」
 - **HALF TIME**: 前半終了時、スケールイン + スコア表示（金色）
 - **SECOND HALF**: ハーフタイム後、スケールアウト→後半開始
 - **FULL TIME**: 試合終了時、スケールイン + 振動 + スコア + 「結果を見る」ボタン
+- **GOAL!**: ゴール時、金色テキスト + スコア表示（2秒）→初期配置リスタート
 - **Turn X**: 通常ターン切替のフラッシュ（1.2秒）
-- **リプレイ**: `RESOLVE_TURN`→2.5秒アニメーション→`NEXT_TURN`、resolving中はタイマー停止+確定ボタン無効
+- **実行**: ターン確定後→「実行」バナー表示（2.5秒）→次ターン。resolving中はタイマー停止+確定ボタン無効。8秒安全タイムアウト
 
 ### COM対戦フロー
 - モード選択で`com`を選択 → App.tsxの`gameMode` stateに保存
 - Matching.tsxでCOM時は1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
 - Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
-- **COM AIターン処理**: `handleConfirm` → `generateRuleBasedOrders`(src/ai/rule_based.ts)でaway命令生成 → `RESOLVE_TURN` → 2.5秒リプレイ → `NEXT_TURN`
+- **COM AIターン処理**: `handleConfirm` → プレイヤー命令をエンジン形式に変換 → `generateRuleBasedOrders`でaway命令生成 → **`processTurn`（Phase0〜3）でシュート/パスカット/タックル/ファウル/競合/オフサイド判定を実行** → `APPLY_ENGINE_RESULT` → 2.5秒実行表示 → ゴール時は「GOAL!」演出+初期配置リスタート → `NEXT_TURN`
+- **processTurn接続**: エンジンの全判定（dice/shoot/pass/tackle/foul/collision/offside）がCOM対戦で動作。ゴール時はスコア加算＋両チーム初期フォーメーション復帰＋失点チームキックオフ
 - **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない（1回目のcleanupでtimerキャンセル→2回目でref=trueのためスキップ）。タイマー系のuseEffectではrefガードを使わないこと
 
 ### PieceIcon（コマアイコン ui_spec v1.2 §6-1）
