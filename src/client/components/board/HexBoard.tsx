@@ -78,6 +78,7 @@ interface HexBoardProps {
   onHexClick: (coord: HexCoord) => void;
   isMobile: boolean;
   showZoneBorders?: boolean;
+  myTeam?: 'home' | 'away';
 }
 
 export default function HexBoard({
@@ -92,6 +93,7 @@ export default function HexBoard({
   onHexClick,
   isMobile,
   showZoneBorders = true,
+  myTeam = 'home',
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -293,7 +295,7 @@ export default function HexBoard({
               isSelected={piece.id === selectedPieceId}
               hasOrder={orders.has(piece.id)}
               order={orders.get(piece.id)}
-              size={isMobile ? 32 : 28}
+              myTeam={myTeam}
             />
           );
         })}

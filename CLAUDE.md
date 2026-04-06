@@ -3,7 +3,7 @@
 ## プロジェクト概要
 
 HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeScript）。
-仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md` / COM AI設計: `docs/com_ai_spec.md`
+仕様書: `docs/fcms_spec_v3.md` / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md` / COM AI設計: `docs/com_ai_spec.md` / 編成画面仕様: `docs/formation-spec.md`
 
 ---
 
@@ -15,7 +15,7 @@ src/
 │   └── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
 ├── engine/                   # ゲームエンジン（判定式・ターン処理）
 │   ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
-│   ├── dice.ts               # 判定式: calcProbability / judge / calcZocModifier
+│   ├── dice.ts               # 判定式: effectiveDiff / calcProbability / judge / calcZocModifier
 │   ├── shoot.ts              # §7-2 シュート判定チェーン
 │   ├── pass.ts               # §7-3 パスカット1・2
 │   ├── tackle.ts             # §7-4 タックル判定
@@ -101,7 +101,7 @@ src/
 | モジュール | 対応仕様 | 状態 |
 |---|---|---|
 | hex_map.json | §5 ボード仕様（flat-top odd-q） | ✅ |
-| dice.ts | §7 判定式の基礎 | ✅ |
+| dice.ts | §7 判定式の基礎（ランク帯システム・有効差） | ✅ |
 | shoot.ts | §7-2 シュート判定チェーン | ✅ |
 | pass.ts | §7-3 パスカット1・2 | ✅ |
 | tackle.ts | §7-4 タックル | ✅ |
@@ -112,7 +112,7 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合 | ✅ 210 tests passing |
+| ユニットテスト | 判定式全体・統合 | ✅ 228 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -152,13 +152,24 @@ src/
 - awayのシュート可能ゾーン: ディフェンシブGサード/ディフェンシブサード（row 0-11）
 - **AIの方向計算はhexDistance（cube座標）ベースを使用**（odd-q offsetのrow差ベースは非対称になるため禁止）
 
-### 判定式
+### 判定式（ランク帯システム）
 ```
-(x - y + 3) × Ω + ポジション修正 + ZOC隣接修正
+(effectiveDiff(x, y) + 3) × Ω + ポジション修正 + ZOC隣接修正
 ```
+- **生のコスト差（x - y）ではなく有効差（effectiveDiff）を使用**
 - 結果は 0〜100 にクランプ
 - **全ポジション修正は必ず重ねて適用**（守備修正 + 攻撃/パサー修正の両方）
 - 例: VO守備(+10) vs MF パサー(-10) → 修正合計 0
+
+### ランク帯システム（effectiveDiff）
+- **低ランク帯**: コスト 1, 1.5
+- **中ランク帯**: コスト 2, 2.5
+- **高ランク帯**: コスト 3
+- **有効差ルール**:
+  - 同コスト（1vs1, 2vs2, 3vs3, 1.5vs1.5, 2.5vs2.5）→ 0
+  - 異ランク帯（1vs2, 1vs3, 1.5vs2, 2vs3 等）→ ±1
+  - 同ランク帯の0.5差（1vs1.5, 2vs2.5）→ ±2（最大）
+- **設計意図**: 0.5の課金が同ランク帯ミラーマッチで最大効果。異ランク帯差は一律1でポジション修正等で覆せる
 
 ### フェーズ処理
 - **フェーズ0**: スナップショット取得（移動前位置を記録）
@@ -187,13 +198,19 @@ src/
 - `npm run bootstrap`: ルールベースAI同士で10,000試合を自動実行
 - 出力: `training_data/` にJSONL形式（1試合180レコード ≈ 合計180万レコード）
 - 性能: 53ms/試合（直列12.5時間、`--offset` で複数プロセス並列可）
-- バランス検証済: Home 24.8% / Away 24.0% / Draw 51.2%, 平均3.52点/試合
+- バランス検証済: Home 24.8% / Away 24.0% / Draw 51.2%, 平均3.52点/試合（※ランク帯システム導入前のデータ。再検証が必要）
 
 ### COM対戦フロー
 - モード選択で`com`を選択 → App.tsxの`gameMode` stateに保存
 - Matching.tsxでCOM時は1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
 - Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
 - **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない（1回目のcleanupでtimerキャンセル→2回目でref=trueのためスキップ）。タイマー系のuseEffectではrefガードを使わないこと
+
+### コマ・チーム編成
+- 全ポジション共通でコスト5段階（1/1.5/2/2.5/3）。8ポジション×5コスト＝40種類/時代、7時代×40＝全280枚
+- **スタメン11枚**（GK1+FP10）、コスト上限16、ベンチ9枚（コスト制限なし）、合計20枚
+- **選手交代**: 3回の機会（1回に複数人OK）、合計5人まで。交代後もコスト16以内
+- **初期チーム**: コスト1のみ11枚（GK×1, DF×4, MF×4, FW×2）。ベンチなし。SB/VO/OM/WGは未所持
 
 ### フロントエンド未実装（TODO）
 - オンライン対戦のWebSocket接続（Matching.tsx, Battle.tsx）
@@ -205,7 +222,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全210テスト）
+npm test              # vitest run（全228テスト）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
