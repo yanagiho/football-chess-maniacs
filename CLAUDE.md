@@ -65,7 +65,7 @@ src/
     │   ├── Title.tsx          # タイトル画面
     │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com → onSelectMode）
     │   ├── TeamSelect.tsx     # チーム選択
-    │   ├── Formation.tsx      # フォーメーション設定（コスト16上限・選手入替モーダル）
+    │   ├── Formation.tsx      # 編成画面v2（手持ちコマ制・プリセット6種・セーブスロット・ミニピッチ配置）
     │   ├── Matching.tsx       # マッチング待機（COM: 1秒で即遷移 / Online: WS待ち）
     │   ├── Battle.tsx         # 対戦画面（COM: クライアントで初期化 / スマホ§2 / PC§3）
     │   ├── HalfTime.tsx       # ハーフタイム
@@ -74,7 +74,8 @@ src/
     ├── components/
     │   ├── board/
     │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1）
-    │   │   ├── Piece.tsx      # コマ表示（スプライト画像+フォールバック §6-1）
+    │   │   ├── PieceIcon.tsx  # コマアイコンSVG（ui_spec v1.2 §6-1: ランク表記/枠装飾/敵味方色）
+    │   │   ├── Piece.tsx      # コマ表示ラッパー（PieceIcon + PA外警告/交代マーク）
     │   │   ├── Overlay.tsx    # Canvas: ZOC/パスライン/ゾーン境界線/ホバー予測線
     │   │   └── Controls.tsx   # ズーム/パン（ピンチ/ホイール/中クリック）
     │   ├── ui/
@@ -119,7 +120,7 @@ src/
 | middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
 | wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
 | client/pages/* | 全9画面（タイトル〜リプレイ） | ✅ |
-| client/components/board/* | HEXボード（背景画像+Canvas+DOM §6-1 レイヤー分離） | ✅ |
+| client/components/board/* | HEXボード + PieceIcon SVGコマアイコン（§6-1 v1.2 ランク優先デザイン） | ✅ |
 | client/components/ui/* | タイマー・アクションバー(ベンチ)・パネル・プリセット | ✅ |
 | client/components/minigame/* | FK/CK/PK ミニゲーム（§4-1〜§4-3） | ✅ |
 | client/hooks/* | WebSocket・状態管理・デバイス判定 | ✅ |
@@ -132,7 +133,7 @@ src/
 | ai/fallback.ts | §9-4 フォールバック制御（4障害パターン対応） | ✅ |
 | ai/com_ai.ts | §1-1 統合COM AI（安全層→判断層→検証層パイプライン） | ✅ |
 | ai/bootstrap/* | §3-1 Phase 1 自動対戦＋学習データ生成（JSONL出力） | ✅ |
-| Formation.tsx | 選手入替モーダル（コスト16上限バリデーション） | ✅ |
+| Formation.tsx | 編成画面v2（手持ちコマ制・カードグリッド入替・プリセット6種・セーブスロット10枠・Premium課金フラグ・ミニピッチ配置+HEXスナップ移動） | ✅ |
 | COM対戦フロー | モード選択→即マッチング→バトル初期化（サーバー不要） | ✅ |
 
 ---
@@ -206,11 +207,26 @@ src/
 - Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
 - **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない（1回目のcleanupでtimerキャンセル→2回目でref=trueのためスキップ）。タイマー系のuseEffectではrefガードを使わないこと
 
+### PieceIcon（コマアイコン ui_spec v1.2 §6-1）
+- パス: `src/client/components/board/PieceIcon.tsx`
+- 使い方: `<PieceIcon cost={2} position="DF" side="ally" selected hasBall />`
+- 味方=青(#2563EB)、敵=赤(#DC2626)。中央にランク表記（1/1+/2/2+/SS）
+- 枠装飾: コスト1=なし, 1.5=銅, 2=銀, 2.5=金, 3=金+大型(72px)
+- 選択時は黄色枠点滅。ボール保持はSVGサッカーボール
+- **全コマ表示をPieceIconに統一**（Piece.tsx, HexBoard.tsx, Formation.tsx）
+
 ### コマ・チーム編成
 - 全ポジション共通でコスト5段階（1/1.5/2/2.5/3）。8ポジション×5コスト＝40種類/時代、7時代×40＝全280枚
 - **スタメン11枚**（GK1+FP10）、コスト上限16、ベンチ9枚（コスト制限なし）、合計20枚
 - **選手交代**: 3回の機会（1回に複数人OK）、合計5人まで。交代後もコスト16以内
 - **初期チーム**: コスト1のみ11枚（GK×1, DF×4, MF×4, FW×2）。ベンチなし。SB/VO/OM/WGは未所持
+
+### 編成画面（Formation.tsx v2）
+- 手持ちコマから選んでスタメン・サブに配置する方式
+- フォーメーションプリセット6種: 4-4-2 / 3-5-2 / 3-6-1 / 4-3-3 / 4-2-3-1 / 3-4-3
+- カードグリッド: ポジション8種フィルター、使用中=半透明、コスト超過=グレーアウト
+- セーブスロット: 1〜10番号固定、`isPremium` フラグで課金切替（デフォルトtrue）
+- ミニピッチ上にコマを視覚配置、タップでHEXスナップ移動（`percentToHex` 逆変換）
 
 ### フロントエンド未実装（TODO）
 - オンライン対戦のWebSocket接続（Matching.tsx, Battle.tsx）
