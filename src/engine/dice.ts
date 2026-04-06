@@ -5,13 +5,45 @@
 import type { Cost, ZocAdjacency } from './types';
 
 /**
- * 基本判定式: 成功確率(%) = (x - y + 3) × Ω + ポジション修正 + ZOC隣接修正
+ * ランク帯を返す。低ランク帯=0, 中ランク帯=1, 高ランク帯=2
+ */
+function rankBand(cost: Cost): number {
+  if (cost <= 1.5) return 0; // 低ランク帯: 1, 1.5
+  if (cost <= 2.5) return 1; // 中ランク帯: 2, 2.5
+  return 2;                  // 高ランク帯: 3
+}
+
+/**
+ * ランク帯システムに基づく有効差（effectiveDiff）を計算する。
+ *
+ * - 同コスト → 0
+ * - 異ランク帯 → ±1（xが上なら+1、下なら-1）
+ * - 同ランク帯の0.5差 → ±2（最大。上のコストが有利）
+ *
+ * @param x 判定を仕掛ける側のコスト
+ * @param y 判定を受ける側のコスト
+ * @returns -2〜+2 の有効差（x視点: 正=x有利、負=x不利）
+ */
+export function effectiveDiff(x: Cost, y: Cost): number {
+  if (x === y) return 0;
+  const bx = rankBand(x);
+  const by = rankBand(y);
+  if (bx !== by) {
+    // 異ランク帯: 一律 ±1
+    return bx > by ? 1 : -1;
+  }
+  // 同ランク帯の0.5差: ±2
+  return x > y ? 2 : -2;
+}
+
+/**
+ * 基本判定式: 成功確率(%) = (effectiveDiff(x, y) + 3) × Ω + ポジション修正 + ZOC隣接修正
  *
  * @param x  判定を仕掛ける側のコスト
  * @param y  判定を受ける側のコスト
  * @param omega 基本係数 Ω
  * @param positionModifier ポジション修正値（合算済み）
- * @param zoc ZOC隣接情報（修正の方向は呼び出し元で決定し加算済みで渡す）
+ * @param zocModifier ZOC隣接修正値（合算済みで渡す）
  * @returns 0〜100 にクランプした成功確率(%)
  */
 export function calcProbability(
@@ -21,7 +53,7 @@ export function calcProbability(
   positionModifier: number = 0,
   zocModifier: number = 0,
 ): number {
-  const base = (x - y + 3) * omega;
+  const base = (effectiveDiff(x, y) + 3) * omega;
   const raw = base + positionModifier + zocModifier;
   return Math.min(100, Math.max(0, raw));
 }
@@ -40,20 +72,6 @@ export function roll(): number {
 export function judge(probability: number): { success: boolean; probability: number; roll: number } {
   const r = roll();
   return { success: r < probability, probability, roll: r };
-}
-
-/**
- * コスト差の計算（.5 の特殊処理込み）
- * 片方が .5 で相方が整数の場合は小数のまま差を取る。
- * 両方が .5 の場合は通常の整数処理（小数部を切り捨て）。
- */
-export function costDiff(x: Cost, y: Cost): number {
-  const xHalf = x % 1 !== 0;
-  const yHalf = y % 1 !== 0;
-  if (xHalf && yHalf) {
-    return Math.floor(x) - Math.floor(y);
-  }
-  return x - y;
 }
 
 /**
