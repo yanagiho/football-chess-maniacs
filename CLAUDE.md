@@ -67,7 +67,7 @@ src/
     │   ├── TeamSelect.tsx     # チーム選択
     │   ├── Formation.tsx      # 編成画面v2（手持ちコマ制・プリセット6種・セーブスロット・ミニピッチ配置）
     │   ├── Matching.tsx       # マッチング待機（COM: 1秒で即遷移 / Online: WS待ち）
-    │   ├── Battle.tsx         # 対戦画面（COM: クライアントで初期化 / スマホ§2 / PC§3）
+    │   ├── Battle.tsx         # 対戦画面（COM AI接続済・演出付き・リプレイ / スマホ§2 / PC§3）
     │   ├── HalfTime.tsx       # ハーフタイム
     │   ├── Result.tsx         # 結果画面
     │   └── Replay.tsx         # リプレイ画面
@@ -79,7 +79,7 @@ src/
     │   │   ├── Overlay.tsx    # Canvas: ZOC/パスライン/ゾーン境界線/ホバー予測線
     │   │   └── Controls.tsx   # ズーム/パン（ピンチ/ホイール/中クリック）
     │   ├── ui/
-    │   │   ├── Timer.tsx      # ターンタイマー（§2-2）
+    │   │   ├── Timer.tsx      # ターンタイマー（3分/180秒、MM:SS表示、AT赤表示）
     │   │   ├── ActionBar.tsx  # スマホ: アクションバー+ベンチスライドアップ（§2-4）
     │   │   ├── SidePanel.tsx  # PC: 左パネル(§3-4)+右パネル(§3-5)
     │   │   └── PresetButtons.tsx # プリセット行動（§2-7 長押しメニュー）
@@ -89,7 +89,7 @@ src/
     │       └── PKGame.tsx     # PKミニゲーム（§4-3）
     ├── hooks/
     │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証）
-    │   ├── useGameState.ts    # ゲーム状態管理（useReducer + プリセット）
+    │   ├── useGameState.ts    # ゲーム状態管理（useReducer + プリセット + RESOLVE/NEXT_TURN + AT）
     │   └── useDeviceType.ts   # スマホ/PC判定
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
@@ -134,7 +134,10 @@ src/
 | ai/com_ai.ts | §1-1 統合COM AI（安全層→判断層→検証層パイプライン） | ✅ |
 | ai/bootstrap/* | §3-1 Phase 1 自動対戦＋学習データ生成（JSONL出力） | ✅ |
 | Formation.tsx | 編成画面v2（手持ちコマ制・カードグリッド入替・プリセット6種・セーブスロット10枠・Premium課金フラグ・ミニピッチ配置+HEXスナップ移動） | ✅ |
-| COM対戦フロー | モード選択→即マッチング→バトル初期化（サーバー不要） | ✅ |
+| COM対戦フロー | モード選択→即マッチング→バトル初期化→COM AI自動命令→ターン進行（サーバー不要） | ✅ |
+| Battle.tsx 演出 | KICK OFF / HALF TIME / SECOND HALF / FULL TIME のCSSアニメーション演出 | ✅ |
+| Battle.tsx リプレイ | RESOLVE_TURN→2.5秒アニメーション→NEXT_TURN、resolving中タイマー停止+操作不可 | ✅ |
+| Battle.tsx AT | 前後半各1〜3ターンのアディショナルタイム（ランダム決定、赤色表示） | ✅ |
 
 ---
 
@@ -201,10 +204,27 @@ src/
 - 性能: 53ms/試合（直列12.5時間、`--offset` で複数プロセス並列可）
 - バランス検証済: Home 24.8% / Away 24.0% / Draw 51.2%, 平均3.52点/試合（※ランク帯システム導入前のデータ。再検証が必要）
 
+### ターン構成
+- **1ターン = 3分（180秒）**
+- **前半**: ターン1〜15 + AT（1〜3ターン、ランダム）
+- **ハーフタイム**: 前半AT終了後（3秒演出→後半開始）
+- **後半**: ターン16〜30 + AT（1〜3ターン、ランダム）
+- **合計**: 30〜36ターン
+- AT中は表示が赤色（「15+2」「30+1」等）
+
+### 対戦画面の演出
+- **KICK OFF**: 試合開始時、下からスライドイン + 「1st Half」
+- **HALF TIME**: 前半終了時、スケールイン + スコア表示（金色）
+- **SECOND HALF**: ハーフタイム後、スケールアウト→後半開始
+- **FULL TIME**: 試合終了時、スケールイン + 振動 + スコア + 「結果を見る」ボタン
+- **Turn X**: 通常ターン切替のフラッシュ（1.2秒）
+- **リプレイ**: `RESOLVE_TURN`→2.5秒アニメーション→`NEXT_TURN`、resolving中はタイマー停止+確定ボタン無効
+
 ### COM対戦フロー
 - モード選択で`com`を選択 → App.tsxの`gameMode` stateに保存
 - Matching.tsxでCOM時は1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
 - Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
+- **COM AIターン処理**: `handleConfirm` → `generateRuleBasedOrders`(src/ai/rule_based.ts)でaway命令生成 → `RESOLVE_TURN` → 2.5秒リプレイ → `NEXT_TURN`
 - **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない（1回目のcleanupでtimerキャンセル→2回目でref=trueのためスキップ）。タイマー系のuseEffectではrefガードを使わないこと
 
 ### PieceIcon（コマアイコン ui_spec v1.2 §6-1）
@@ -229,9 +249,10 @@ src/
 - ミニピッチ上にコマを視覚配置、タップでHEXスナップ移動（`percentToHex` 逆変換）
 
 ### フロントエンド未実装（TODO）
-- オンライン対戦のWebSocket接続（Matching.tsx, Battle.tsx）
-- ターン確定時のサーバー送信（Battle.tsx handleConfirm）
-- COM対戦のAIターン処理（Battle.tsx、ルールベースAIのクライアント実行）
+- オンライン対戦のWebSocket接続（Matching.tsx → `/match/ws`、Battle.tsx → `/api/matches/:matchId/ws`）
+- ターン確定時のサーバー送信（Battle.tsx の TURN_INPUT メッセージ送信）
+- サーバー側は全て実装済み（Matchmaking DO / GameSession DO / API）、クライアント側の `useWebSocket` 接続のみ未実装
+- `wrangler dev --local` + `npm run dev` の並列起動でオンライン対戦テスト可能
 
 ---
 
@@ -254,8 +275,10 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 1. `npm run dev` でフロントエンド起動
 2. ブラウザで `http://localhost:5173` にアクセス
 3. 対戦する → COM対戦 → チーム選択 → フォーメーション → マッチング開始
-4. 1秒後にバトル画面に遷移、HEXボード上にコマ22枚が表示される
-5. Consoleログ: `[Matching] COM mode` → `[App] matchFound` → `[Battle] COM init`
+4. 1秒後にバトル画面に遷移、「KICK OFF」演出 → HEXボード上にコマ22枚が表示
+5. コマをタップして命令を出す → 「✓ ターン確定」→ リプレイ2.5秒 → 次ターン
+6. 前半15ターン+AT → 「HALF TIME」演出 → 「SECOND HALF」→ 後半15ターン+AT → 「FULL TIME」→ 結果画面
+7. Consoleログ: `[Battle] COM init` → `[GameState] INIT_MATCH: AT1=X, AT2=Y` → `[Battle] COM AI generated N orders`
 
 ---
 
