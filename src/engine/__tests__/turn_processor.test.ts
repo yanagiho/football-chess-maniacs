@@ -210,77 +210,76 @@ describe('スルーパス', () => {
 // オフサイド判定との連携
 // ============================================================
 describe('オフサイド判定（フェーズ3）', () => {
-  // away 守備コマ2枚: (10,25) と (10,30)
-  // home チーム攻撃（row増加方向）
-  // offsideLine = 25（降順2番目）
-  // defenders are on col=2 (away from col=10 action) so they don't block ZOC on pass path or FW movement
+  // away 守備: GK(row=33) + DF2枚(row=25, row=30)
+  // home チーム攻撃（row増加方向 = row大が敵陣）
+  // GK除外後 → DF: [30, 25]。降順で最後方 = row 30
+  // offside line = max(HALF_LINE, max(secondLast, ball))
+  //             = max(16, max(30, ball))
+  // ball=OM(row=18) → max(30,18)=30 → max(16,30)=30
+  // defenders are on col=2 (away from col=10) to avoid ZOC interference
+  const awayGk  = makePiece({ id: 'agk', team: 'away', position: 'GK', cost: 1, coord: { col: 2, row: 33 } });
   const awayDf1 = makePiece({ id: 'ad1', team: 'away', position: 'DF', cost: 2, coord: { col: 2, row: 25 } });
   const awayDf2 = makePiece({ id: 'ad2', team: 'away', position: 'DF', cost: 2, coord: { col: 2, row: 30 } });
 
+  // offside line with GK(33)+DF(30)+DF(25): GK除外→最後方=row30
+  // ball=OM(row=18) → max(30,18)=30。max(16,30)=30。line=30
   describe('スルーパス: 移動前オンサイド → オフサイドなし', () => {
-    it('FW が row=22（ライン25未満）から row=28 に走り込む → オンサイド', () => {
+    it('FW が row=28（ライン30未満）から走り込む → オンサイド', () => {
       const om = makePiece({ id: 'om', team: 'home', position: 'OM', cost: 3,
         coord: { col: 10, row: 18 }, hasBall: true });
       const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
-        coord: { col: 10, row: 22 } }); // pre-move row=22 < offsideLine=25 → オンサイド
+        coord: { col: 10, row: 28 } }); // pre-move row=28 < offsideLine=30 → オンサイド
 
-      const board = makeBoard([om, fw, awayDf1, awayDf2]);
+      const board = makeBoard([om, fw, awayGk, awayDf1, awayDf2]);
       const homeOrders: Order[] = [
-        { pieceId: 'om', type: 'pass', target: { col: 10, row: 26 } },
-        { pieceId: 'fw', type: 'move', target: { col: 10, row: 26 } },
+        { pieceId: 'om', type: 'pass', target: { col: 10, row: 28 } },
       ];
 
       const { events } = processTurn(board, homeOrders, [], makeContext());
 
-      // PASS_DELIVERED が発生
       expect(eventsOfType<PassDeliveredEvent>(events, 'PASS_DELIVERED').length).toBe(1);
-      // OFFSIDE は発生しない
       expect(eventsOfType<OffsideEvent>(events, 'OFFSIDE').length).toBe(0);
     });
   });
 
   describe('静的パス: 移動前オフサイド → オフサイド確定', () => {
-    it('FW が row=28（ライン25より2以上先）でパスを受ける → 確定オフサイド', () => {
+    it('FW が row=32（ライン30より2以上先）でパスを受ける → 確定オフサイド', () => {
       const om = makePiece({ id: 'om', team: 'home', position: 'OM', cost: 3,
         coord: { col: 10, row: 18 }, hasBall: true });
-      // FW は動かない（移動指示なし）→ pre-move = post-move = row=28
       const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
-        coord: { col: 10, row: 28 } }); // row=28 > 25+1 → 確定オフサイド
+        coord: { col: 10, row: 32 } }); // row=32 > 30+1 → 確定オフサイド
 
-      const board = makeBoard([om, fw, awayDf1, awayDf2]);
+      const board = makeBoard([om, fw, awayGk, awayDf1, awayDf2]);
       const homeOrders: Order[] = [
-        { pieceId: 'om', type: 'pass', target: { col: 10, row: 28 } },
+        { pieceId: 'om', type: 'pass', target: { col: 10, row: 32 } },
       ];
 
       const { board: newBoard, events } = processTurn(board, homeOrders, [], makeContext());
 
-      // PASS_DELIVERED は一旦発生する（フェーズ2で届く）
       expect(eventsOfType<PassDeliveredEvent>(events, 'PASS_DELIVERED').length).toBe(1);
 
-      // OFFSIDE が発生（フェーズ3）
       const osEvts = eventsOfType<OffsideEvent>(events, 'OFFSIDE');
       expect(osEvts.length).toBe(1);
       expect(osEvts[0].receiverId).toBe('fw');
       expect(osEvts[0].result.isOffside).toBe(true);
       expect(osEvts[0].result.isGrayZone).toBe(false);
 
-      // FW のボール保持は取り消される（守備チームに渡る）
       expect(newBoard.pieces.find(p => p.id === 'fw')!.hasBall).toBe(false);
     });
   });
 
   describe('グレーゾーン: ライン+1 → 50%判定', () => {
-    it('FW が row=26（diff=1）→ judge成功でオフサイド', () => {
-      mockJudge.mockReturnValue(ok(50)); // グレーゾーン判定
+    it('FW が row=31（diff=1）→ judge成功でオフサイド', () => {
+      mockJudge.mockReturnValue(ok(50));
 
       const om = makePiece({ id: 'om', team: 'home', position: 'OM', cost: 3,
         coord: { col: 10, row: 18 }, hasBall: true });
       const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
-        coord: { col: 10, row: 26 } }); // row=26, diff=1 → グレーゾーン
+        coord: { col: 10, row: 31 } }); // row=31, diff=1 → グレーゾーン
 
-      const board = makeBoard([om, fw, awayDf1, awayDf2]);
+      const board = makeBoard([om, fw, awayGk, awayDf1, awayDf2]);
       const homeOrders: Order[] = [
-        { pieceId: 'om', type: 'pass', target: { col: 10, row: 26 } },
+        { pieceId: 'om', type: 'pass', target: { col: 10, row: 31 } },
       ];
 
       const { events } = processTurn(board, homeOrders, [], makeContext());
@@ -291,17 +290,17 @@ describe('オフサイド判定（フェーズ3）', () => {
       expect(osEvts[0].result.isOffside).toBe(true);
     });
 
-    it('FW が row=26（diff=1）→ judge失敗でオンサイド（ボール届く）', () => {
-      mockJudge.mockReturnValue(ng(50)); // グレーゾーン判定 → オンサイド
+    it('FW が row=31（diff=1）→ judge失敗でオンサイド（ボール届く）', () => {
+      mockJudge.mockReturnValue(ng(50));
 
       const om = makePiece({ id: 'om', team: 'home', position: 'OM', cost: 3,
         coord: { col: 10, row: 18 }, hasBall: true });
       const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
-        coord: { col: 10, row: 26 } });
+        coord: { col: 10, row: 31 } });
 
-      const board = makeBoard([om, fw, awayDf1, awayDf2]);
+      const board = makeBoard([om, fw, awayGk, awayDf1, awayDf2]);
       const homeOrders: Order[] = [
-        { pieceId: 'om', type: 'pass', target: { col: 10, row: 26 } },
+        { pieceId: 'om', type: 'pass', target: { col: 10, row: 31 } },
       ];
 
       const { board: newBoard, events } = processTurn(board, homeOrders, [], makeContext());

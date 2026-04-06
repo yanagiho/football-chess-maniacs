@@ -26,6 +26,11 @@ const BOARD_PADDING = 30;
 const BOARD_WIDTH = 975 + BOARD_PADDING * 2;   // ≈ 1035
 const BOARD_HEIGHT = 1767 + BOARD_PADDING * 2;  // ≈ 1827
 
+/** クリック判定の距離閾値²（HEX_R=26 + 余裕2px = 28² = 784） */
+const HEX_CLICK_RADIUS_SQ = 784;
+/** スマホ: コマ選択時の自動ズームスケール */
+const AUTO_FOCUS_ZOOM_SCALE = 2.5;
+
 // ── 高速 HEX 検索用 Map ──
 const cellLookup = new Map<string, HexCell>();
 for (const c of hexMap) cellLookup.set(`${c.col},${c.row}`, c);
@@ -61,8 +66,7 @@ function findNearestHex(bx: number, by: number): HexCell | null {
       }
     }
   }
-  // HEX半径 26px → 閾値 26² ≈ 676 （少し余裕を持って 784 = 28²）
-  return bestDist <= 784 ? best : null;
+  return bestDist <= HEX_CLICK_RADIUS_SQ ? best : null;
 }
 
 // ================================================================
@@ -82,6 +86,12 @@ interface HexBoardProps {
   myTeam?: 'home' | 'away';
   /** Y座標を反転して表示（homeプレイヤーが常に画面下側に来るようにする） */
   flipY?: boolean;
+  /** シュート可能範囲のHEX */
+  shootRangeHexes?: HexCoord[];
+  /** ロングパス警告 */
+  longPassWarnings?: Map<string, number>;
+  /** フェーズ演出エフェクト（§5-1b） */
+  phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string }>;
 }
 
 export default function HexBoard({
@@ -98,6 +108,9 @@ export default function HexBoard({
   showZoneBorders = true,
   myTeam = 'home',
   flipY = false,
+  shootRangeHexes = [],
+  longPassWarnings,
+  phaseEffects = [],
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -130,6 +143,39 @@ export default function HexBoard({
     }
     return flipped;
   }, [orders, flipY]);
+
+  /** 表示用ハイライトHEX（flipY反転済み） */
+  const displayHighlightHexes = useMemo(() => {
+    if (!flipY) return highlightHexes;
+    return highlightHexes.map(h => ({ col: h.col, row: MAX_ROW - h.row }));
+  }, [highlightHexes, flipY]);
+
+  /** 表示用ZOC（flipY反転済み） */
+  const displayZocHexes = useMemo(() => {
+    if (!flipY) return zocHexes;
+    return {
+      own: zocHexes.own.map(h => ({ col: h.col, row: MAX_ROW - h.row })),
+      opponent: zocHexes.opponent.map(h => ({ col: h.col, row: MAX_ROW - h.row })),
+    };
+  }, [zocHexes, flipY]);
+
+  /** 表示用オフサイドライン（flipY反転済み） */
+  const displayOffsideLine = useMemo(() => {
+    if (offsideLine === null || !flipY) return offsideLine;
+    return MAX_ROW - offsideLine;
+  }, [offsideLine, flipY]);
+
+  /** 表示用シュート範囲（flipY反転済み） */
+  const displayShootRangeHexes = useMemo(() => {
+    if (!flipY) return shootRangeHexes;
+    return shootRangeHexes.map(h => ({ col: h.col, row: MAX_ROW - h.row }));
+  }, [shootRangeHexes, flipY]);
+
+  /** 表示用フェーズエフェクト（flipY反転済み） */
+  const displayPhaseEffects = useMemo(() => {
+    if (!flipY) return phaseEffects;
+    return phaseEffects.map(e => ({ ...e, coord: { col: e.coord.col, row: MAX_ROW - e.coord.row } }));
+  }, [phaseEffects, flipY]);
 
   // ── 初期表示: ボード全体をフィット ──
   useEffect(() => {
@@ -168,7 +214,7 @@ export default function HexBoard({
     if (!cell) return;
 
     const rect = containerRef.current.getBoundingClientRect();
-    const scale = 2.5;
+    const scale = AUTO_FOCUS_ZOOM_SCALE;
     setTransform({
       scale,
       x: rect.width / 2 - cell.x * scale,
@@ -204,19 +250,49 @@ export default function HexBoard({
 
       // 表示座標 → ゲーム座標に変換
       const gameRow = flipRow(cell.row);
+      const gameCoord: HexCoord = { col: cell.col, row: gameRow };
 
       // そのHEXにコマがあるか（ゲーム座標で比較）
       const pieceOnHex = pieces.find(
-        (p) => p.coord.col === cell.col && p.coord.row === gameRow,
+        (p) => p.coord.col === gameCoord.col && p.coord.row === gameCoord.row,
       );
 
+      // ── コマが既に選択されている場合 ──
+      if (selectedPieceId) {
+        const selectedPc = pieces.find(p => p.id === selectedPieceId);
+
+        // 同じコマをタップ → 選択解除
+        if (pieceOnHex && pieceOnHex.id === selectedPieceId) {
+          onSelectPiece(null);
+          return;
+        }
+
+        // ボール保持者が選択中 → 全クリックをアクション処理に転送
+        // （handleHexClick側でドリブル/パス/シュートを自動判定）
+        if (selectedPc?.hasBall) {
+          onHexClick(gameCoord);
+          return;
+        }
+
+        // ボール非保持者: 別のコマをタップ → そのコマを選択
+        if (pieceOnHex) {
+          onSelectPiece(pieceOnHex.id);
+          return;
+        }
+
+        // ボール非保持者: 空きHEXをタップ → 移動命令
+        onHexClick(gameCoord);
+        return;
+      }
+
+      // ── コマ未選択 ──
       if (pieceOnHex) {
         onSelectPiece(pieceOnHex.id);
       } else {
-        onHexClick({ col: cell.col, row: gameRow });
+        onSelectPiece(null);
       }
     },
-    [pieces, onSelectPiece, onHexClick, screenToBoard, wasDragging, flipRow],
+    [pieces, selectedPieceId, onSelectPiece, onHexClick, screenToBoard, wasDragging, flipRow],
   );
 
   // ── PC マウスホバー（§3-6 予測線） ──
@@ -304,9 +380,9 @@ export default function HexBoard({
         <Overlay
           width={BOARD_WIDTH}
           height={BOARD_HEIGHT}
-          highlightHexes={highlightHexes}
-          zocHexes={zocHexes}
-          offsideLine={offsideLine}
+          highlightHexes={displayHighlightHexes}
+          zocHexes={displayZocHexes}
+          offsideLine={displayOffsideLine}
           selectedPieceId={selectedPieceId}
           actionMode={actionMode}
           orders={displayOrders}
@@ -314,6 +390,9 @@ export default function HexBoard({
           hexMap={hexMap}
           showZoneBorders={showZoneBorders}
           hoverCoord={hoverCoord}
+          shootRangeHexes={displayShootRangeHexes}
+          longPassWarnings={longPassWarnings}
+          phaseEffects={displayPhaseEffects}
         />
 
         {/* ════════════════════════════════════════

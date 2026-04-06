@@ -64,7 +64,9 @@ export function processSpecial(
   const defenderGoalIsLowRow = defenseTeam === 'home'; // home守備ならゴール側=row=0
   const attackIsHighRow      = passer.team === 'home'; // home攻撃ならrow大きい方が敵陣
 
-  const offsideLine = getOffsideLine(defenderSnaps, defenderGoalIsLowRow);
+  // パサーのスナップショット位置（ボール位置）をオフサイドライン制約に使用
+  const passerSnap = snapshot.find(p => p.id === passer.id);
+  const offsideLine = getOffsideLine(defenderSnaps, defenderGoalIsLowRow, passerSnap?.coord.row);
   const osResult    = resolveOffside({
     receiverSnapshot: receiverSnap,
     offsideLine,

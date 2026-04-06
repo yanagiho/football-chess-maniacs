@@ -22,12 +22,63 @@ interface OverlayProps {
   showZoneBorders: boolean;
   /** PC用: マウスカーソルのボード座標（null ならホバー無し） */
   hoverCoord: HexCoord | null;
+  /** シュート可能範囲のHEX（シュートモード時にハイライト表示） */
+  shootRangeHexes?: HexCoord[];
+  /** ロングパス警告を表示するorder pieceId → パス距離 */
+  longPassWarnings?: Map<string, number>;
+  /** 演出フェーズ中のイベントアイコン表示（§5-1b） */
+  phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string }>;
 }
 
 /** flat-top HEX の半径（hex_map.json の間隔から算出） */
 const HEX_R = 26;
 /** flat-top HEX の角度オフセット（0°が右） */
 const FLAT_TOP_OFFSET = 0;
+
+// ── 描画色定数（§6-2 HEXマス色） ──
+const COLORS = {
+  ownZoc: 'rgba(60, 120, 220, 0.20)',       // ZOC（自分）: 薄い青
+  opponentZoc: 'rgba(220, 60, 60, 0.20)',    // ZOC（相手）: 薄い赤
+  moveRange: 'rgba(80, 200, 80, 0.30)',      // 移動可能: 緑ハイライト
+  moveRangeZoc: 'rgba(80, 200, 80, 0.18)',   // ZOC進入（移動可能だが停止する）
+  moveRangeOutline: 'rgba(80, 200, 80, 0.5)',
+  zocStripe: 'rgba(200, 60, 60, 0.30)',      // ZOC進入の赤緑縞模様
+  moveArrow: 'rgba(255,255,255,0.55)',       // 移動矢印: 白
+  dribbleArrow: 'rgba(80, 200, 80, 0.70)',   // ドリブル矢印: 緑
+  passLine: 'rgba(60, 140, 255, 0.70)',      // パスコース: 青い線
+  passLineDanger: 'rgba(255, 160, 40, 0.75)',// パスコース危険（ZOC通過）: オレンジ
+  shootArrow: 'rgba(255, 50, 50, 0.80)',     // シュートコース: 赤い線
+  shootRange: 'rgba(255, 60, 60, 0.15)',     // シュート可能範囲
+  shootRangeOutline: 'rgba(255, 60, 60, 0.35)',
+  offsideLine: 'rgba(255, 220, 40, 0.55)',   // オフサイドライン: 黄色点線
+  zoneBorder: 'rgba(255,255,255,0.12)',      // ゾーン境界線
+  longPassWarning: '#ff8800',                // ロングパス警告
+  // ホバー予測線
+  hoverPassSafe: 'rgba(60,140,255,0.40)',
+  hoverPassDanger: 'rgba(255,160,40,0.40)',
+  hoverShoot: 'rgba(255,50,50,0.40)',
+  hoverMove: 'rgba(255,255,255,0.30)',
+} as const;
+
+// ── 描画サイズ定数 ──
+const ARROW_WIDTH_MOVE = 2;
+const ARROW_WIDTH_ACTION = 3;
+const ARROW_HEAD_LEN = 12;
+const ARROW_HEAD_LEN_MOVE = 10;
+const PASS_LINE_WIDTH = 2.5;
+const PASS_LINE_DASH: [number, number] = [8, 5];
+const PASS_DOT_RADIUS = 5;
+const OFFSIDE_LINE_WIDTH = 2;
+const OFFSIDE_LINE_DASH: [number, number] = [10, 7];
+const HOVER_LINE_WIDTH = 1.5;
+const HOVER_LINE_DASH: [number, number] = [6, 4];
+const HOVER_MOVE_DASH: [number, number] = [4, 4];
+const ZOC_STRIPE_STEP = 6;
+const ZOC_STRIPE_WIDTH = 2;
+const ZONE_BORDER_WIDTH = 1;
+const MOVE_RANGE_OUTLINE_WIDTH = 1;
+const EFFECT_ICON_FONT = 'bold 18px sans-serif';
+const EFFECT_TEXT_FONT = 'bold 10px sans-serif';
 
 export default function Overlay({
   width,
@@ -42,6 +93,9 @@ export default function Overlay({
   hexMap,
   showZoneBorders,
   hoverCoord,
+  shootRangeHexes = [],
+  longPassWarnings,
+  phaseEffects = [],
 }: OverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -69,15 +123,13 @@ export default function Overlay({
     // 2. ZOC表示（§1-3: コマ選択時のみ）
     // ================================================================
     if (selectedPieceId) {
-      // 自分ZOC → 薄い青
       for (const hex of zocHexes.own) {
         const cell = findCell(hex);
-        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(60, 120, 220, 0.20)');
+        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.ownZoc);
       }
-      // 相手ZOC → 薄い赤
       for (const hex of zocHexes.opponent) {
         const cell = findCell(hex);
-        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(220, 60, 60, 0.20)');
+        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.opponentZoc);
       }
     }
 
@@ -91,15 +143,12 @@ export default function Overlay({
       if (!cell) continue;
 
       if (opponentZocSet.has(`${hex.col},${hex.row}`)) {
-        // §6-2 ZOC進入 → 赤緑の縞模様
-        drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(80, 200, 80, 0.18)');
+        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.moveRangeZoc);
         drawHexStripes(ctx, cell.x, cell.y, HEX_R);
       } else {
-        // §6-2 移動可能 → 緑のハイライト
-        drawHex(ctx, cell.x, cell.y, HEX_R, 'rgba(80, 200, 80, 0.30)');
+        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.moveRange);
       }
-      // 外枠
-      drawHexOutline(ctx, cell.x, cell.y, HEX_R, 'rgba(80, 200, 80, 0.5)', 1);
+      drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.moveRangeOutline, MOVE_RANGE_OUTLINE_WIDTH);
     }
 
     // ================================================================
@@ -114,11 +163,9 @@ export default function Overlay({
       const toCell = findCell(order.targetHex);
       if (!fromCell || !toCell) continue;
       if (order.action === 'dribble') {
-        // ドリブル: 緑の太い矢印
-        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(80, 200, 80, 0.70)', 3, 12);
+        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.dribbleArrow, ARROW_WIDTH_ACTION, ARROW_HEAD_LEN);
       } else {
-        // 移動: 白の矢印
-        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,255,255,0.55)', 2, 10);
+        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.moveArrow, ARROW_WIDTH_MOVE, ARROW_HEAD_LEN_MOVE);
       }
     }
 
@@ -137,10 +184,9 @@ export default function Overlay({
       const crossesZoc = doesLineCrossZoc(
         fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
       );
-      const color = crossesZoc ? 'rgba(255, 160, 40, 0.75)' : 'rgba(60, 140, 255, 0.70)';
-      drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, color, 2.5, [8, 5]);
-      // パス先に小さな円
-      drawDot(ctx, toCell.x, toCell.y, 5, color);
+      const color = crossesZoc ? COLORS.passLineDanger : COLORS.passLine;
+      drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, color, PASS_LINE_WIDTH, PASS_LINE_DASH);
+      drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, color);
     }
 
     // ================================================================
@@ -153,7 +199,64 @@ export default function Overlay({
       const fromCell = findCell(shooter.coord);
       const toCell = findCell(order.targetHex);
       if (!fromCell || !toCell) continue;
-      drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255, 50, 50, 0.80)', 3, 12);
+      drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.shootArrow, ARROW_WIDTH_ACTION, ARROW_HEAD_LEN);
+    }
+
+    // ================================================================
+    // 6b. シュート可能範囲（§6-2: 赤い半透明ハイライト）
+    // ================================================================
+    for (const hex of shootRangeHexes) {
+      const cell = findCell(hex);
+      if (cell) {
+        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.shootRange);
+        drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.shootRangeOutline, MOVE_RANGE_OUTLINE_WIDTH);
+      }
+    }
+
+    // ================================================================
+    // 6c. ロングパス警告（パスライン上に「LONG」テキスト）
+    // ================================================================
+    if (longPassWarnings) {
+      for (const [pieceId, dist] of longPassWarnings) {
+        const order = orders.get(pieceId);
+        if (!order || order.action !== 'pass' || !order.targetPieceId) continue;
+        const passer = pieces.find(p => p.id === order.pieceId);
+        const receiver = pieces.find(p => p.id === order.targetPieceId);
+        if (!passer || !receiver) continue;
+        const fromCell = findCell(passer.coord);
+        const toCell = findCell(receiver.coord);
+        if (!fromCell || !toCell) continue;
+        const mx = (fromCell.x + toCell.x) / 2;
+        const my = (fromCell.y + toCell.y) / 2;
+        ctx.save();
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillStyle = COLORS.longPassWarning;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`LONG (${dist}HEX)`, mx, my - 10);
+        ctx.restore();
+      }
+    }
+
+    // ================================================================
+    // 6d. フェーズ演出エフェクト（§5-1b: アイコン + テキスト）
+    // ================================================================
+    for (const effect of phaseEffects) {
+      const cell = findCell(effect.coord);
+      if (!cell) continue;
+      ctx.save();
+      ctx.font = EFFECT_ICON_FONT;
+      ctx.fillStyle = effect.color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(effect.icon, cell.x, cell.y - 22);
+      if (effect.text) {
+        ctx.font = EFFECT_TEXT_FONT;
+        ctx.fillStyle = effect.color;
+        ctx.globalAlpha = 0.9;
+        ctx.fillText(effect.text, cell.x, cell.y - 36);
+      }
+      ctx.restore();
     }
 
     // ================================================================
@@ -167,9 +270,9 @@ export default function Overlay({
         ctx.beginPath();
         ctx.moveTo(0, cell.y);
         ctx.lineTo(width, cell.y);
-        ctx.strokeStyle = 'rgba(255, 220, 40, 0.55)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([10, 7]);
+        ctx.strokeStyle = COLORS.offsideLine;
+        ctx.lineWidth = OFFSIDE_LINE_WIDTH;
+        ctx.setLineDash(OFFSIDE_LINE_DASH);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
@@ -186,18 +289,15 @@ export default function Overlay({
         const toCell = findCell(hoverCoord);
         if (fromCell && toCell) {
           if (actionMode === 'pass') {
-            // パスライン予測
             const crosses = doesLineCrossZoc(
               fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
             );
-            const c = crosses ? 'rgba(255,160,40,0.40)' : 'rgba(60,140,255,0.40)';
-            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, c, 1.5, [6, 4]);
+            const c = crosses ? COLORS.hoverPassDanger : COLORS.hoverPassSafe;
+            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, c, HOVER_LINE_WIDTH, HOVER_LINE_DASH);
           } else if (actionMode === 'shoot') {
-            // シュートコース予測
-            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,50,50,0.40)', 1.5, [6, 4]);
+            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.hoverShoot, HOVER_LINE_WIDTH, HOVER_LINE_DASH);
           } else {
-            // 移動予測線
-            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, 'rgba(255,255,255,0.30)', 1.5, [4, 4]);
+            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.hoverMove, HOVER_LINE_WIDTH, HOVER_MOVE_DASH);
           }
         }
       }
@@ -205,7 +305,8 @@ export default function Overlay({
   }, [
     width, height, highlightHexes, zocHexes, offsideLine,
     selectedPieceId, actionMode, orders, pieces, hexMap,
-    showZoneBorders, hoverCoord,
+    showZoneBorders, hoverCoord, shootRangeHexes, longPassWarnings,
+    phaseEffects,
   ]);
 
   return (
@@ -268,10 +369,9 @@ function drawHexStripes(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
   ctx.closePath();
   ctx.clip();
 
-  // 赤い斜線
-  ctx.strokeStyle = 'rgba(200, 60, 60, 0.30)';
-  ctx.lineWidth = 2;
-  const step = 6;
+  ctx.strokeStyle = COLORS.zocStripe;
+  ctx.lineWidth = ZOC_STRIPE_WIDTH;
+  const step = ZOC_STRIPE_STEP;
   for (let d = -r * 2; d < r * 2; d += step) {
     ctx.beginPath();
     ctx.moveTo(cx + d, cy - r);
@@ -352,8 +452,8 @@ function drawZoneBorders(
   cellMap: Map<string, HexCell>,
 ) {
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = COLORS.zoneBorder;
+  ctx.lineWidth = ZONE_BORDER_WIDTH;
 
   // row 方向でゾーン境界を検出
   const zoneByRow = new Map<number, string>();

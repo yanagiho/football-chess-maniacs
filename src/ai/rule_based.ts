@@ -400,12 +400,11 @@ function positionZoneAffinity(position: string, coord: HexCoord, myTeam: Team): 
 
 /** LegalAction → Order 変換 */
 function actionToOrder(pieceId: string, action: LegalAction, allPieces?: Piece[]): Order {
-  // パスの場合: 受け手コマの座標を target にセット
-  // （engine/ball.ts はpassOrder.target の座標にいるコマを受け手として検索する）
+  // パスの場合: 受け手コマのIDと座標を target にセット
   if (action.action === 'pass' && action.targetPieceId && allPieces) {
     const receiver = allPieces.find((p) => p.id === action.targetPieceId);
     if (receiver) {
-      return { pieceId, type: 'pass', target: receiver.coord };
+      return { pieceId, type: 'pass', target: receiver.coord, targetPieceId: action.targetPieceId };
     }
   }
   return {

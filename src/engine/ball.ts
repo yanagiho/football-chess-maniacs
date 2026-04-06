@@ -221,11 +221,19 @@ export function processBall(
     if (passer?.hasBall && passOrder.target) {
       const defenseTeam: Team = passer.team === 'home' ? 'away' : 'home';
 
-      // 受け手: 指定 HEX にいる味方コマ
-      const targetKey = hexKey(passOrder.target);
-      const receiver  = pieces.find(
-        p => p.team === passer.team && hexKey(p.coord) === targetKey && p.id !== passer.id,
-      ) ?? null;
+      // 受け手: IDで検索（優先）→ 座標で検索（フォールバック）
+      let receiver: Piece | null = null;
+      if (passOrder.targetPieceId) {
+        receiver = pieces.find(
+          p => p.id === passOrder.targetPieceId && p.team === passer.team,
+        ) ?? null;
+      }
+      if (!receiver) {
+        const targetKey = hexKey(passOrder.target);
+        receiver = pieces.find(
+          p => p.team === passer.team && hexKey(p.coord) === targetKey && p.id !== passer.id,
+        ) ?? null;
+      }
 
       if (receiver) {
         // ステップ8: パスコース（パサー除く、受け手含む）

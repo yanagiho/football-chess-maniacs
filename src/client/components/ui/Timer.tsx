@@ -60,7 +60,7 @@ export default function Timer({
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const progress = remaining / durationMs;
-  const isUrgent = remaining <= 30_000;
+  const isUrgent = remaining <= 10_000;
 
   const timerColor = isAdditionalTime ? '#ff4444' : isUrgent ? '#ff4444' : '#eee';
   const barColor = isAdditionalTime ? '#ff4444' : isUrgent ? '#ff4444' : '#44cc44';

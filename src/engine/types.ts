@@ -60,7 +60,9 @@ export type OrderType = 'move' | 'dribble' | 'pass' | 'shoot' | 'substitute' | '
 export interface Order {
   pieceId: string;
   type: OrderType;
-  target?: HexCoord; // 移動先 / パス先 / シュート先
+  target?: HexCoord; // 移動先 / パス先(受け手の移動前座標) / シュート先
+  /** パス受け手のコマID（座標がフェーズ1移動でずれても確実に特定するため） */
+  targetPieceId?: string;
 }
 
 // ============================================================
