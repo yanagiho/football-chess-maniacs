@@ -4,7 +4,7 @@
 // デバイスに応じて完全にUIを切り替える。
 // ============================================================
 
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
 import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position } from '../types';
 import { POSITION_COLORS } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
@@ -14,6 +14,8 @@ import Timer from '../components/ui/Timer';
 import ActionBar from '../components/ui/ActionBar';
 import { LeftPanel, RightPanel } from '../components/ui/SidePanel';
 import PresetButtons from '../components/ui/PresetButtons';
+import { generateRuleBasedOrders } from '../../ai/rule_based';
+import type { Piece as EnginePiece } from '../../engine/types';
 
 interface BattleProps {
   onNavigate: (page: Page) => void;
@@ -67,6 +69,24 @@ function createInitialPieces(): PieceData[] {
   return pieces;
 }
 
+/** PieceData → engine Piece 変換 */
+function toEnginePiece(p: PieceData): EnginePiece {
+  return { id: p.id, team: p.team, position: p.position, cost: p.cost, coord: p.coord, hasBall: p.hasBall };
+}
+
+/** 前半/後半の基本ターン数 */
+const HALF_TURNS = 15;
+
+/** ターン表示ラベルを生成（例: "T3", "15+2", "T23", "30+1"） */
+function getTurnLabel(turn: number, at1: number, at2: number): { label: string; isAT: boolean } {
+  const halfEnd = HALF_TURNS + at1;
+  if (turn <= HALF_TURNS) return { label: `T${turn}`, isAT: false };
+  if (turn <= halfEnd) return { label: `${HALF_TURNS}+${turn - HALF_TURNS}`, isAT: true };
+  const secondHalfTurn = turn - at1;
+  if (secondHalfTurn <= HALF_TURNS * 2) return { label: `T${secondHalfTurn}`, isAT: false };
+  return { label: `${HALF_TURNS * 2}+${secondHalfTurn - HALF_TURNS * 2}`, isAT: true };
+}
+
 export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
   const device = useDeviceType();
   const isMobile = device === 'mobile' || device === 'tablet';
@@ -100,6 +120,59 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
       board: { pieces },
     });
   }, [gameMode, matchId, dispatch]);
+
+  // ── 演出フェーズ管理 ──
+  type CeremonyPhase = 'kickoff' | 'halftime' | 'secondhalf' | 'fulltime' | 'turn' | null;
+  const [ceremony, setCeremony] = useState<CeremonyPhase>(null);
+  const [showResultBtn, setShowResultBtn] = useState(false);
+
+  // キックオフ演出（試合開始時）
+  useEffect(() => {
+    if (state.turn !== 1 || state.status !== 'playing') return;
+    setCeremony('kickoff');
+    const timer = setTimeout(() => setCeremony(null), 2500);
+    return () => clearTimeout(timer);
+  }, [state.turn, state.status]);
+
+  // ハーフタイム演出 → 3秒後に「SECOND HALF」→ 1.5秒後に後半開始
+  useEffect(() => {
+    if (state.status !== 'halftime') return;
+    setCeremony('halftime');
+    const t1 = setTimeout(() => setCeremony('secondhalf'), 3000);
+    const t2 = setTimeout(() => {
+      setCeremony(null);
+      dispatch({ type: 'RESUME_SECOND_HALF' });
+    }, 4500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [state.status, dispatch]);
+
+  // タイムアップ演出（試合終了時）
+  useEffect(() => {
+    if (state.status !== 'finished') return;
+    setCeremony('fulltime');
+    const t = setTimeout(() => setShowResultBtn(true), 3000);
+    return () => clearTimeout(t);
+  }, [state.status]);
+
+  // リプレイ中フラグ（resolving 状態）
+  const isResolving = state.status === 'resolving';
+
+  // 通常ターン切替演出（上記以外）
+  const halfEnd = HALF_TURNS + state.additionalTime1;
+  useEffect(() => {
+    if (state.turn <= 1 || state.status !== 'playing') return;
+    if (state.turn === halfEnd + 1) return; // secondhalf は別演出
+    setCeremony('turn');
+    const timer = setTimeout(() => setCeremony(null), 1200);
+    return () => clearTimeout(timer);
+  }, [state.turn, state.status, halfEnd]);
+
+  // ── ターン表示ラベル ──
+  const turnInfo = useMemo(
+    () => getTurnLabel(state.turn, state.additionalTime1, state.additionalTime2),
+    [state.turn, state.additionalTime1, state.additionalTime2],
+  );
+  const totalTurns = 90 + state.additionalTime1 + state.additionalTime2;
 
   // スマホ: 未指示コマ一覧展開（§2-2 指示カウントタップ）
   const [showUnorderedList, setShowUnorderedList] = useState(false);
@@ -262,12 +335,60 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
     [state.selectedPieceId, state.actionMode, state.board.pieces, state.myTeam, dispatch, isMobile],
   );
 
+  /** リプレイアニメーション時間（ms）。§5-1: 約2.5秒 */
+  const REPLAY_DURATION = 2500;
+
   const handleConfirm = useCallback(() => {
-    // TODO: WebSocket送信
+    if (state.status !== 'playing') return;
+
+    const isCom = gameMode === 'com' || matchId?.startsWith('com_');
+    if (isCom) {
+      console.log(`[Battle] COM confirm: turn ${state.turn}, playerOrders=${state.orders.size}`);
+
+      // COM AIの命令を生成してawayチームのコマに追加
+      try {
+        const enginePieces = state.board.pieces.map(toEnginePiece);
+        const comResult = generateRuleBasedOrders({
+          pieces: enginePieces,
+          myTeam: 'away',
+          scoreHome: state.scoreHome,
+          scoreAway: state.scoreAway,
+          turn: state.turn,
+          maxTurn: HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2,
+          remainingSubs: 3,
+          benchPieces: [],
+          maxFieldCost: 16,
+        });
+        for (const order of comResult.orders) {
+          const target = order.target;
+          if (order.type === 'move' && target) {
+            dispatch({ type: 'ADD_ORDER', order: { pieceId: order.pieceId, action: 'move', targetHex: target } });
+          } else if (order.type === 'pass' && target) {
+            const receiver = state.board.pieces.find(p => p.coord.col === target.col && p.coord.row === target.row);
+            if (receiver) {
+              dispatch({ type: 'ADD_ORDER', order: { pieceId: order.pieceId, action: 'pass', targetPieceId: receiver.id } });
+            }
+          } else if (order.type === 'shoot' && target) {
+            dispatch({ type: 'ADD_ORDER', order: { pieceId: order.pieceId, action: 'shoot', targetHex: target } });
+          }
+        }
+        console.log(`[Battle] COM AI generated ${comResult.orders.length} orders, strategy=${comResult.strategy}`);
+      } catch (e) {
+        console.warn('[Battle] COM AI error:', e);
+      }
+
+      // RESOLVE_TURN → アニメーション再生（2.5秒） → NEXT_TURN
+      setTimeout(() => {
+        dispatch({ type: 'RESOLVE_TURN' });
+        setTimeout(() => dispatch({ type: 'NEXT_TURN' }), REPLAY_DURATION);
+      }, 50);
+    } else {
+      // TODO: オンライン対戦時はWebSocket送信
+    }
     if (isMobile && navigator.vibrate) {
       navigator.vibrate([50, 30, 50]);
     }
-  }, [isMobile]);
+  }, [gameMode, matchId, state, dispatch, isMobile]);
 
   const handleTimeout = useCallback(() => {
     handleConfirm();
@@ -327,6 +448,123 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
     </div>
   );
 
+  // ── 演出オーバーレイ（共通） ──
+  const ceremonyEl = ceremony && (
+    <>
+      <style>{`
+        @keyframes fcms-slide-up { 0% { opacity:0; transform:translate(-50%,-40%) translateY(40px); } 20% { opacity:1; transform:translate(-50%,-50%) translateY(0); } 80% { opacity:1; } 100% { opacity:0; } }
+        @keyframes fcms-scale-in { 0% { opacity:0; transform:translate(-50%,-50%) scale(0.5); } 25% { opacity:1; transform:translate(-50%,-50%) scale(1.08); } 40% { transform:translate(-50%,-50%) scale(1); } 100% { opacity:1; transform:translate(-50%,-50%) scale(1); } }
+        @keyframes fcms-scale-out { 0% { opacity:1; transform:translate(-50%,-50%) scale(1); } 100% { opacity:0; transform:translate(-50%,-50%) scale(0.8); } }
+        @keyframes fcms-turn-flash { 0% { opacity:0; transform:translate(-50%,-50%) scale(0.8); } 30% { opacity:1; transform:translate(-50%,-50%) scale(1); } 100% { opacity:0; transform:translate(-50%,-50%) scale(1); } }
+        @keyframes fcms-whistle { 0%,100% { transform:translate(-50%,-50%); } 10% { transform:translate(-48%,-50%); } 20% { transform:translate(-52%,-50%); } 30% { transform:translate(-49%,-50%); } 40% { transform:translate(-51%,-50%); } 50% { transform:translate(-50%,-50%); } }
+      `}</style>
+      <div style={{
+        position: 'fixed', inset: 0,
+        background: ceremony === 'turn' ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.7)',
+        zIndex: 200,
+        pointerEvents: ceremony === 'fulltime' && showResultBtn ? 'auto' : 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {/* ── KICK OFF ── */}
+        {ceremony === 'kickoff' && (
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            textAlign: 'center',
+            animation: 'fcms-slide-up 2.5s ease-out forwards',
+          }}>
+            <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
+              KICK OFF
+            </div>
+            <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
+              1st Half
+            </div>
+          </div>
+        )}
+
+        {/* ── HALF TIME ── */}
+        {ceremony === 'halftime' && (
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            textAlign: 'center',
+            animation: 'fcms-scale-in 0.6s ease-out forwards',
+          }}>
+            <div style={{ fontSize: 40, fontWeight: 900, color: '#FFD700', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
+              HALF TIME
+            </div>
+            <div style={{ fontSize: 28, color: '#fff', marginTop: 16, fontWeight: 700, letterSpacing: 6 }}>
+              {state.scoreHome} - {state.scoreAway}
+            </div>
+          </div>
+        )}
+
+        {/* ── SECOND HALF ── */}
+        {ceremony === 'secondhalf' && (
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            textAlign: 'center',
+            animation: 'fcms-scale-out 1.5s ease-out forwards',
+          }}>
+            <div style={{ fontSize: 36, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
+              SECOND HALF
+            </div>
+          </div>
+        )}
+
+        {/* ── FULL TIME ── */}
+        {ceremony === 'fulltime' && (
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            textAlign: 'center',
+            animation: 'fcms-whistle 0.5s ease-out, fcms-scale-in 0.6s ease-out forwards',
+          }}>
+            <div style={{ fontSize: 42, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
+              FULL TIME
+            </div>
+            <div style={{ fontSize: 32, color: '#fff', marginTop: 16, fontWeight: 700, letterSpacing: 6 }}>
+              {state.scoreHome} - {state.scoreAway}
+            </div>
+            {showResultBtn && (
+              <button
+                onClick={() => onNavigate('result')}
+                style={{
+                  marginTop: 24, padding: '10px 32px', borderRadius: 8, border: 'none',
+                  background: '#16a34a', color: '#fff', fontSize: 16, fontWeight: 700,
+                  cursor: 'pointer', pointerEvents: 'auto',
+                }}
+              >
+                結果を見る
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── 通常ターン切替 ── */}
+        {ceremony === 'turn' && (
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            animation: 'fcms-turn-flash 1.2s ease-out forwards',
+          }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#e2e8f0', letterSpacing: 1, textShadow: '0 1px 12px rgba(0,0,0,0.6)', whiteSpace: 'nowrap' }}>
+              Turn {state.turn}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  // ── リプレイ中バナー ──
+  const resolvingBannerEl = isResolving && (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0,
+      padding: '8px 0', textAlign: 'center',
+      background: 'rgba(37,99,235,0.9)', color: '#fff', fontSize: 13, fontWeight: 600,
+      zIndex: 190, pointerEvents: 'none',
+    }}>
+      ⏳ リプレイ再生中...
+    </div>
+  );
+
   // ================================================================
   // スマホ UI（§2）
   // ================================================================
@@ -335,6 +573,8 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {ceremonyEl}
+        {resolvingBannerEl}
         {disconnectBannerEl}
 
         {/* §2-2 ヘッダー（40px） */}
@@ -349,16 +589,19 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
           flexShrink: 0,
           zIndex: 40,
         }}>
-          {/* 左: スコア */}
+          {/* 左: スコア + ターン */}
           <span style={{ fontSize: 20, fontWeight: 'bold', letterSpacing: 1 }}>
             {state.scoreHome}<span style={{ color: '#555', margin: '0 3px' }}>-</span>{state.scoreAway}
           </span>
+          <span style={{ fontSize: 11, color: turnInfo.isAT ? '#ff4444' : '#888' }}>{turnInfo.label}</span>
 
           {/* 中央: タイマー */}
           <Timer
             turnStartedAt={state.turnStartedAt}
             onTimeout={handleTimeout}
             isMobile={true}
+            turnLabel={turnInfo.label}
+            isAdditionalTime={turnInfo.isAT}
           />
 
           {/* 右: 指示カウント（§2-2 タップで未指示コマ一覧を展開） */}
@@ -558,6 +801,8 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
       onContextMenu={handleContextMenu}
     >
+      {ceremonyEl}
+      {resolvingBannerEl}
       {disconnectBannerEl}
 
       {/* メインエリア: 左パネル + ボード + 右パネル */}
@@ -687,16 +932,19 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
         gap: 16,
         flexShrink: 0,
       }}>
-        {/* スコア */}
+        {/* スコア + ターン */}
         <span style={{ fontSize: 18, fontWeight: 'bold', letterSpacing: 1 }}>
           {state.scoreHome}<span style={{ color: '#555', margin: '0 3px' }}>-</span>{state.scoreAway}
         </span>
+        <span style={{ fontSize: 12, color: turnInfo.isAT ? '#ff4444' : '#888' }}>{turnInfo.label}</span>
 
         {/* タイマー */}
         <Timer
           turnStartedAt={state.turnStartedAt}
           onTimeout={handleTimeout}
           isMobile={false}
+          turnLabel={turnInfo.label}
+          isAdditionalTime={turnInfo.isAT}
         />
 
         {/* 指示カウント */}
@@ -718,18 +966,20 @@ export default function Battle({ onNavigate, matchId, gameMode }: BattleProps) {
         {/* ターン確定ボタン */}
         <button
           onClick={handleConfirm}
+          disabled={isResolving}
           style={{
             padding: '6px 20px',
             borderRadius: 6,
             border: 'none',
-            background: '#44aa44',
+            background: isResolving ? '#555' : '#44aa44',
             color: '#fff',
             fontSize: 14,
             fontWeight: 'bold',
-            cursor: 'pointer',
+            cursor: isResolving ? 'default' : 'pointer',
+            opacity: isResolving ? 0.6 : 1,
           }}
         >
-          ✓ ターン確定
+          {isResolving ? '⏳ リプレイ中' : '✓ ターン確定'}
         </button>
       </div>
     </div>

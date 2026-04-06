@@ -15,7 +15,15 @@ type GameAction =
   | { type: 'SET_BOARD'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'SET_STATUS'; status: GameState['status'] }
   | { type: 'APPLY_PRESET'; preset: 'forward' | 'backward' | 'defend' | 'attack'; myTeam: Team; opponentZocHexes: Set<string> }
-  | { type: 'INIT_MATCH'; matchId: string; myTeam: Team; board: GameState['board'] };
+  | { type: 'INIT_MATCH'; matchId: string; myTeam: Team; board: GameState['board'] }
+  | { type: 'RESOLVE_TURN' }
+  | { type: 'NEXT_TURN' }
+  | { type: 'RESUME_SECOND_HALF' };
+
+/** ランダムなアディショナルタイム（1〜3） */
+function randomAT(): number {
+  return Math.floor(Math.random() * 3) + 1;
+}
 
 function createInitialState(): GameState {
   return {
@@ -30,12 +38,38 @@ function createInitialState(): GameState {
     orders: new Map(),
     selectedPieceId: null,
     actionMode: null,
+    additionalTime1: randomAT(),
+    additionalTime2: randomAT(),
   };
 }
 
 /** §2-7 プリセット行動で対象となるポジション */
 const DEFEND_POSITIONS = new Set<string>(['DF', 'SB', 'VO', 'GK']);
 const ATTACK_POSITIONS = new Set<string>(['MF', 'OM', 'WG', 'FW']);
+
+/** 指示に基づいてコマを移動する簡易処理 */
+function applyOrders(pieces: PieceData[], orders: Map<string, OrderData>): PieceData[] {
+  const moved = pieces.map(p => {
+    const order = orders.get(p.id);
+    if (order?.action === 'move' && order.targetHex) {
+      return { ...p, coord: { col: order.targetHex.col, row: order.targetHex.row } };
+    }
+    if (order?.action === 'dribble' && order.targetHex) {
+      return { ...p, coord: { col: order.targetHex.col, row: order.targetHex.row } };
+    }
+    if (order?.action === 'pass' && order.targetPieceId && p.hasBall && p.id === order.pieceId) {
+      return { ...p, hasBall: false };
+    }
+    return p;
+  });
+  for (const [, order] of orders) {
+    if (order.action === 'pass' && order.targetPieceId) {
+      const idx = moved.findIndex(p => p.id === order.targetPieceId);
+      if (idx !== -1) moved[idx] = { ...moved[idx], hasBall: true };
+    }
+  }
+  return moved;
+}
 
 function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
@@ -83,7 +117,10 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'SET_STATUS':
       return { ...state, status: action.status };
 
-    case 'INIT_MATCH':
+    case 'INIT_MATCH': {
+      const at1 = randomAT();
+      const at2 = randomAT();
+      console.log(`[GameState] INIT_MATCH: AT1=${at1}, AT2=${at2}`);
       return {
         ...createInitialState(),
         matchId: action.matchId,
@@ -91,6 +128,70 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         board: action.board,
         status: 'playing',
         turn: 1,
+        turnStartedAt: Date.now(),
+        additionalTime1: at1,
+        additionalTime2: at2,
+      };
+    }
+
+    case 'RESOLVE_TURN': {
+      // 命令を適用してコマを移動、resolving 状態に入る（タイマー停止）
+      const resolved = applyOrders(state.board.pieces, state.orders);
+      return {
+        ...state,
+        board: { pieces: resolved },
+        status: 'resolving',
+        turnStartedAt: null, // タイマー停止
+        selectedPieceId: null,
+        actionMode: null,
+      };
+    }
+
+    case 'NEXT_TURN': {
+      const HALF = 15;
+      const nextTurn = state.turn + 1;
+      const halfEnd = HALF + state.additionalTime1;    // 前半終了ターン
+      const fullEnd = HALF * 2 + state.additionalTime1 + state.additionalTime2; // 後半終了ターン
+
+      // RESOLVE_TURN済み（resolving状態）ならコマ移動済み、それ以外は今ここで適用
+      const movedPieces = state.status === 'resolving'
+        ? state.board.pieces
+        : applyOrders(state.board.pieces, state.orders);
+
+      // 前半終了 → ハーフタイム
+      if (state.turn === halfEnd) {
+        return {
+          ...state,
+          turn: nextTurn,
+          board: { pieces: movedPieces },
+          orders: new Map(),
+          selectedPieceId: null,
+          actionMode: null,
+          status: 'halftime',
+          turnStartedAt: null,
+        };
+      }
+
+      // 試合終了
+      if (nextTurn > fullEnd) {
+        return { ...state, status: 'finished', orders: new Map(), selectedPieceId: null, actionMode: null };
+      }
+
+      return {
+        ...state,
+        turn: nextTurn,
+        board: { pieces: movedPieces },
+        orders: new Map(),
+        selectedPieceId: null,
+        actionMode: null,
+        turnStartedAt: Date.now(),
+      };
+    }
+
+    case 'RESUME_SECOND_HALF':
+      return {
+        ...state,
+        status: 'playing',
         turnStartedAt: Date.now(),
       };
 

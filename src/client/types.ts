@@ -62,7 +62,7 @@ export interface GameState {
   scoreHome: number;
   scoreAway: number;
   myTeam: Team;
-  status: 'waiting' | 'playing' | 'finished';
+  status: 'waiting' | 'playing' | 'resolving' | 'halftime' | 'finished';
   turnStartedAt: number | null;
   /** 今ターンの指示 */
   orders: Map<string, OrderData>;
@@ -70,6 +70,10 @@ export interface GameState {
   selectedPieceId: string | null;
   /** 現在のアクションモード */
   actionMode: ActionMode;
+  /** 前半アディショナルタイム（1〜3ターン） */
+  additionalTime1: number;
+  /** 後半アディショナルタイム（1〜3ターン） */
+  additionalTime2: number;
 }
 
 /** WebSocketメッセージ型 */
