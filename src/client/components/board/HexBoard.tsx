@@ -83,6 +83,8 @@ interface HexBoardProps {
   onHexClick: (coord: HexCoord) => void;
   /** ボールアイコンクリック（コマ本体とは別のタッチ対象） */
   onBallClick?: (pieceId: string) => void;
+  /** チェーンパスのボールタッチ待ちコマID（ボールが光る） */
+  chainBallPulseId?: string | null;
   isMobile: boolean;
   showZoneBorders?: boolean;
   myTeam?: 'home' | 'away';
@@ -107,6 +109,7 @@ export default function HexBoard({
   onSelectPiece,
   onHexClick,
   onBallClick,
+  chainBallPulseId,
   isMobile,
   showZoneBorders = true,
   myTeam = 'home',
@@ -417,6 +420,7 @@ export default function HexBoard({
               order={displayOrders.get(piece.id)}
               myTeam={myTeam}
               onBallClick={onBallClick}
+              ballPulse={piece.id === chainBallPulseId}
             />
           );
         })}

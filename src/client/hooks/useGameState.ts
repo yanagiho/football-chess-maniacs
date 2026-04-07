@@ -284,8 +284,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'ADD_CHAIN_PASS': {
       const newOrders = new Map(state.orders);
-      // パスを出したコマに pass/throughPass/shoot 命令を登録
       const step = action.step;
+      // パスを出したコマに命令を登録
       if (step.type === 'pass' && step.toPieceId) {
         newOrders.set(step.fromPieceId, {
           pieceId: step.fromPieceId, action: 'pass', targetPieceId: step.toPieceId,
@@ -299,15 +299,22 @@ function gameReducer(state: GameState, action: GameAction): GameState {
           pieceId: step.fromPieceId, action: 'shoot', targetHex: step.toHex,
         });
       }
+
+      const isChainContinue = step.type === 'pass' && action.newHolderId !== null;
+
+      // パス継続可能判定: 受け手が既に移動命令を持っていたら自動キープ
+      const receiverHasOrder = action.newHolderId ? newOrders.has(action.newHolderId) : false;
+      const canContinue = isChainContinue && !receiverHasOrder;
+
       return {
         ...state,
         orders: newOrders,
         ballChain: { steps: [...state.ballChain.steps, step] },
-        chainBallHolderId: action.newHolderId,
-        // シュートやスルーパスの場合はチェーン終了
-        ballOperationActive: step.type === 'pass' && action.newHolderId !== null,
-        selectedPieceId: action.newHolderId,
-        actionMode: action.newHolderId ? 'pass' : null,
+        chainBallHolderId: canContinue ? action.newHolderId : null,
+        ballOperationActive: canContinue,
+        // パス継続時: selectedPieceIdはnull、actionModeもnull（ボールタッチ待ち状態）
+        selectedPieceId: null,
+        actionMode: null,
       };
     }
 

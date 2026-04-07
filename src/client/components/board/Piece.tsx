@@ -20,6 +20,8 @@ interface PieceProps {
   myTeam?: 'home' | 'away';
   /** ボールアイコンをクリックした時のコールバック */
   onBallClick?: (pieceId: string) => void;
+  /** チェーンパスのボールタッチ待ち状態（ボールが光る） */
+  ballPulse?: boolean;
 }
 
 /** PA（ペナルティエリア）判定 */
@@ -49,7 +51,7 @@ function BallIcon({ size, onClick }: { size: number; onClick?: (e: React.MouseEv
   );
 }
 
-export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam = 'home', onBallClick }: PieceProps) {
+export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam = 'home', onBallClick, ballPulse = false }: PieceProps) {
   const size = pieceSize(piece.cost as Cost);
   const half = size / 2;
   const side: Side = piece.team === myTeam ? 'ally' : 'enemy';
@@ -104,8 +106,12 @@ export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam
             right: -ballSize * 0.5,
             pointerEvents: 'auto',
             zIndex: 25,
+            animation: ballPulse ? 'fcms-ball-pulse 1s ease-in-out infinite' : 'none',
           }}
         >
+          {ballPulse && (
+            <style>{`@keyframes fcms-ball-pulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px rgba(255,215,0,0.3))}50%{transform:scale(1.2);filter:drop-shadow(0 0 12px rgba(255,215,0,0.8))}}`}</style>
+          )}
           <BallIcon size={ballSize} onClick={handleBallClick} />
         </div>
       )}
