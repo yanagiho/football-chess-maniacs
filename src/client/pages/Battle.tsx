@@ -513,8 +513,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // ── オンライン対戦: WS メッセージ処理 ──
   const handleOnlineMessage = useCallback((msg: unknown) => {
     const data = msg as WsMessage;
-    console.log('[Battle] WS message:', data.type);
-
     switch (data.type) {
       case 'TURN_RESULT':
         // リプレイアニメーション（ローカル命令適用）→ 2.5秒後にサーバー状態を反映
@@ -534,7 +532,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         break;
 
       case 'INPUT_ACCEPTED':
-        console.log('[Battle] Input accepted for turn', data.turn);
         dispatch({ type: 'SET_STATUS', status: 'waiting_opponent' });
         break;
 
@@ -553,7 +550,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         break;
 
       case 'RECONNECT':
-        console.log('[Battle] Reconnected, restoring state');
         dispatch({
           type: 'SET_BOARD',
           board: data.state.board,
@@ -579,12 +575,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     onMessage: handleOnlineMessage,
     onDisconnect: () => {
       if (!isCom) {
-        console.log('[Battle] WS disconnected');
         setDisconnectBanner('サーバーとの接続が切断されました。再接続中...');
       }
     },
     onReconnect: () => {
-      console.log('[Battle] WS reconnected');
       setDisconnectBanner('接続が復帰しました');
       setTimeout(() => setDisconnectBanner(null), RECONNECT_BANNER_MS);
     },
@@ -596,7 +590,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (isCom) return;
     if (!matchId || !authToken) return;
 
-    console.log('[Battle] Online init: connecting to game session WS, matchId=', matchId);
     wsConnect();
 
     // 初期コマ配置（サーバーからTURN_RESULTまたはRECONNECTが来るまでの暫定表示）
@@ -616,7 +609,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   useEffect(() => {
     if (!isCom) return;
 
-    console.log('[Battle] COM init: creating pieces, matchId=', matchId, 'formationData=', !!formationData);
     const pieces = createInitialPieces(formationData);
     dispatch({
       type: 'INIT_MATCH',
@@ -995,13 +987,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (state.status !== 'playing') return;
 
     if (isCom) {
-      // === DEBUG: ターン開始状態 ===
-      const ballHolder = state.board.pieces.find(p => p.hasBall);
-      console.log('=== TURN START ===');
-      console.log('Turn:', state.turn);
-      console.log('Ball holder:', ballHolder ? `${ballHolder.id} (${ballHolder.position}) at (${ballHolder.coord.col},${ballHolder.coord.row})` : 'NONE');
-      console.log('Player orders:', [...state.orders.entries()].map(([id, o]) => `${id}: ${o.action} → ${o.targetPieceId ?? (o.targetHex ? `(${o.targetHex.col},${o.targetHex.row})` : 'none')}`));
-
       try {
         // 1. プレイヤー命令をエンジン形式に変換
         const fieldPieces = state.board.pieces.filter(p => !p.isBench);
@@ -1022,35 +1007,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           maxFieldCost: MAX_FIELD_COST,
         });
         const awayOrders: EngineOrder[] = comResult.orders;
-        console.log('COM orders:', awayOrders.map(o => `${o.pieceId}: ${o.type} → ${o.targetPieceId ?? (o.target ? `(${o.target.col},${o.target.row})` : 'none')}`));
-        console.log('Home orders (engine):', homeOrders.map(o => `${o.pieceId}: ${o.type} → ${o.targetPieceId ?? (o.target ? `(${o.target.col},${o.target.row})` : 'none')}`));
 
         // 3. エンジン Board 構築
         const board: EngineBoard = { pieces: enginePieces, snapshot: [] };
 
         // 4. processTurn 実行（Phase0〜3: 移動→タックル→ファウル→シュート→パスカット→オフサイド）
-        console.log('[Battle] processTurn: running Phase 0-3...');
         const turnResult = processTurn(board, homeOrders, awayOrders, boardContext);
-        // === DEBUG: processTurn結果 ===
-        console.log('=== processTurn RESULT ===');
-        console.log('Events:', turnResult.events.map(ev => {
-          const base = `${ev.type} (phase ${ev.phase})`;
-          if (ev.type === 'PIECE_MOVED') return `${base}: ${ev.pieceId} (${ev.from.col},${ev.from.row})→(${ev.to.col},${ev.to.row})`;
-          if (ev.type === 'TACKLE') return `${base}: success=${ev.result.success} at (${ev.coord.col},${ev.coord.row})`;
-          if (ev.type === 'FOUL') return `${base}: ${ev.result.outcome} at (${ev.coord.col},${ev.coord.row})`;
-          if (ev.type === 'SHOOT') return `${base}: ${ev.result.outcome} by ${ev.shooterId}`;
-          if (ev.type === 'PASS_DELIVERED') return `${base}: ${ev.passerId}→${ev.receiverId}`;
-          if (ev.type === 'PASS_CUT') return `${base}: ${ev.result.outcome}`;
-          if (ev.type === 'OFFSIDE') return `${base}: receiver=${ev.receiverId}`;
-          if (ev.type === 'BALL_ACQUIRED') return `${base}: ${ev.pieceId}`;
-          if (ev.type === 'COLLISION') return `${base}: at (${ev.coord.col},${ev.coord.row})`;
-          if (ev.type === 'ZOC_STOP') return `${base}: ${ev.pieceId} at (${ev.coord.col},${ev.coord.row})`;
-          return base;
-        }));
-        const newBallHolder = turnResult.board.pieces.find(p => p.hasBall);
-        console.log('New ball holder:', newBallHolder ? `${newBallHolder.id} (${newBallHolder.position}) at (${newBallHolder.coord.col},${newBallHolder.coord.row})` : 'NONE');
-        console.log('Piece positions:', turnResult.board.pieces.map(p => `${p.id}(${p.position}${p.hasBall ? ' ⚽' : ''}): (${p.coord.col},${p.coord.row})`));
-        console.log('=== TURN END ===');
 
         // 5. ゴール判定 → スコア更新
         const goalScored = hasGoal(turnResult.events);
@@ -1067,7 +1029,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             if (shooter?.team === 'home') { newScoreHome++; scorerTeam = 'home'; }
             else { newScoreAway++; scorerTeam = 'away'; }
           }
-          console.log(`[Battle] GOAL! ${scorerTeam} scores → ${newScoreHome}-${newScoreAway}`);
         }
         goalScoredRef.current = { scored: goalScored, scorerTeam };
 
@@ -1309,7 +1270,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         timestamp: Date.now(),
       };
 
-      console.log(`[Battle] Online confirm: turn ${state.turn}, orders=${rawOrders.length}, seq=${currentSeq}`);
       wsSend(turnInput);
     }
     if (isMobile && navigator.vibrate) {
@@ -1348,7 +1308,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   // ── A7: ミニゲーム完了ハンドラ ──
   const handleMiniGameComplete = useCallback(() => {
-    console.log('[Battle] Mini-game complete, resuming turn');
     setMiniGame(null);
     setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
     dispatch({ type: 'NEXT_TURN' });

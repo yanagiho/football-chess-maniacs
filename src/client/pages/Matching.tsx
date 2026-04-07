@@ -26,7 +26,6 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
   // ── マッチメイキングWS メッセージ処理 ──
   const handleMmMessage = useCallback((msg: unknown) => {
     const data = msg as MatchmakingWsMessage;
-    console.log('[Matching] WS message:', data.type);
 
     switch (data.type) {
       case 'MATCHMAKING_CONNECTED':
@@ -39,13 +38,11 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
         break;
 
       case 'QUEUE_JOINED':
-        console.log('[Matching] Queue joined, position:', data.position);
         break;
 
       case 'MATCH_FOUND':
         if (!matchFoundRef.current) {
           matchFoundRef.current = true;
-          console.log('[Matching] Match found:', data.matchId);
           setStatus('found');
           onMatchFound(data.matchId, data.team);
         }
@@ -71,7 +68,7 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
     onMessage: handleMmMessage,
     onDisconnect: () => {
       if (!matchFoundRef.current && status === 'searching') {
-        console.log('[Matching] WS disconnected');
+        // WS disconnected
       }
     },
     autoReconnect: true,
@@ -86,7 +83,6 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
       return;
     }
 
-    console.log('[Matching] Online mode: connecting to matchmaking WS');
     wsConnect();
     return () => wsDisconnect();
   }, [gameMode, authToken, wsConnect, wsDisconnect]);
@@ -96,10 +92,8 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
   useEffect(() => {
     if (gameMode !== 'com') return;
 
-    console.log('[Matching] COM mode: scheduling match in 1s');
     const timer = setTimeout(() => {
       const comMatchId = `com_${Date.now()}`;
-      console.log('[Matching] COM match found:', comMatchId);
       setStatus('found');
       onMatchFound(comMatchId);
     }, 1000);
@@ -197,7 +191,6 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
           <button
             onClick={() => {
               const comMatchId = `com_${Date.now()}`;
-              console.log('[Matching] COM fallback match:', comMatchId);
               onMatchFound(comMatchId);
             }}
             style={{

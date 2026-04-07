@@ -83,7 +83,14 @@ export default function PKGame({
       )}
 
       <div style={{ fontSize: 24, fontWeight: 'bold', color: countdown <= 2 ? '#ff4444' : '#fff' }}>
-        {isKicker ? 'キック！' : 'セーブ！'} - {countdown}秒
+        {isKicker ? 'PK キック！' : 'PK セーブ！'} - {countdown}秒
+      </div>
+
+      {/* 操作説明 */}
+      <div style={{ fontSize: 15, color: '#ffd700', textAlign: 'center' }}>
+        {isKicker
+          ? 'ゴールの蹴る方向を選んでください（6ゾーン）'
+          : 'GKが飛ぶ方向を選んでください（6ゾーン）'}
       </div>
 
       {/* キッカー/GK情報 */}

@@ -71,6 +71,13 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
         {isAttacker ? 'コーナーキック（攻撃）' : 'コーナーキック（守備）'} - {countdown}秒
       </div>
 
+      {/* 操作説明 */}
+      <div style={{ fontSize: 15, color: '#ffd700', textAlign: 'center' }}>
+        {isAttacker
+          ? 'まず投入する3枚のコマを選び、次にゾーンに配置してください'
+          : '守備コマ3枚を選び、ゾーンに配置して守ってください'}
+      </div>
+
       {/* フェーズ1: コマ選択 */}
       {phase === 'select' && (
         <>

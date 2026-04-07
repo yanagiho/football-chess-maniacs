@@ -73,7 +73,14 @@ export default function FKGame({ isAttacker, onSubmit, isMobile, countdown, kick
     }}>
       {/* カウントダウン */}
       <div style={{ fontSize: 24, fontWeight: 'bold', color: countdown <= 2 ? '#ff4444' : '#fff' }}>
-        {isAttacker ? 'フリーキック' : 'GKセーブ'} - {countdown}秒
+        {isAttacker ? 'フリーキック！' : 'GKセーブ！'} - {countdown}秒
+      </div>
+
+      {/* 操作説明 */}
+      <div style={{ fontSize: 15, color: '#ffd700', textAlign: 'center', lineHeight: 1.6 }}>
+        {isAttacker
+          ? 'ゴールの狙う方向を選んでください\n直接 or ロブも選択できます'
+          : 'GKが飛ぶ方向を選んでください'}
       </div>
 
       {/* キッカー/GK情報 */}

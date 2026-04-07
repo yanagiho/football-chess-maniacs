@@ -94,14 +94,13 @@ const PRESETS: Record<string, { label: string; entries: PresetEntry[] }> = {
   },
   '3-6-1': {
     label: '3-6-1',
-    // ライン構成: GK / DF×3 / SB×2+MF×1 / MF×1+OM×1 / WG×1 / FW×1
+    // ライン構成: GK / DF×3 / VO×2 / WG×2+OM×2 / FW×1
     entries: [
       { position: 'GK', col: 10, row: 1 },                                       // L1: GK
       { position: 'DF', col: 6, row: 4 }, { position: 'DF', col: 10, row: 4 }, { position: 'DF', col: 14, row: 4 }, // L2: 3バック
-      { position: 'SB', col: 3, row: 8 }, { position: 'MF', col: 10, row: 8 }, { position: 'SB', col: 17, row: 8 }, // L3: WB両サイド+アンカー中央
-      { position: 'MF', col: 7, row: 12 }, { position: 'OM', col: 13, row: 12 },  // L4: 中盤前方
-      { position: 'WG', col: 4, row: 16 },                                        // L5: サイド前方
-      { position: 'FW', col: 10, row: 19 },                                       // L6: 最前線
+      { position: 'VO', col: 7, row: 8 }, { position: 'VO', col: 13, row: 8 },   // L3: ダブルボランチ
+      { position: 'WG', col: 3, row: 13 }, { position: 'OM', col: 8, row: 13 }, { position: 'OM', col: 12, row: 13 }, { position: 'WG', col: 17, row: 13 }, // L4: 6の中盤ライン
+      { position: 'FW', col: 10, row: 19 },                                       // L5: 最前線
     ],
   },
   '4-3-3': {

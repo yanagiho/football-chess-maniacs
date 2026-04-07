@@ -80,13 +80,11 @@ export default function App() {
   }, []);
 
   const handleFormationConfirm = useCallback((data: FormationData) => {
-    console.log('[App] formationConfirm: starters=', data.starters.length, 'bench=', data.bench.length);
     setFormationData(data);
     setPage('matching');
   }, []);
 
   const handleMatchFound = useCallback((id: string, team?: Team) => {
-    console.log('[App] matchFound:', id, 'team:', team, '→ navigating to battle');
     setMatchId(id);
     setMyTeam(team ?? 'home');
     setPage('battle');

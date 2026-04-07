@@ -125,7 +125,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'INIT_MATCH': {
       const at1 = randomAT();
       const at2 = randomAT();
-      console.log(`[GameState] INIT_MATCH: AT1=${at1}, AT2=${at2}`);
       return {
         ...createInitialState(),
         matchId: action.matchId,
