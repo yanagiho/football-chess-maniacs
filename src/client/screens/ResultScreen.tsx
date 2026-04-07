@@ -125,6 +125,7 @@ export default function ResultScreen({
 
       {/* ボタン */}
       <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <ResultButton label="リプレイを見る" onClick={() => onNavigate('replayViewer')} />
         {gameMode === 'com' && (
           <ResultButton label="もう一度" primary onClick={() => onNavigate('formation')} />
         )}

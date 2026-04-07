@@ -10,6 +10,7 @@ import authRoutes from './api/auth';
 import teamRoutes from './api/team';
 import matchRoutes from './api/match';
 import replayRoutes from './api/replay';
+import piecesRoutes from './server/pieces';
 import { jwtMiddleware } from './middleware/jwt_verify';
 import { rateLimitMiddleware, RATE_LIMITS } from './middleware/rate_limit';
 
@@ -90,6 +91,7 @@ api.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
 api.route('/teams', teamRoutes);
 api.route('/matches', matchRoutes);
 api.route('/replays', replayRoutes);
+api.route('/pieces', piecesRoutes);
 
 app.route('/api', api);
 

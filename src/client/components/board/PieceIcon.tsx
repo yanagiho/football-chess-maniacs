@@ -14,12 +14,19 @@ export type Position = "GK" | "DF" | "SB" | "VO" | "MF" | "OM" | "WG" | "FW";
 export type Cost = 1 | 1.5 | 2 | 2.5 | 3;
 export type Side = "ally" | "enemy";
 
+/** C2: 命令済みバッジ種類 */
+export type OrderBadge = 'move' | 'pass' | 'shoot' | 'stay' | null;
+
 export interface PieceIconProps {
   cost: Cost;
   position: Position;
   side: Side;
   selected?: boolean;
   hasBall?: boolean;
+  /** C2: 未命令パルスアニメーション */
+  pulse?: boolean;
+  /** C2: 命令済みバッジ */
+  orderBadge?: OrderBadge;
   onClick?: () => void;
   className?: string;
   style?: React.CSSProperties;
@@ -54,6 +61,18 @@ const BORDER_COLORS: Record<BorderType, string | null> = {
   goldLarge: "#FFD700",
 };
 
+/** C3: ポジション別バッジ背景色 */
+const BADGE_COLORS: Record<Position, { ally: string; enemy: string }> = {
+  GK: { ally: "#FFD700", enemy: "#FFD700" },
+  DF: { ally: "#1E40AF", enemy: "#991B1B" },
+  SB: { ally: "#2563EB", enemy: "#DC2626" },
+  VO: { ally: "#059669", enemy: "#D97706" },
+  MF: { ally: "#3B82F6", enemy: "#EF4444" },
+  OM: { ally: "#7C3AED", enemy: "#E11D48" },
+  WG: { ally: "#06B6D4", enemy: "#F97316" },
+  FW: { ally: "#4F46E5", enemy: "#BE123C" },
+};
+
 // ── コンポーネント ────────────────────────────────────────
 const PieceIcon = memo(function PieceIcon({
   cost,
@@ -61,6 +80,8 @@ const PieceIcon = memo(function PieceIcon({
   side,
   selected = false,
   hasBall = false,
+  pulse = false,
+  orderBadge = null,
   onClick,
   className,
   style,
@@ -117,9 +138,12 @@ const PieceIcon = memo(function PieceIcon({
       role="img"
       aria-label={`${position} Cost${cost} ${side === "ally" ? "味方" : "敵"}`}
     >
-      {/* CSS animation for selected state */}
-      {selected && (
-        <style>{`@keyframes fcms-pulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
+      {/* CSS animations */}
+      {(selected || pulse) && (
+        <style>{`
+          @keyframes fcms-pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+          @keyframes fcms-breathe{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:0.85}}
+        `}</style>
       )}
 
       {/* 選択時の黄色リング（点滅） */}
@@ -175,14 +199,14 @@ const PieceIcon = memo(function PieceIcon({
         {rank}
       </text>
 
-      {/* ポジション略称バッジ (右上) */}
+      {/* ポジション略称バッジ (右上) — C3: ポジション別色分け */}
       <rect
         x={badgeX}
         y={badgeY}
         width={badgeW}
         height={badgeH}
         rx={3}
-        fill="rgba(0,0,0,0.55)"
+        fill={BADGE_COLORS[position]?.[side] ?? "rgba(0,0,0,0.55)"}
       />
       <text
         x={badgeX + badgeW / 2}
@@ -195,6 +219,20 @@ const PieceIcon = memo(function PieceIcon({
       >
         {position}
       </text>
+
+      {/* SS（コスト3）金色光彩 */}
+      {border === "goldLarge" && (
+        <circle cx={cx} cy={cy} r={outerR + 3} fill="none" stroke="#FFD700" strokeWidth={1} opacity={0.3} />
+      )}
+
+      {/* C2: 未命令パルスリング */}
+      {pulse && !selected && (
+        <circle
+          cx={cx} cy={cy} r={outerR + 2}
+          fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth={1.5}
+          style={{ animation: "fcms-breathe 1.5s ease-in-out infinite", transformOrigin: `${cx}px ${cy}px` }}
+        />
+      )}
 
       {/* ボール保持インジケーター (右下) */}
       {hasBall && (
@@ -210,6 +248,24 @@ const PieceIcon = memo(function PieceIcon({
           {pentagons.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r={1.8} fill="#333" />
           ))}
+        </g>
+      )}
+
+      {/* C2: 命令済みバッジ (左下) */}
+      {orderBadge && !hasBall && (
+        <g>
+          <circle cx={8} cy={size - 8} r={7} fill={
+            orderBadge === 'move' ? '#44aa44'
+            : orderBadge === 'pass' ? '#4488cc'
+            : orderBadge === 'shoot' ? '#cc4444'
+            : '#666'
+          } stroke="#111" strokeWidth={1} />
+          <text x={8} y={size - 5} textAnchor="middle" fill="white" fontSize={8} fontWeight={700}>
+            {orderBadge === 'move' ? '\u2192'
+            : orderBadge === 'pass' ? '\u26BD'
+            : orderBadge === 'shoot' ? '\u{1F945}'
+            : '\u2014'}
+          </text>
         </g>
       )}
     </svg>

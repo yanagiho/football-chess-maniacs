@@ -136,7 +136,8 @@ export type Page =
   | 'settings'
   | 'difficultySelect'
   | 'friendMatch'
-  | 'presetTeams';
+  | 'presetTeams'
+  | 'replayViewer';
 
 /** 試合スタッツ（リザルト画面用） */
 export interface MatchStats {

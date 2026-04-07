@@ -421,8 +421,8 @@ function computeReachableHexes(
 }
 
 /** フェーズ演出タイミング (ms) */
-const PHASE_TIMINGS = [800, 300, 300, 500, 300]; // Phase0-4
-const TOTAL_ANIMATION_MS = PHASE_TIMINGS.reduce((a, b) => a + b, 0); // 2200
+const PHASE_TIMINGS = [800, 500, 500, 500, 500]; // Phase0-4
+const TOTAL_ANIMATION_MS = PHASE_TIMINGS.reduce((a, b) => a + b, 0); // 2800
 
 /** ミニゲーム状態型 */
 type MiniGameState =
@@ -1095,7 +1095,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         setResolvingPhase(0);
         let elapsed = 0;
 
-        // Phase1 (0.3s): 競合・タックル（§5-1b）
+        // Phase1 (0.5s): 競合・タックル（§5-1b）
         elapsed += PHASE_TIMINGS[0];
         replayTimerRef.current = setTimeout(() => {
           setResolvingPhase(1);
@@ -1119,7 +1119,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           setPhaseEffects(effects);
         }, elapsed);
 
-        // Phase2 (0.3s): ファウル（§5-1b）
+        // Phase2 (0.5s): ファウル（§5-1b）
         elapsed += PHASE_TIMINGS[1];
         replayTimerRef.current = setTimeout(() => {
           setResolvingPhase(2);
@@ -1167,7 +1167,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           setPhaseEffects(effects);
         }, elapsed);
 
-        // Phase4 (0.3s): パスカット/オフサイド（§5-1b）
+        // Phase4 (0.5s): パスカット/オフサイド（§5-1b）
         elapsed += PHASE_TIMINGS[3];
         replayTimerRef.current = setTimeout(() => {
           setResolvingPhase(4);

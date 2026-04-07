@@ -26,8 +26,19 @@ import SettingsScreen from './screens/SettingsScreen';
 import DifficultySelectScreen from './screens/DifficultySelectScreen';
 import FriendMatchScreen from './screens/FriendMatchScreen';
 import PresetTeamsScreen from './screens/PresetTeamsScreen';
+import ReplayScreen from './screens/ReplayScreen';
 
 import type { PresetTeam } from '../data/presetTeams';
+import type { PieceData, GameEvent } from './types';
+
+/** リプレイ用ターンスナップショット */
+interface TurnSnapshot {
+  turn: number;
+  pieces: PieceData[];
+  events: GameEvent[];
+  scoreHome: number;
+  scoreAway: number;
+}
 
 /** デフォルトの空スタッツ */
 function emptyStats(): MatchStats {
@@ -59,6 +70,8 @@ export default function App() {
     scoreHome: 0, scoreAway: 0, myTeam: 'home', reason: 'completed',
     stats: emptyStats(), mvp: null,
   });
+  // リプレイデータ（C9）
+  const [replayTurns, setReplayTurns] = useState<TurnSnapshot[]>([]);
 
   const navigate = useCallback((p: Page) => setPage(p), []);
 
@@ -187,6 +200,9 @@ export default function App() {
         {page === 'friendMatch' && <FriendMatchScreen onNavigate={navigate} />}
         {page === 'presetTeams' && (
           <PresetTeamsScreen onNavigate={navigate} onSelectPresetTeam={handleSelectPresetTeam} />
+        )}
+        {page === 'replayViewer' && (
+          <ReplayScreen onNavigate={navigate} turns={replayTurns} myTeam={matchEndData.myTeam} />
         )}
       </div>
     </SettingsProvider>

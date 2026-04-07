@@ -77,8 +77,8 @@ const ZOC_STRIPE_STEP = 6;
 const ZOC_STRIPE_WIDTH = 2;
 const ZONE_BORDER_WIDTH = 1;
 const MOVE_RANGE_OUTLINE_WIDTH = 1;
-const EFFECT_ICON_FONT = 'bold 18px sans-serif';
-const EFFECT_TEXT_FONT = 'bold 10px sans-serif';
+const EFFECT_ICON_FONT = 'bold 40px sans-serif';
+const EFFECT_TEXT_FONT = 'bold 24px sans-serif';
 
 export default function Overlay({
   width,
@@ -249,12 +249,12 @@ export default function Overlay({
       ctx.fillStyle = effect.color;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(effect.icon, cell.x, cell.y - 22);
+      ctx.fillText(effect.icon, cell.x, cell.y - 30);
       if (effect.text) {
         ctx.font = EFFECT_TEXT_FONT;
         ctx.fillStyle = effect.color;
         ctx.globalAlpha = 0.9;
-        ctx.fillText(effect.text, cell.x, cell.y - 36);
+        ctx.fillText(effect.text, cell.x, cell.y - 62);
       }
       ctx.restore();
     }
