@@ -41,7 +41,7 @@ function BallIcon({ size, onClick }: { size: number; onClick?: (e: React.MouseEv
     <svg
       width={size} height={size} viewBox={`0 0 ${size} ${size}`}
       onClick={onClick}
-      style={{ cursor: onClick ? 'pointer' : undefined, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.5))' }}
+      style={{ cursor: onClick ? 'pointer' : undefined, filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.8))' }}
     >
       <circle cx={r} cy={r} r={r - 1} fill="white" stroke="#333" strokeWidth={1} />
       {pentagons.map((p, i) => (
@@ -63,8 +63,8 @@ export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam
   // §6-1 GK PA外警告
   const gkOutsidePA = piece.position === 'GK' && !isInsidePA(piece.coord);
 
-  // ボールサイズ: コマの50%
-  const ballSize = Math.round(size * 0.5);
+  // ボールサイズ: コマの60%
+  const ballSize = Math.round(size * 0.6);
 
   const handleBallClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -102,16 +102,19 @@ export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam
         <div
           style={{
             position: 'absolute',
-            top: -ballSize * 0.3,
-            right: -ballSize * 0.5,
+            top: -ballSize * 0.35,
+            right: -ballSize * 0.55,
             pointerEvents: 'auto',
             zIndex: 25,
-            animation: ballPulse ? 'fcms-ball-pulse 1s ease-in-out infinite' : 'none',
+            animation: ballPulse
+              ? 'fcms-ball-pulse-strong 1s ease-in-out infinite'
+              : 'fcms-ball-pulse-gentle 2s ease-in-out infinite',
           }}
         >
-          {ballPulse && (
-            <style>{`@keyframes fcms-ball-pulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px rgba(255,215,0,0.3))}50%{transform:scale(1.2);filter:drop-shadow(0 0 12px rgba(255,215,0,0.8))}}`}</style>
-          )}
+          <style>{`
+            @keyframes fcms-ball-pulse-gentle{0%,100%{transform:scale(1);filter:drop-shadow(0 0 4px rgba(255,255,255,0.5))}50%{transform:scale(1.08);filter:drop-shadow(0 0 8px rgba(255,255,255,0.7))}}
+            @keyframes fcms-ball-pulse-strong{0%,100%{transform:scale(1);filter:drop-shadow(0 0 6px rgba(255,215,0,0.4))}50%{transform:scale(1.25);filter:drop-shadow(0 0 16px rgba(255,215,0,0.9))}}
+          `}</style>
           <BallIcon size={ballSize} onClick={handleBallClick} />
         </div>
       )}

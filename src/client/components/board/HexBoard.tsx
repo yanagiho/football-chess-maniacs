@@ -406,24 +406,53 @@ export default function HexBoard({
             スプライト画像を座標マップに従って絶対配置
             ※ displayPieces で表示座標系を使用
             ════════════════════════════════════════ */}
-        {displayPieces.map((piece) => {
-          const cell = cellLookup.get(`${piece.coord.col},${piece.coord.row}`);
-          if (!cell) return null;
-          return (
-            <Piece
-              key={piece.id}
-              piece={piece}
-              x={cell.x}
-              y={cell.y}
-              isSelected={piece.id === selectedPieceId}
-              hasOrder={displayOrders.has(piece.id)}
-              order={displayOrders.get(piece.id)}
-              myTeam={myTeam}
-              onBallClick={onBallClick}
-              ballPulse={piece.id === chainBallPulseId}
-            />
-          );
-        })}
+        {(() => {
+          // 同一HEXに複数コマがいる場合のオフセット計算
+          const hexPieceCount = new Map<string, number>();
+          const hexPieceIndex = new Map<string, number>();
+          for (const p of displayPieces) {
+            const k = `${p.coord.col},${p.coord.row}`;
+            hexPieceCount.set(k, (hexPieceCount.get(k) ?? 0) + 1);
+          }
+          for (const p of displayPieces) {
+            const k = `${p.coord.col},${p.coord.row}`;
+            hexPieceIndex.set(p.id, (hexPieceIndex.get(k) ?? 0));
+            hexPieceIndex.set(k, (hexPieceIndex.get(k) ?? 0) + 1);
+          }
+          // Re-index properly
+          const idxTracker = new Map<string, number>();
+          return displayPieces.map((piece) => {
+            const cell = cellLookup.get(`${piece.coord.col},${piece.coord.row}`);
+            if (!cell) return null;
+            const k = `${piece.coord.col},${piece.coord.row}`;
+            const count = hexPieceCount.get(k) ?? 1;
+            const idx = idxTracker.get(k) ?? 0;
+            idxTracker.set(k, idx + 1);
+            // オフセット: 2個なら左右16px、3個以上なら円形配置
+            let ox = 0, oy = 0;
+            if (count === 2) {
+              ox = idx === 0 ? -12 : 12;
+            } else if (count >= 3) {
+              const angle = (idx / count) * Math.PI * 2 - Math.PI / 2;
+              ox = Math.round(Math.cos(angle) * 14);
+              oy = Math.round(Math.sin(angle) * 14);
+            }
+            return (
+              <Piece
+                key={piece.id}
+                piece={piece}
+                x={cell.x + ox}
+                y={cell.y + oy}
+                isSelected={piece.id === selectedPieceId}
+                hasOrder={displayOrders.has(piece.id)}
+                order={displayOrders.get(piece.id)}
+                myTeam={myTeam}
+                onBallClick={onBallClick}
+                ballPulse={piece.id === chainBallPulseId}
+              />
+            );
+          });
+        })()}
       </div>
     </div>
   );

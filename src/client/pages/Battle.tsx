@@ -699,6 +699,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, []);
 
   // TURN_START → INPUT（1秒後、安全弁2秒）
+  const tutorialShownRef = useRef(false);
   useEffect(() => {
     if (state.turnPhase !== 'TURN_START' || state.status !== 'playing') return;
     clearPhaseTimeout();
@@ -706,9 +707,19 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (state.turn > 0) {
       showOverlay(`Turn ${state.turn}`, { duration: 800, fontSize: 36 });
     }
+    // Turn 1 初回チュートリアルヒント
+    if (state.turn === 1 && !tutorialShownRef.current) {
+      tutorialShownRef.current = true;
+      setTimeout(() => {
+        showOverlay('コマタップ → 移動・ドリブル', {
+          subText: 'ボールタップ → パス・シュート',
+          duration: 2500, fontSize: 24,
+        });
+      }, 1200);
+    }
     phaseTimeoutRef.current = setTimeout(() => {
       dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
-    }, 1000);
+    }, state.turn === 1 ? 4000 : 1000); // Turn 1はチュートリアル分長く
     // 安全弁: 2秒
     const safety = setTimeout(() => {
       if (state.turnPhase === 'TURN_START') dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
@@ -1166,8 +1177,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         }
         goalScoredRef.current = { scored: goalScored, scorerTeam };
 
-        // 6. エンジン結果をクライアント形式に変換
-        const newPieces = enginePiecesToClient(turnResult.board.pieces, state.board.pieces);
+        // 6. エンジン結果をクライアント形式に変換（ベンチコマを保持）
+        const newFieldPieces = enginePiecesToClient(turnResult.board.pieces, state.board.pieces);
+        const benchPieces = state.board.pieces.filter(p => p.isBench);
+        const newPieces = [...newFieldPieces, ...benchPieces];
 
         // 7. イベントログ保存
         setEvents(turnResult.events as unknown as GameEvent[]);
