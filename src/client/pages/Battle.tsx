@@ -1260,10 +1260,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const te = ev as TackleEvent;
               if (te.result.success) {
                 p1Effects.push({ coord: te.coord, icon: '⚔', color: '#fff', text: 'TACKLE' });
-                showOverlay('TACKLE!', { duration: 500, fontSize: 32 });
+                const tkr = te.result.tackler;
+                showOverlay('TACKLE!', {
+                  subText: `${tkr.position} \u2605${tkr.cost}`,
+                  duration: 1000, fontSize: 48,
+                });
                 soundManager.play('tackle');
               } else {
-                p1Effects.push({ coord: te.coord, icon: '💨', color: '#888', text: 'MISS' });
+                p1Effects.push({ coord: te.coord, icon: '💨', color: '#00cccc', text: 'BREAK' });
+                showOverlay('BREAKTHROUGH!', { duration: 800, color: '#00dddd', fontSize: 40 });
               }
             }
           }
@@ -1277,7 +1282,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             if (ev.type === 'FOUL') {
               const fe = ev as EngineFoulEvent;
               p2Effects.push({ coord: fe.coord, icon: '🟨', color: '#ffcc00', text: 'FOUL' });
-              showOverlay('FOUL!', { duration: 1000, color: '#ffcc00', fontSize: 40 });
+              showOverlay('FOUL!', {
+                subText: fe.result.outcome === 'pk' ? 'PK' : 'FK',
+                duration: 1500, color: '#FACC15', fontSize: 48,
+              });
               soundManager.play('foul');
             }
           }
@@ -1318,11 +1326,21 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 // ボール飛行アニメーション
                 await launchFlyingBall(shooter.coord, goalCoord, 'shoot');
                 // 結果演出
-                if (se.result.outcome === 'goal') soundManager.play('goal');
-                else if (se.result.outcome === 'blocked') showOverlay('BLOCKED!', { duration: 500, fontSize: 32 });
-                else if (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck')
-                  showOverlay('SAVE!', { duration: 800, color: '#44cc44', fontSize: 40 });
-                await wait(300);
+                if (se.result.outcome === 'goal') {
+                  soundManager.play('goal');
+                } else if (se.result.outcome === 'blocked') {
+                  showOverlay('BLOCKED!', { duration: 800, fontSize: 44 });
+                } else if (se.result.outcome === 'saved_catch') {
+                  const gk = postPieces.find(pp => pp.position === 'GK' && pp.team !== shooter.team);
+                  showOverlay('GK CATCH!', { duration: 800, color: '#22C55E', fontSize: 40 });
+                } else if (se.result.outcome === 'saved_ck') {
+                  const gk = postPieces.find(pp => pp.position === 'GK' && pp.team !== shooter.team);
+                  showOverlay('GREAT SAVE!', {
+                    subText: gk ? `GK \u2605${gk.cost}` : undefined,
+                    duration: 1200, color: '#22C55E', fontSize: 48,
+                  });
+                }
+                await wait(400);
               }
             }
           }
@@ -1346,7 +1364,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               p4Effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED' });
               showOverlay('BALL CUT!', {
                 subText: interceptor ? `${interceptor.position} \u2605${interceptor.cost}` : undefined,
-                duration: 800, fontSize: 40,
+                duration: 1200, fontSize: 48,
               });
               soundManager.play('tackle');
             }
@@ -1355,11 +1373,19 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const receiver = turnResult.board.pieces.find(p => p.id === oe.receiverId);
               const coord = receiver?.coord ?? { col: 10, row: 16 };
               p4Effects.push({ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' });
-              showOverlay('OFFSIDE!', { duration: 1000, color: '#ffcc00', fontSize: 40 });
+              showOverlay('OFFSIDE!', { duration: 1200, color: '#FACC15', fontSize: 48 });
             }
           }
           setPhaseEffects(p4Effects);
           if (p4Effects.length > 0) await wait(500);
+
+          // フリーボール発生チェック
+          for (const ev of evts) {
+            if (ev.type === 'LOOSE_BALL') {
+              showOverlay('LOOSE BALL!', { duration: 1000, fontSize: 40 });
+              await wait(400);
+            }
+          }
 
           // 全フェーズ完了
           setResolvingPhase(-1);
@@ -1415,9 +1441,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           // A6: ゴール判定
           dispatch({ type: 'SET_TURN_PHASE', phase: 'EVENT' });
           if (goalScoredRef.current.scored) {
-            showOverlay('GOAL!', {
+            showOverlay('GOAL!!', {
               subText: `${newScoreHome} - ${newScoreAway}`,
-              duration: 1800, color: '#ffd700', fontSize: 64, glow: true,
+              duration: 2500, color: '#FFD700', fontSize: 64, glow: true,
             });
             setCeremony('goal');
             await wait(GOAL_CEREMONY_MS);
