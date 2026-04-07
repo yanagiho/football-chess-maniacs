@@ -4,6 +4,7 @@
 
 import { useReducer, useCallback, useMemo } from 'react';
 import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team, TurnPhase } from '../types';
+import { setBallHolder } from '../utils/ballManager';
 
 /** 前半/後半の基本ターン数 */
 const HALF_TURNS = 15;
@@ -248,9 +249,12 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'APPLY_ENGINE_RESULT': {
       // COM対戦: エンジンの processTurn 結果を反映して resolving 状態に入る
+      // ボール整合性を保証（エンジン結果にhasBall>1がないか検証）
+      const engineHolderId = action.pieces.find(p => p.hasBall)?.id ?? null;
+      const engineBall = setBallHolder(action.pieces, engineHolderId, action.freeBallHex ?? null);
       return {
         ...state,
-        board: { pieces: action.pieces, freeBallHex: action.freeBallHex ?? null },
+        board: { pieces: engineBall.pieces, freeBallHex: engineBall.freeBallHex },
         scoreHome: action.scoreHome,
         scoreAway: action.scoreAway,
         status: 'resolving',
@@ -289,40 +293,32 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'PASS_BALL': {
-      // パスを出したコマのpass命令を登録し、ボール表示を受け手に移動（仮表示）
-      // ※hasBallの変更はUI表示用。エンジンにはturnStartSnapshotのhasBallを使って復元する
+      // パス命令登録 + ボール表示を受け手に移動（仮表示、setBallHolderで安全に切り替え）
       const newOrders = new Map(state.orders);
       newOrders.set(action.fromPieceId, {
         pieceId: action.fromPieceId, action: 'pass', targetPieceId: action.toPieceId,
       });
-      const newPieces = state.board.pieces.map(p => {
-        if (p.id === action.fromPieceId) return { ...p, hasBall: false };
-        if (p.id === action.toPieceId) return { ...p, hasBall: true };
-        return p;
-      });
+      const ball = setBallHolder(state.board.pieces, action.toPieceId, null);
       return {
         ...state,
         orders: newOrders,
-        board: { ...state.board, pieces: newPieces, freeBallHex: null },
+        board: { ...state.board, pieces: ball.pieces, freeBallHex: null },
         selectedPieceId: null,
         actionMode: null,
       };
     }
 
     case 'THROUGH_PASS': {
-      // スルーパス: 命令登録 + ボール仮表示変更
-      // ※hasBallの変更はUI表示用。エンジンにはturnStartSnapshotのhasBallを使って復元する
+      // スルーパス: 命令登録 + ボール仮表示（setBallHolderでnull=フリーボール状態）
       const newOrders = new Map(state.orders);
       newOrders.set(action.fromPieceId, {
         pieceId: action.fromPieceId, action: 'throughPass', targetHex: action.targetHex,
       });
-      const newPieces = state.board.pieces.map(p =>
-        p.id === action.fromPieceId ? { ...p, hasBall: false } : p
-      );
+      const ball = setBallHolder(state.board.pieces, null, action.targetHex);
       return {
         ...state,
         orders: newOrders,
-        board: { ...state.board, pieces: newPieces, freeBallHex: action.targetHex },
+        board: { ...state.board, pieces: ball.pieces, freeBallHex: ball.freeBallHex },
         selectedPieceId: null,
         actionMode: null,
       };

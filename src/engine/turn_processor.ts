@@ -116,10 +116,33 @@ export function processTurn(
   }
 
   // ──────────────────────────────────────────────────────────
+  // ボール整合性チェック＋自動修正
+  // ──────────────────────────────────────────────────────────
+  const finalPieces = phase3.pieces;
+  const ballHolders = finalPieces.filter(p => p.hasBall);
+  if (ballHolders.length > 1) {
+    // 複数保持者 → 最初の1人だけ残す
+    console.error('[processTurn] BUG: Multiple ball holders:', ballHolders.map(p => p.id));
+    for (let i = 1; i < ballHolders.length; i++) ballHolders[i].hasBall = false;
+  }
+  if (ballHolders.length > 0 && freeBallHex) {
+    // 保持者とフリーボールが共存 → フリーを消す
+    freeBallHex = null;
+  }
+  if (ballHolders.length === 0 && !freeBallHex) {
+    // ボールが消失 → 元の保持者に戻す
+    const origHolder = snapshot.find(p => p.hasBall);
+    if (origHolder) {
+      const piece = finalPieces.find(p => p.id === origHolder.id);
+      if (piece) piece.hasBall = true;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────
   // 次のターン用ボードを構築
   // ──────────────────────────────────────────────────────────
   const newBoard: Board = {
-    pieces: phase3.pieces,
+    pieces: finalPieces,
     snapshot,
     freeBallHex,
   };

@@ -1702,6 +1702,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     </>
   );
 
+  // ── ボール表示の排他制御 ──
+  // FlyingBall飛行中 or freeBallHex存在時はコマのhasBallを抑制
+  const displayPieces = useMemo(() => {
+    if (flyingBall) {
+      return state.board.pieces.map(p => p.hasBall ? { ...p, hasBall: false } : p);
+    }
+    return state.board.pieces;
+  }, [state.board.pieces, flyingBall]);
+
   // ── アクションガイドテキスト ──
   const actionGuide = useMemo(() => {
     if (state.board.freeBallHex) return 'フリーボール！コマを移動させて拾いましょう';
@@ -1905,7 +1914,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
-            pieces={state.board.pieces}
+            pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
             actionMode={state.actionMode}
             orders={state.orders}
@@ -2069,7 +2078,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
-            pieces={state.board.pieces}
+            pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
             actionMode={state.actionMode}
             orders={state.orders}
