@@ -1844,53 +1844,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {resolvingBannerEl}
         {disconnectBannerEl}
         {miniGameEl}
-        {ballActionMenu && (
-          <div
-            style={{
-              position: 'fixed', bottom: 0, left: 0, right: 0,
-              display: 'flex', justifyContent: 'center', gap: 12,
-              padding: '14px 16px', zIndex: 300,
-              background: 'rgba(0,0,0,0.9)',
-              borderTop: '2px solid rgba(255,255,255,0.15)',
-            }}
-            onPointerDown={e => e.stopPropagation()}
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
-              style={{
-                minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none',
-                background: 'linear-gradient(135deg, #2563EB, #3B82F6)', color: '#fff',
-                fontSize: 18, fontWeight: 'bold', cursor: 'pointer',
-                boxShadow: '0 4px 16px rgba(37,99,235,0.5)',
-              }}
-            >
-              ⚽ パス
-            </button>
-            <button
-              onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
-              style={{
-                minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none',
-                background: 'linear-gradient(135deg, #16A34A, #22C55E)', color: '#fff',
-                fontSize: 18, fontWeight: 'bold', cursor: 'pointer',
-                boxShadow: '0 4px 16px rgba(22,163,74,0.5)',
-              }}
-            >
-              🏃 ドリブル
-            </button>
-            <button
-              onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
-              style={{
-                minWidth: 60, minHeight: 56, padding: '12px 16px', borderRadius: 12,
-                border: '1px solid rgba(255,255,255,0.2)', background: 'transparent',
-                color: '#888', fontSize: 14, cursor: 'pointer',
-              }}
-            >
-              戻る
-            </button>
-          </div>
-        )}
-
         {/* ヘッダー（44px）: スコア | 試合時間 | 残り時間 | 指示カウント */}
         <div style={{
           display: 'flex',
@@ -2006,6 +1959,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
             freeBallHex={state.board.freeBallHex}
+            ballActionMenu={ballActionMenu}
+            onActionPass={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
+            onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
+            onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
           />
 
           {/* A8: オフサイドライントグル */}
@@ -2134,32 +2091,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       {resolvingBannerEl}
       {disconnectBannerEl}
       {miniGameEl}
-      {ballActionMenu && (
-        <div
-          style={{
-            position: 'fixed', bottom: 0, left: 0, right: 0,
-            display: 'flex', justifyContent: 'center', gap: 12,
-            padding: '14px 16px', zIndex: 300,
-            background: 'rgba(0,0,0,0.9)',
-            borderTop: '2px solid rgba(255,255,255,0.15)',
-          }}
-          onPointerDown={e => e.stopPropagation()}
-          onClick={e => e.stopPropagation()}
-        >
-          <button
-            onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
-            style={{ minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #2563EB, #3B82F6)', color: '#fff', fontSize: 18, fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 16px rgba(37,99,235,0.5)' }}
-          >⚽ パス</button>
-          <button
-            onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
-            style={{ minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #16A34A, #22C55E)', color: '#fff', fontSize: 18, fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 16px rgba(22,163,74,0.5)' }}
-          >🏃 ドリブル</button>
-          <button
-            onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
-            style={{ minWidth: 60, minHeight: 56, padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#888', fontSize: 14, cursor: 'pointer' }}
-          >戻る</button>
-        </div>
-      )}
 
       {/* メインエリア: 左パネル + ボード + 右パネル */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
@@ -2196,6 +2127,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
             freeBallHex={state.board.freeBallHex}
+            ballActionMenu={ballActionMenu}
+            onActionPass={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
+            onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
+            onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
           />
 
           {/* A8: オフサイドライントグル (PC) */}

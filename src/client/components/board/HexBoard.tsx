@@ -101,6 +101,14 @@ interface HexBoardProps {
   ballTrails?: BallTrail[];
   /** フリーボール位置（誰も持っていない場合に表示） */
   freeBallHex?: import('../../types').HexCoord | null;
+  /** ボールアクションメニュー表示中のpieceId（null=非表示） */
+  ballActionMenu?: string | null;
+  /** パスボタン押下 */
+  onActionPass?: () => void;
+  /** ドリブルボタン押下 */
+  onActionDribble?: () => void;
+  /** キャンセル */
+  onActionCancel?: () => void;
 }
 
 export default function HexBoard({
@@ -124,6 +132,10 @@ export default function HexBoard({
   phaseEffects = [],
   ballTrails = [],
   freeBallHex,
+  ballActionMenu,
+  onActionPass,
+  onActionDribble,
+  onActionCancel,
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -464,6 +476,47 @@ export default function HexBoard({
               />
             );
           });
+        })()}
+
+        {/* ボールアクションメニュー（選択コマの近くに表示） */}
+        {ballActionMenu && (() => {
+          const piece = displayPieces.find(p => p.id === ballActionMenu);
+          if (!piece) return null;
+          const cell = cellLookup.get(`${piece.coord.col},${piece.coord.row}`);
+          if (!cell) return null;
+          const aboveY = cell.y - 70;
+          const menuY = aboveY < 10 ? cell.y + 50 : aboveY; // 上端はみ出し→下に
+          const menuX = Math.max(120, Math.min(cell.x, BOARD_WIDTH - 120)); // 左右はみ出し防止
+          return (
+            <div
+              style={{
+                position: 'absolute', left: menuX, top: menuY,
+                transform: 'translateX(-50%)',
+                display: 'flex', gap: 6, zIndex: 200, pointerEvents: 'auto',
+              }}
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                onPointerDown={(e) => { e.stopPropagation(); onActionPass?.(); }}
+                style={{
+                  minWidth: 90, minHeight: 44, padding: '8px 16px', borderRadius: 10, border: 'none',
+                  background: 'linear-gradient(135deg, #2563EB, #3B82F6)', color: '#fff',
+                  fontSize: 15, fontWeight: 'bold', cursor: 'pointer',
+                  boxShadow: '0 3px 12px rgba(0,0,0,0.5)',
+                }}
+              >⚽ パス</button>
+              <button
+                onPointerDown={(e) => { e.stopPropagation(); onActionDribble?.(); }}
+                style={{
+                  minWidth: 90, minHeight: 44, padding: '8px 16px', borderRadius: 10, border: 'none',
+                  background: 'linear-gradient(135deg, #16A34A, #22C55E)', color: '#fff',
+                  fontSize: 15, fontWeight: 'bold', cursor: 'pointer',
+                  boxShadow: '0 3px 12px rgba(0,0,0,0.5)',
+                }}
+              >🏃 ドリブル</button>
+            </div>
+          );
         })()}
 
         {/* フリーボール表示 */}
