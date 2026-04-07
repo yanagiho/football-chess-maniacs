@@ -7,6 +7,7 @@
 import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
 import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo, TurnPhase } from '../types';
 import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
+import { soundManager } from '../audio/SoundManager';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -1150,6 +1151,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const te = ev as TackleEvent;
               if (te.result.success) {
                 effects.push({ coord: te.coord, icon: '⚔', color: '#fff', text: 'TACKLE' });
+                showOverlay('TACKLE!', { duration: 500, fontSize: 32 });
+                soundManager.play('tackle');
               } else {
                 effects.push({ coord: te.coord, icon: '💨', color: '#888', text: 'MISS' });
               }
@@ -1167,6 +1170,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             if (ev.type === 'FOUL') {
               const fe = ev as EngineFoulEvent;
               effects.push({ coord: fe.coord, icon: '🟨', color: '#ffcc00', text: 'FOUL' });
+              showOverlay('FOUL!', { duration: 1000, color: '#ffcc00', fontSize: 40 });
+              soundManager.play('foul');
             }
           }
           setPhaseEffects(effects);
@@ -1183,15 +1188,19 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               switch (se.result.outcome) {
                 case 'goal':
                   effects.push({ coord: se.coord, icon: '⚽', color: '#FFD700', text: 'GOAL!' });
+                  soundManager.play('goal');
                   break;
                 case 'blocked':
                   effects.push({ coord: se.coord, icon: '🛡', color: '#ff8800', text: 'BLOCKED' });
+                  showOverlay('BLOCKED!', { duration: 500, fontSize: 32 });
                   break;
                 case 'saved_catch':
                   effects.push({ coord: se.coord, icon: '🧤', color: '#44aaff', text: 'CATCH' });
+                  showOverlay('SAVE!', { duration: 800, color: '#44cc44', fontSize: 40 });
                   break;
                 case 'saved_ck':
                   effects.push({ coord: se.coord, icon: '🧤', color: '#44aaff', text: 'SAVED' });
+                  showOverlay('SAVE!', { duration: 800, color: '#44cc44', fontSize: 40 });
                   break;
                 case 'missed':
                   effects.push({ coord: se.coord, icon: '💨', color: '#888', text: 'WIDE' });
@@ -1214,19 +1223,26 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           for (const ev of evts) {
             if (ev.type === 'PASS_CUT') {
               const pc = ev as PassCutEvent;
-              // カットしたコマの位置を特定
               const interceptorId = pc.result.cut1?.interceptor?.id ?? pc.result.cut2?.interceptor?.id;
               const interceptor = interceptorId
                 ? turnResult.board.pieces.find(p => p.id === interceptorId)
                 : null;
               const coord = interceptor?.coord ?? { col: 10, row: 16 };
               effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED' });
+              const intPos = interceptor?.position ?? '';
+              const intCost = interceptor?.cost ?? 0;
+              showOverlay('BALL CUT!', {
+                subText: intPos && intCost ? `${intPos} \u2605${intCost}` : undefined,
+                duration: 800, fontSize: 40,
+              });
+              soundManager.play('tackle');
             }
             if (ev.type === 'OFFSIDE') {
               const oe = ev as OffsideEvent;
               const receiver = turnResult.board.pieces.find(p => p.id === oe.receiverId);
               const coord = receiver?.coord ?? { col: 10, row: 16 };
               effects.push({ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' });
+              showOverlay('OFFSIDE!', { duration: 1000, color: '#ffcc00', fontSize: 40 });
             }
           }
           setPhaseEffects(effects);
