@@ -116,38 +116,14 @@ export function processTurn(
   }
 
   // ──────────────────────────────────────────────────────────
-  // ボール整合性チェック＋自動修正
+  // ボール整合性チェック＋自動修正（validateBallState）
   // ──────────────────────────────────────────────────────────
   const finalPieces = phase3.pieces;
-  const ballHolders = finalPieces.filter(p => p.hasBall);
-  if (ballHolders.length > 1) {
-    // 複数保持者 → 最初の1人だけ残す
-    console.error('[processTurn] BUG: Multiple ball holders:', ballHolders.map(p => p.id));
-    for (let i = 1; i < ballHolders.length; i++) ballHolders[i].hasBall = false;
-  }
-  if (ballHolders.length > 0 && freeBallHex) {
-    // 保持者とフリーボールが共存 → フリーを消す
-    freeBallHex = null;
-  }
-  if (ballHolders.length === 0 && !freeBallHex) {
-    // ボールが消失 → 元の保持者に戻す
-    console.error('[processTurn] BUG: Ball disappeared! Restoring from snapshot.');
-    const origHolder = snapshot.find(p => p.hasBall);
-    if (origHolder) {
-      const piece = finalPieces.find(p => p.id === origHolder.id);
-      if (piece) {
-        piece.hasBall = true;
-      } else {
-        // 元の保持者が見つからない → 最初のFPに渡す
-        const fallback = finalPieces[0];
-        if (fallback) fallback.hasBall = true;
-      }
-    } else {
-      // スナップショットにも保持者がいない → 最初のFPに渡す
-      const fallback = finalPieces[0];
-      if (fallback) fallback.hasBall = true;
-    }
-  }
+  validateBallState(finalPieces, freeBallHex, snapshot);
+  // validateBallState が freeBallHex を変更することはないが、
+  // 保持者がいたらフリーボールをクリア
+  const postHolders = finalPieces.filter(p => p.hasBall);
+  if (postHolders.length > 0) freeBallHex = null;
 
   // ──────────────────────────────────────────────────────────
   // 次のターン用ボードを構築
@@ -159,6 +135,41 @@ export function processTurn(
   };
 
   return { board: newBoard, events: allEvents };
+}
+
+// ============================================================
+// ボール整合性検証＋自動修正
+// ============================================================
+
+function validateBallState(
+  pieces: Piece[],
+  freeBallHex: HexCoord | null,
+  snapshot: Piece[],
+): void {
+  const holders = pieces.filter(p => p.hasBall);
+
+  // 1. 複数保持者 → 最初の1人だけ残す
+  if (holders.length > 1) {
+    console.error('[validateBallState] Multiple holders:', holders.map(p => p.id));
+    for (let i = 1; i < holders.length; i++) holders[i].hasBall = false;
+  }
+
+  // 2. 保持者0人 + フリーボールなし → 復帰
+  if (holders.length === 0 && !freeBallHex) {
+    console.error('[validateBallState] Ball disappeared, restoring');
+    // スナップショットの保持者から復帰
+    const origHolder = snapshot.find(p => p.hasBall);
+    const restoreId = origHolder?.id;
+    const target = restoreId ? pieces.find(p => p.id === restoreId) : null;
+    if (target) {
+      target.hasBall = true;
+    } else {
+      // GK → 任意のFP
+      const gk = pieces.find(p => p.position === 'GK');
+      const fb = gk ?? pieces[0];
+      if (fb) fb.hasBall = true;
+    }
+  }
 }
 
 // ============================================================

@@ -82,9 +82,8 @@ export function processSpecial(
       result: osResult,
     } as OffsideEvent);
 
-    // ボールを守備チームに渡す（受け手の現在位置のコマに渡す）
-    // 再開位置は受け手のいる HEX で守備チームの任意コマ（実装簡略化: GK）
-    receiver.hasBall = false;
+    // ボールを守備チームに渡す（全コマのhasBallをクリアしてからGKに）
+    pieces.forEach(p => { p.hasBall = false; });
     const gk = pieces.find(p => p.team === defenseTeam && p.position === 'GK');
     const ballHolder = gk ?? pieces.find(p => p.team === defenseTeam);
     if (ballHolder) {
