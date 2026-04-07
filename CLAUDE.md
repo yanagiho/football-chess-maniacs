@@ -3,7 +3,7 @@
 ## プロジェクト概要
 
 HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeScript）。
-仕様書: `docs/fcms_spec_v3.md`(v9.2) / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md`(v1.4) / COM AI設計: `docs/com_ai_spec.md` / 編成画面仕様: `docs/formation-spec.md`
+仕様書: `docs/fcms_spec_v3.md`(v10) / コスト帯シミュレーション表: `docs/piece_allocation.md` / UI仕様: `docs/ui_spec.md`(v2.0) / COM AI設計: `docs/com_ai_spec.md` / 編成画面仕様: `docs/formation-spec.md`
 
 ---
 
