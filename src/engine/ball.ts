@@ -29,6 +29,7 @@ import type {
   PassDeliveredEvent,
   Piece,
   ShootEvent,
+  LooseBallEvent,
   Team,
   ZocAdjacency,
 } from './types';
@@ -298,8 +299,10 @@ export function processBall(
   // ────────────────────────────────────────────────────────
   // ステップ7b: スルーパス処理（throughPass）
   // ────────────────────────────────────────────────────────
+  // throughPass: passOrderがあっても、そのpasserがボールを持っていなければ実行可能
   const throughPassOrder = orders.find(o => o.type === 'throughPass' && o.target);
-  if (throughPassOrder && !shootOrder && !passOrder) {
+  const passOrderExecuted = passOrder && pieceById.get(passOrder.pieceId)?.hasBall;
+  if (throughPassOrder && !shootOrder && !passOrderExecuted) {
     const passer = pieceById.get(throughPassOrder.pieceId);
     if (passer?.hasBall && throughPassOrder.target) {
       const defenseTeam: Team = passer.team === 'home' ? 'away' : 'home';
@@ -354,18 +357,10 @@ export function processBall(
           events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: interceptor.id } as BallAcquiredEvent);
         }
       } else {
-        // ルーズボール: 最寄りのコマ（敵味方問わず）がボールを獲得
-        let looseReceiver: Piece | null = null;
-        let looseBestDist = Infinity;
-        for (const p of pieces) {
-          const d = Math.abs(p.coord.col - targetCoord.col) + Math.abs(p.coord.row - targetCoord.row);
-          if (d < looseBestDist) { looseBestDist = d; looseReceiver = p; }
-        }
-        if (looseReceiver) {
-          passer.hasBall = false;
-          looseReceiver.hasBall = true;
-          events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: looseReceiver.id } as BallAcquiredEvent);
-        }
+        // ルーズボール: targetHexにフリーボール → turn_processor側でfreeBallHexに設定
+        passer.hasBall = false;
+        // 誰にもボールが渡らない状態にして、freeBallHexの設定はturn_processorに委ねる
+        events.push({ type: 'LOOSE_BALL', phase: 2, coord: targetCoord, acquiredBy: null } as LooseBallEvent);
       }
     }
   }

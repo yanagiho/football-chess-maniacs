@@ -25,7 +25,8 @@ type GameAction =
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number; freeBallHex?: import('../types').HexCoord | null }
   | { type: 'SET_TURN_PHASE'; phase: TurnPhase }
-  | { type: 'PASS_BALL'; fromPieceId: string; toPieceId: string };
+  | { type: 'PASS_BALL'; fromPieceId: string; toPieceId: string }
+  | { type: 'THROUGH_PASS'; fromPieceId: string; targetHex: HexCoord };
 
 /** ランダムなアディショナルタイム（1〜3） */
 function randomAT(): number {
@@ -291,7 +292,25 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         orders: newOrders,
-        board: { pieces: newPieces },
+        board: { ...state.board, pieces: newPieces, freeBallHex: null },
+        selectedPieceId: null,
+        actionMode: null,
+      };
+    }
+
+    case 'THROUGH_PASS': {
+      // スルーパス: 命令登録 + ボールを元の選手から外す + フリーボール仮表示
+      const newOrders = new Map(state.orders);
+      newOrders.set(action.fromPieceId, {
+        pieceId: action.fromPieceId, action: 'throughPass', targetHex: action.targetHex,
+      });
+      const newPieces = state.board.pieces.map(p =>
+        p.id === action.fromPieceId ? { ...p, hasBall: false } : p
+      );
+      return {
+        ...state,
+        orders: newOrders,
+        board: { ...state.board, pieces: newPieces, freeBallHex: action.targetHex },
         selectedPieceId: null,
         actionMode: null,
       };

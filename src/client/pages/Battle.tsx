@@ -1039,7 +1039,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         } else if (isShootZone(coord)) {
           dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord } });
         } else {
-          dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord } });
+          // スルーパス: 命令登録 + ボールを元の選手から外す + フリーボール仮表示
+          dispatch({ type: 'THROUGH_PASS', fromPieceId: state.selectedPieceId, targetHex: coord });
         }
       } else if (state.actionMode === 'shoot') {
         dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord } });
