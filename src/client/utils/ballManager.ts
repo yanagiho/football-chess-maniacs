@@ -23,17 +23,36 @@ export function setBallHolder(
 
   if (newHolderId) {
     const holder = updated.find(p => p.id === newHolderId);
-    if (holder) holder.hasBall = true;
+    if (holder) {
+      holder.hasBall = true;
+    } else {
+      // バグ: 指定IDのコマが見つからない → フォールバック
+      console.error('[ballManager] BUG: holder not found:', newHolderId);
+      const fallback = updated.find(p => !p.isBench);
+      if (fallback) {
+        fallback.hasBall = true;
+        newHolderId = fallback.id;
+      }
+    }
   }
 
   // 整合性: 保持者がいたらフリーは消す
   const resolvedFree = newHolderId ? null : freeBallHex;
 
-  // デバッグ検出（本番でも残す）
+  // 安全弁: 誰もボールを持っておらずフリーでもない場合 → 最初のFPに渡す
+  if (!newHolderId && !resolvedFree) {
+    console.error('[ballManager] BUG: No holder and no free ball! Assigning fallback.');
+    const fallback = updated.find(p => !p.isBench);
+    if (fallback) {
+      fallback.hasBall = true;
+      return { pieces: updated, freeBallHex: null };
+    }
+  }
+
+  // 重複チェック
   const count = updated.filter(p => p.hasBall).length;
   if (count > 1) {
     console.error('[ballManager] BUG: Multiple holders:', updated.filter(p => p.hasBall).map(p => p.id));
-    // 強制修正: 最初の1人だけ残す
     let found = false;
     for (const p of updated) {
       if (p.hasBall) {

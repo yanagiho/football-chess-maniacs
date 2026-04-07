@@ -131,10 +131,21 @@ export function processTurn(
   }
   if (ballHolders.length === 0 && !freeBallHex) {
     // ボールが消失 → 元の保持者に戻す
+    console.error('[processTurn] BUG: Ball disappeared! Restoring from snapshot.');
     const origHolder = snapshot.find(p => p.hasBall);
     if (origHolder) {
       const piece = finalPieces.find(p => p.id === origHolder.id);
-      if (piece) piece.hasBall = true;
+      if (piece) {
+        piece.hasBall = true;
+      } else {
+        // 元の保持者が見つからない → 最初のFPに渡す
+        const fallback = finalPieces[0];
+        if (fallback) fallback.hasBall = true;
+      }
+    } else {
+      // スナップショットにも保持者がいない → 最初のFPに渡す
+      const fallback = finalPieces[0];
+      if (fallback) fallback.hasBall = true;
     }
   }
 

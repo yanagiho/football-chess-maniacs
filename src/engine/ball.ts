@@ -386,10 +386,22 @@ export function processBall(
           events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: interceptor.id } as BallAcquiredEvent);
         }
       } else {
-        // ルーズボール: targetHexにフリーボール → turn_processor側でfreeBallHexに設定
-        passer.hasBall = false;
-        // 誰にもボールが渡らない状態にして、freeBallHexの設定はturn_processorに委ねる
-        events.push({ type: 'LOOSE_BALL', phase: 2, coord: targetCoord, acquiredBy: null } as LooseBallEvent);
+        // 距離2以内に味方なし → ターゲットHEXの状況で判定
+        const piecesAtTarget = pieces.filter(
+          p => p.coord.col === targetCoord.col && p.coord.row === targetCoord.row && p.id !== passer.id,
+        );
+        const enemies = piecesAtTarget.filter(p => p.team !== passer.team);
+        if (enemies.length > 0) {
+          // 敵がいる → 敵のボール（コスト最高が取得）
+          const enemy = enemies.reduce((a, b) => a.cost > b.cost ? a : b);
+          passer.hasBall = false;
+          enemy.hasBall = true;
+          events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: enemy.id } as BallAcquiredEvent);
+        } else {
+          // 誰もいない → フリーボール
+          passer.hasBall = false;
+          events.push({ type: 'LOOSE_BALL', phase: 2, coord: targetCoord, acquiredBy: null } as LooseBallEvent);
+        }
       }
     }
   }
