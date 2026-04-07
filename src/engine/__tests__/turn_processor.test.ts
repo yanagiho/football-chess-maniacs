@@ -26,6 +26,7 @@ import type {
   PassDeliveredEvent,
   Piece,
   PieceMovedEvent,
+  ShootEvent,
   TackleEvent,
 } from '../types';
 
@@ -415,5 +416,94 @@ describe('BALL_ACQUIRED イベント', () => {
 
     const ballEvts = eventsOfType<BallAcquiredEvent>(events, 'BALL_ACQUIRED');
     expect(ballEvts.some(e => e.pieceId === 'fw')).toBe(true);
+  });
+});
+
+// ============================================================
+// GKシュートコース判定（isOnShootCourse）
+// ============================================================
+describe('GKシュートコース判定', () => {
+  // homeが攻撃 → ゴール = (10, 33)
+  // シューターは (10, 25) → shootPath は col=10 の直線
+
+  it('GKがシュートコース上 → セーブ判定が実行される（savingCheck呼び出し）', () => {
+    // GK を (10, 32) に配置 → shootPath上（blockerとしても検出される）
+    const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
+      coord: { col: 10, row: 25 }, hasBall: true });
+    const gk = makePiece({ id: 'gk', team: 'away', position: 'GK', cost: 2,
+      coord: { col: 10, row: 32 } });
+
+    // ② block失敗 → ③ saving成功 → ③-b catch成功 = saved_catch
+    mockJudge
+      .mockReturnValueOnce(ng(30))   // ② block → 失敗（GK自身がblocker）
+      .mockReturnValueOnce(ok(50))   // ③ saving → 成功
+      .mockReturnValueOnce(ok(60));  // ③-b catch → 成功
+
+    const { events } = processTurn(
+      makeBoard([fw, gk]),
+      [{ pieceId: 'fw', type: 'shoot', target: { col: 10, row: 33 } }],
+      [],
+      makeContext({ getZone: () => 'ファイナルサード' }),
+    );
+
+    const shootEvt = eventsOfType<ShootEvent>(events, 'SHOOT');
+    expect(shootEvt.length).toBe(1);
+    expect(shootEvt[0].result.outcome).toBe('saved_catch');
+    expect(shootEvt[0].result.savingCheck).toBeDefined();
+  });
+
+  it('GKがシュートコース外 → セーブ判定スキップ（GK null扱い）', () => {
+    // GK を (3, 30) に配置 → col=10 のshootPathから遠い
+    const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
+      coord: { col: 10, row: 25 }, hasBall: true });
+    const gk = makePiece({ id: 'gk', team: 'away', position: 'GK', cost: 2,
+      coord: { col: 3, row: 30 } });
+
+    // セーブ判定なし → shootSuccess のみ
+    mockJudge.mockReturnValueOnce(ok(80)); // ④ shootSuccess → ゴール
+
+    const { events } = processTurn(
+      makeBoard([fw, gk]),
+      [{ pieceId: 'fw', type: 'shoot', target: { col: 10, row: 33 } }],
+      [],
+      makeContext({ getZone: () => 'ファイナルサード' }),
+    );
+
+    const shootEvt = eventsOfType<ShootEvent>(events, 'SHOOT');
+    expect(shootEvt.length).toBe(1);
+    expect(shootEvt[0].result.outcome).toBe('goal');
+    // セーブ判定が実行されていないことを確認
+    expect(shootEvt[0].result.savingCheck).toBeUndefined();
+    // judgeは shootSuccess の1回のみ
+    expect(mockJudge).toHaveBeenCalledTimes(1);
+  });
+
+  it('GKがシュートコースのZOC圏内（隣接1HEX） → セーブ判定が実行される', () => {
+    // GK を (11, 32) に配置 → col=10のshootPathに隣接（ZOC圏内）
+    // GKのZOC（odd col 11のneighbors）: (11,31),(11,33),(10,32),(10,33),(12,32),(12,33)
+    // shootPathは col=10, row=26..33 → (10,32),(10,33)がGKのZOCと交差
+    // GKはblockerとしても検出される可能性あり
+    const fw = makePiece({ id: 'fw', team: 'home', position: 'FW', cost: 2,
+      coord: { col: 10, row: 25 }, hasBall: true });
+    const gk = makePiece({ id: 'gk', team: 'away', position: 'GK', cost: 2,
+      coord: { col: 11, row: 32 } });
+
+    // ② block失敗 → ③ saving失敗 → ④ shootSuccess → ゴール
+    mockJudge
+      .mockReturnValueOnce(ng(30))   // ② block → 失敗（GK自身がblocker）
+      .mockReturnValueOnce(ng(50))   // ③ saving → 失敗
+      .mockReturnValueOnce(ok(80));  // ④ shootSuccess → ゴール
+
+    const { events } = processTurn(
+      makeBoard([fw, gk]),
+      [{ pieceId: 'fw', type: 'shoot', target: { col: 10, row: 33 } }],
+      [],
+      makeContext({ getZone: () => 'ファイナルサード' }),
+    );
+
+    const shootEvt = eventsOfType<ShootEvent>(events, 'SHOOT');
+    expect(shootEvt.length).toBe(1);
+    // savingCheck が実行された（成功・失敗に関わらず）
+    expect(shootEvt[0].result.savingCheck).toBeDefined();
   });
 });

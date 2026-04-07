@@ -56,12 +56,17 @@ export default function FKGame({ isAttacker, onSubmit, isMobile, countdown, kick
     });
   }, [selectedZone, submitted, isAttacker, kickType, wallHeight, onSubmit]);
 
-  // カウントダウン0で自動送信
+  // カウントダウン0で自動送信（未選択ならランダム）
   useEffect(() => {
     if (countdown <= 0 && !submitted) {
-      handleSubmit();
+      const zone = selectedZone ?? Math.floor(Math.random() * 6);
+      setSubmitted(true);
+      onSubmit({
+        zone,
+        ...(isAttacker ? { kickType } : { wallHeight }),
+      });
     }
-  }, [countdown, submitted, handleSubmit]);
+  }, [countdown, submitted, selectedZone, isAttacker, kickType, wallHeight, onSubmit]);
 
   return (
     <div style={{
@@ -77,10 +82,10 @@ export default function FKGame({ isAttacker, onSubmit, isMobile, countdown, kick
       </div>
 
       {/* 操作説明 */}
-      <div style={{ fontSize: 15, color: '#ffd700', textAlign: 'center', lineHeight: 1.6 }}>
+      <div style={{ fontSize: 14, color: '#ffd700', textAlign: 'center', lineHeight: 1.6 }}>
         {isAttacker
-          ? 'ゴールの狙う方向を選んでください\n直接 or ロブも選択できます'
-          : 'GKが飛ぶ方向を選んでください'}
+          ? <>① ゴール6ゾーンから狙う方向を選択<br />② 直接シュート or ロブを選択して確定</>
+          : <>① GKが飛ぶ方向を6ゾーンから選択<br />② 壁の高さ（低い/高い）を選択して確定</>}
       </div>
 
       {/* キッカー/GK情報 */}

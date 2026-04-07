@@ -36,6 +36,7 @@ import FKGame from '../components/minigame/FKGame';
 import CKGame from '../components/minigame/CKGame';
 import PKGame from '../components/minigame/PKGame';
 import hexMapData from '../data/hex_map.json';
+import { setBallHolder } from '../utils/ballManager';
 
 interface BattleProps {
   onNavigate: (page: Page) => void;
@@ -441,9 +442,9 @@ const TOTAL_ANIMATION_MS = PHASE_TIMINGS.reduce((a, b) => a + b, 0); // 2800
 /** ミニゲーム状態型 */
 type MiniGameState =
   | null
-  | { type: 'fk'; coord: HexCoord; kickerPiece: PieceData; gkPiece: PieceData; isAttacker: boolean }
-  | { type: 'ck'; isAttacker: boolean; pieces: PieceData[] }
-  | { type: 'pk'; coord: HexCoord; kickerPiece: PieceData; gkPiece: PieceData; isKicker: boolean };
+  | { type: 'fk'; coord: HexCoord; kickerPiece: PieceData; gkPiece: PieceData; isAttacker: boolean; fouledTeam: Team }
+  | { type: 'ck'; isAttacker: boolean; pieces: PieceData[]; attackTeam: Team }
+  | { type: 'pk'; coord: HexCoord; kickerPiece: PieceData; gkPiece: PieceData; isKicker: boolean; fouledTeam: Team };
 
 /** 前半/後半の基本ターン数 */
 const HALF_TURNS = 15;
@@ -635,7 +636,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [isCom, matchId, dispatch, formationData]);
 
   // ── 演出フェーズ管理 ──
-  type CeremonyPhase = 'kickoff' | 'halftime' | 'secondhalf' | 'fulltime' | 'turn' | 'goal' | null;
+  type CeremonyPhase = 'kickoff' | 'kickoff2nd' | 'halftime' | 'secondhalf' | 'fulltime' | 'turn' | 'goal' | null;
   const [ceremony, setCeremony] = useState<CeremonyPhase>(null);
   const [showResultBtn, setShowResultBtn] = useState(false);
 
@@ -647,14 +648,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return () => clearTimeout(timer);
   }, [state.turn, state.status]);
 
-  // ハーフタイム演出 → 3秒後に「SECOND HALF」→ 1.5秒後に後半開始
+  // ハーフタイム演出 → 3秒後に「SECOND HALF」→ 1.5秒後にボードリセット+キックオフ演出 → 2.5秒後に後半開始
   // 後半は前半にキックオフしなかった方（away）がキックオフ
   useEffect(() => {
     if (state.status !== 'halftime') return;
     setCeremony('halftime');
     const t1 = setTimeout(() => setCeremony('secondhalf'), HALFTIME_CEREMONY_MS);
     const t2 = setTimeout(() => {
-      setCeremony(null);
       // 後半開始: 初期配置にリセット。awayチームがキックオフ（前半はhome）
       const resetPieces = createGoalRestartPieces(formationData, 'away');
       dispatch({
@@ -664,9 +664,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         scoreHome: state.scoreHome,
         scoreAway: state.scoreAway,
       });
-      dispatch({ type: 'RESUME_SECOND_HALF' });
+      // キックオフ演出を表示してから後半開始
+      setCeremony('kickoff2nd');
     }, SECOND_HALF_DELAY_MS);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t3 = setTimeout(() => {
+      setCeremony(null);
+      dispatch({ type: 'RESUME_SECOND_HALF' });
+    }, SECOND_HALF_DELAY_MS + KICKOFF_CEREMONY_MS);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [state.status, dispatch, formationData, state.turn, state.scoreHome, state.scoreAway]);
 
   // タイムアップ演出（試合終了時）
@@ -1418,29 +1423,40 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           // A7: FK/PK ミニゲーム遷移
           const foulEv = evts.find((e): e is EngineFoulEvent => e.type === 'FOUL');
           if (foulEv && foulEv.result.occurred) {
+            // ファウルしたのはtackler側 → ファウルされた側（ドリブラー側）がキッカー
+            const tacklerTeam: Team = foulEv.tacklerId.startsWith('h') ? 'home' : 'away';
+            const fouledTeam: Team = tacklerTeam === 'home' ? 'away' : 'home';
+            const isMyTeamFouled = fouledTeam === state.myTeam;
+
             const kickerPiece = fieldPieces.find(p =>
-              p.team === state.myTeam && p.hasBall,
-            ) ?? fieldPieces.find(p => p.team === state.myTeam && p.position === 'FW')!;
+              p.team === fouledTeam && p.hasBall,
+            ) ?? fieldPieces.find(p => p.team === fouledTeam && p.position === 'FW')
+              ?? fieldPieces.find(p => p.team === fouledTeam && !p.isBench)!;
             const gkPiece = fieldPieces.find(p =>
-              p.team !== state.myTeam && p.position === 'GK',
-            )!;
+              p.team === tacklerTeam && p.position === 'GK',
+            ) ?? fieldPieces.find(p => p.team === tacklerTeam && !p.isBench)!;
+
             if (foulEv.result.outcome === 'pk') {
               setMiniGame({
                 type: 'pk', coord: foulEv.coord,
                 kickerPiece: kickerPiece ?? fieldPieces[0],
                 gkPiece: gkPiece ?? fieldPieces[0],
-                isKicker: foulEv.result.isPA,
+                isKicker: isMyTeamFouled,
+                fouledTeam,
               });
               setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
+              clearReplayTimers(); // 安全タイムアウトをキャンセル
               return;
             } else if (foulEv.result.outcome === 'fk') {
               setMiniGame({
                 type: 'fk', coord: foulEv.coord,
                 kickerPiece: kickerPiece ?? fieldPieces[0],
                 gkPiece: gkPiece ?? fieldPieces[0],
-                isAttacker: true,
+                isAttacker: isMyTeamFouled,
+                fouledTeam,
               });
               setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
+              clearReplayTimers(); // 安全タイムアウトをキャンセル
               return;
             }
           }
@@ -1450,11 +1466,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             (e): e is ShootEvent => e.type === 'SHOOT' && e.result.outcome === 'saved_ck',
           );
           if (ckShoot) {
+            const ckAttackTeam: Team = ckShoot.shooterId.startsWith('h') ? 'home' : 'away';
+            const isMyAttack = ckAttackTeam === state.myTeam;
             const attackPieces = fieldPieces
               .filter(p => p.team === state.myTeam && p.position !== 'GK')
               .slice(0, 5);
-            setMiniGame({ type: 'ck', isAttacker: true, pieces: attackPieces });
+            setMiniGame({ type: 'ck', isAttacker: isMyAttack, pieces: attackPieces, attackTeam: ckAttackTeam });
             setMiniGameCountdown(MINIGAME_CK_COUNTDOWN);
+            clearReplayTimers(); // 安全タイムアウトをキャンセル
             return;
           }
 
@@ -1566,13 +1585,212 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return () => clearTimeout(t);
   }, [miniGame, miniGameCountdown]);
 
-  // ── A7: ミニゲーム完了ハンドラ ──
-  const handleMiniGameComplete = useCallback(() => {
+  // ── A7: FK/PKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
+  const handleFKComplete = useCallback((data: import('../components/minigame/FKGame').FKInput) => {
+    if (!miniGame || miniGame.type !== 'fk') return;
+    const { kickerPiece, gkPiece, fouledTeam } = miniGame;
+    const defenseTeam: Team = fouledTeam === 'home' ? 'away' : 'home';
+
+    // COM守備のゾーン選択（ランダム）
+    const comZone = Math.floor(Math.random() * 6);
+    const attackerZone = data.zone;
+    // GKがゾーンを当てたらセーブ、外したらゴール方向に飛ぶ（キッカーコスト依存で成功率）
+    const gkGuessedRight = attackerZone === comZone;
+
+    let kickSuccess: boolean;
+    if (gkGuessedRight) {
+      // GKが正しい方向 → キッカーコスト×15% でもゴール（パワーで抜ける）
+      kickSuccess = Math.random() < kickerPiece.cost * 0.15;
+    } else {
+      // GKが外した → キッカーコスト×20+30 % でゴール（枠に入るか）
+      kickSuccess = Math.random() < Math.min(0.95, kickerPiece.cost * 0.20 + 0.30);
+    }
+    // ロブはGK正解時にセーブ率低下
+    if (data.kickType === 'lob' && gkGuessedRight) {
+      kickSuccess = kickSuccess || Math.random() < 0.25;
+    }
+
+    const currentPieces = state.board.pieces;
+    let newHolderId: string | null;
+    let newScoreHome = state.scoreHome;
+    let newScoreAway = state.scoreAway;
+
+    if (kickSuccess) {
+      // FK直接ゴール → スコア加算 + ゴールリスタート
+      if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
+      showOverlay('GOAL!!', { subText: `${newScoreHome} - ${newScoreAway}`, duration: 2500, color: '#FFD700', fontSize: 64, glow: true });
+      const kickoff = fouledTeam === 'home' ? 'away' : 'home';
+      const resetPieces = createGoalRestartPieces(formationData, kickoff);
+      setMiniGame(null);
+      setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
+      dispatch({
+        type: 'SET_BOARD',
+        board: { pieces: resetPieces },
+        turn: state.turn,
+        scoreHome: newScoreHome,
+        scoreAway: newScoreAway,
+      });
+      dispatch({ type: 'NEXT_TURN' });
+      clearReplayTimers();
+      return;
+    }
+
+    // FK失敗 → GKがボール獲得
+    const gk = currentPieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
+    newHolderId = gk?.id ?? currentPieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
+    showOverlay('GREAT SAVE!', { subText: `GK ★${gkPiece.cost}`, duration: 1200, color: '#4ade80', fontSize: 48 });
+
+    const ballState = setBallHolder(currentPieces, newHolderId);
     setMiniGame(null);
     setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
+    dispatch({
+      type: 'SET_BOARD',
+      board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
+      turn: state.turn,
+      scoreHome: state.scoreHome,
+      scoreAway: state.scoreAway,
+    });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [dispatch, clearReplayTimers]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay]);
+
+  const handlePKComplete = useCallback((zone: number) => {
+    if (!miniGame || miniGame.type !== 'pk') return;
+    const { kickerPiece, gkPiece, fouledTeam } = miniGame;
+    const defenseTeam: Team = fouledTeam === 'home' ? 'away' : 'home';
+
+    // COM側のゾーン選択（ランダム）
+    const comZone = Math.floor(Math.random() * 6);
+    const kickerZone = zone;
+    const gkGuessedRight = kickerZone === comZone;
+
+    let kickSuccess: boolean;
+    if (gkGuessedRight) {
+      // GKが正しい方向 → キッカーコスト×10% でゴール
+      kickSuccess = Math.random() < kickerPiece.cost * 0.10;
+    } else {
+      // GKが外した → キッカーコスト×15+40 % でゴール（PK成功率高め）
+      kickSuccess = Math.random() < Math.min(0.95, kickerPiece.cost * 0.15 + 0.40);
+    }
+
+    const currentPieces = state.board.pieces;
+    let newScoreHome = state.scoreHome;
+    let newScoreAway = state.scoreAway;
+
+    if (kickSuccess) {
+      // PKゴール
+      if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
+      showOverlay('GOAL!!', { subText: `${newScoreHome} - ${newScoreAway}`, duration: 2500, color: '#FFD700', fontSize: 64, glow: true });
+      const kickoff = fouledTeam === 'home' ? 'away' : 'home';
+      const resetPieces = createGoalRestartPieces(formationData, kickoff);
+      setMiniGame(null);
+      setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
+      dispatch({
+        type: 'SET_BOARD',
+        board: { pieces: resetPieces },
+        turn: state.turn,
+        scoreHome: newScoreHome,
+        scoreAway: newScoreAway,
+      });
+      dispatch({ type: 'NEXT_TURN' });
+      clearReplayTimers();
+      return;
+    }
+
+    // PK失敗 → GKがボール獲得
+    const gk = currentPieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
+    const newHolderId = gk?.id ?? currentPieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
+    showOverlay('GREAT SAVE!', { subText: `GK ★${gkPiece.cost}`, duration: 1200, color: '#4ade80', fontSize: 48 });
+
+    const ballState = setBallHolder(currentPieces, newHolderId);
+    setMiniGame(null);
+    setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
+    dispatch({
+      type: 'SET_BOARD',
+      board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
+      turn: state.turn,
+      scoreHome: state.scoreHome,
+      scoreAway: state.scoreAway,
+    });
+    dispatch({ type: 'NEXT_TURN' });
+    clearReplayTimers();
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay]);
+
+  // ── A7: CKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
+  const handleCKComplete = useCallback((data: import('../components/minigame/CKGame').CKInput) => {
+    if (!miniGame || miniGame.type !== 'ck') return;
+
+    const attackTeam = miniGame.attackTeam;
+    const defenseTeam: Team = attackTeam === 'home' ? 'away' : 'home';
+    const currentPieces = state.board.pieces;
+
+    // 守備側のゾーン配置をランダム生成（COM対戦）
+    const defFieldPieces = currentPieces.filter(
+      p => p.team === defenseTeam && !p.isBench && p.position !== 'GK',
+    );
+    const defSelected = defFieldPieces
+      .sort((a, b) => b.cost - a.cost)
+      .slice(0, 3);
+    const defZones: Array<'near' | 'center' | 'far'> = ['near', 'center', 'far'];
+    // シャッフル
+    for (let i = defZones.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [defZones[i], defZones[j]] = [defZones[j], defZones[i]];
+    }
+    const defPlacements = defSelected.map((p, i) => ({ pieceId: p.id, zone: defZones[i] }));
+
+    // ゾーン対決: 各ゾーンで攻撃コマ vs 守備コマのコスト比較
+    let attackWins = 0;
+    for (const zone of ['near', 'center', 'far'] as const) {
+      const atkPlacement = data.placements.find(p => p.zone === zone);
+      const defPlacement = defPlacements.find(p => p.zone === zone);
+      const atkCost = atkPlacement
+        ? (miniGame.pieces.find(p => p.id === atkPlacement.pieceId)?.cost ?? 1)
+        : 0;
+      const defCost = defPlacement
+        ? (defSelected.find(p => p.id === defPlacement.pieceId)?.cost ?? 1)
+        : 0;
+
+      if (atkCost > defCost) {
+        attackWins++;
+      } else if (atkCost === defCost) {
+        // 同コスト → 50%で攻撃勝利
+        if (Math.random() < 0.5) attackWins++;
+      }
+    }
+
+    // 2ゾーン以上勝てば攻撃側がボール獲得、それ以外は守備側GKがボール獲得
+    const attackerWon = attackWins >= 2;
+    const ballTeam = attackerWon ? attackTeam : defenseTeam;
+
+    // ボール保持者を設定: 勝った側の適切なコマ
+    let newHolderId: string | null = null;
+    if (attackerWon) {
+      // 攻撃成功: 攻撃側FWまたは最初のFP
+      const candidate = currentPieces.find(p => p.team === ballTeam && p.position === 'FW' && !p.isBench)
+        ?? currentPieces.find(p => p.team === ballTeam && !p.isBench && p.position !== 'GK');
+      newHolderId = candidate?.id ?? null;
+    } else {
+      // 守備成功: GKがボール獲得
+      const gk = currentPieces.find(p => p.team === ballTeam && p.position === 'GK' && !p.isBench);
+      newHolderId = gk?.id ?? currentPieces.find(p => p.team === ballTeam && !p.isBench)?.id ?? null;
+    }
+
+    // ボール状態を更新
+    const ballState = setBallHolder(currentPieces, newHolderId);
+    dispatch({
+      type: 'SET_BOARD',
+      board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
+      turn: state.turn,
+      scoreHome: state.scoreHome,
+      scoreAway: state.scoreAway,
+    });
+
+    setMiniGame(null);
+    setMiniGameCountdown(MINIGAME_CK_COUNTDOWN);
+    dispatch({ type: 'NEXT_TURN' });
+    clearReplayTimers();
+  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers]);
 
   // PC: 右クリックコンテキストメニュー（§3-2）
   const handleContextMenu = useCallback(
@@ -1632,6 +1850,22 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             </div>
             <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
               1st Half
+            </div>
+          </div>
+        )}
+
+        {/* ── KICK OFF 2nd Half ── */}
+        {ceremony === 'kickoff2nd' && (
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            textAlign: 'center',
+            animation: 'fcms-slide-up 2.5s ease-out forwards',
+          }}>
+            <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
+              KICK OFF
+            </div>
+            <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
+              2nd Half
             </div>
           </div>
         )}
@@ -1808,7 +2042,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       {miniGame.type === 'fk' && (
         <FKGame
           isAttacker={miniGame.isAttacker}
-          onSubmit={() => handleMiniGameComplete()}
+          onSubmit={(data) => handleFKComplete(data)}
           isMobile={isMobile}
           countdown={miniGameCountdown}
           kickerInfo={{ position: miniGame.kickerPiece.position, cost: miniGame.kickerPiece.cost }}
@@ -1819,7 +2053,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <PKGame
           isKicker={miniGame.isKicker}
           isMobile={isMobile}
-          onSubmit={() => handleMiniGameComplete()}
+          onSubmit={(zone) => handlePKComplete(zone)}
           countdown={miniGameCountdown}
           kickerInfo={{ position: miniGame.kickerPiece.position, cost: miniGame.kickerPiece.cost }}
           gkInfo={{ position: miniGame.gkPiece.position, cost: miniGame.gkPiece.cost }}
@@ -1829,7 +2063,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <CKGame
           isAttacker={miniGame.isAttacker}
           availablePieces={miniGame.pieces}
-          onSubmit={() => handleMiniGameComplete()}
+          onSubmit={(data) => handleCKComplete(data)}
           isMobile={isMobile}
           countdown={miniGameCountdown}
         />

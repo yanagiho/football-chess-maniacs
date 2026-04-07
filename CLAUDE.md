@@ -113,7 +113,7 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合 | ✅ 228 tests passing |
+| ユニットテスト | 判定式全体・統合 | ✅ 231 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -144,6 +144,10 @@ src/
 | ボール操作UI | ドリブル/パス/シュート自動判定、アクションガイドテキスト、キーボード(D/Q/W) | ✅ |
 | flipY座標反転 | homeプレイヤーは常に下から上に攻める表示（HexBoard.tsx） | ✅ |
 | オンラインWS | Matching→マッチメイキングWS、Battle→ゲームセッションWS、TURN_INPUT送信 | ✅（クライアント側実装済、テスト未実施） |
+| FK/PKミニゲーム結果判定 | ゾーン対決ロジック実装、ゴール時スコア加算+リスタート、失敗時GKボール獲得 | ✅ |
+| CKミニゲーム結果判定 | 3ゾーン攻守コスト対決、2ゾーン以上勝利で攻撃側ボール獲得 | ✅ |
+| GKシュートコース判定 | isOnShootCourse: GK自身+ZOCがshootPathと交差する場合のみセーブ判定 | ✅ |
+| 後半キックオフ演出 | kickoff2nd演出フェーズ追加、「KICK OFF / 2nd Half」表示後に後半開始 | ✅ |
 
 ---
 
@@ -204,6 +208,21 @@ src/
 ### ファウル優先
 - タックル成功後にファウルが成立した場合、**タックルを無効化してFK/PKを与える**
 - イベント順: `TACKLE` → `BALL_ACQUIRED(tackler)` → `FOUL`（ボールはドリブラーに戻る）
+
+### シュート判定チェーン（§7-2）
+- **シュートコース**: `hexLinePath(shooter.coord, goalCoord)` — shooter→ゴール中央(col=10)のHEX直線。**`hexLinePath`はfromを含まない**ため`.slice(1)`は不要（以前のバグを修正済み）
+- **② ブロック**: `findBlockerOnPath(shootPath)` — shootPath上のHEXが守備コマのZOC内にあるか（最初の1体のみ）
+- **③ GKセーブ**: `isOnShootCourse(gk, shootPath)` — **GK自身のHEXまたはGKのZOC(隣接6HEX)がshootPathと交差する場合のみ**セーブ判定。コース外GKはnull扱い
+- **③ 距離修正**: `(distanceToGk - 2) × 5` — 遠距離ほどGKに反応時間があるためセーブ容易（至近=最難、遠距離=容易）
+- **④ シュート成功**: `shooter.cost × 5 + 70 + 距離修正 + ZOC修正` — ゴール距離が遠いほど成功率低下
+- **6ゾーンはエンジンに存在しない** — ミニゲームUIのみの概念
+
+### FK/PK/CKミニゲーム
+- **FK**: 6ゾーン選択+直接/ロブ。COM側はランダムゾーン。同ゾーン=GKセーブ（キッカーコスト依存でパワー突破可能）
+- **PK**: 6ゾーン選択。FKと同様のゾーン対決。PK成功率はFKより高め
+- **CK**: 3枚選択→ニア/中央/ファーに1枚ずつ配置。各ゾーンで攻守コスト対決。2ゾーン以上勝利で攻撃側ボール獲得
+- **共通**: タイムアウト時は未選択をランダム補完して自動送信。ミニゲーム遷移時にreplaySafetyTimerをクリア
+- **FK/PK isAttacker/isKicker**: ファウルされた側(`tacklerId`から逆算)が攻撃側
 
 ### COM AI構造（§1-1）
 - **安全層**: 合法手生成（数学的に正確）+ 盤面評価 → 50ms以内
@@ -298,7 +317,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全228テスト）
+npm test              # vitest run（全231テスト）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）

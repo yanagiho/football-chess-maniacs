@@ -135,6 +135,20 @@ function findGk(defenseTeam: Team, pieces: Piece[]): Piece | null {
   return pieces.find(p => p.team === defenseTeam && p.position === 'GK') ?? null;
 }
 
+/**
+ * GK がシュートコース上にいるか判定。
+ * GK自身がshootPath上にいるか、GKのZOCがshootPathと交差していればtrue。
+ */
+function isOnShootCourse(gk: Piece, shootPath: HexCoord[]): boolean {
+  const gkKey = hexKey(gk.coord);
+  const gkZocKeys = new Set(getZocHexes(gk.coord).map(hexKey));
+  for (const hex of shootPath) {
+    const k = hexKey(hex);
+    if (k === gkKey || gkZocKeys.has(k)) return true;
+  }
+  return false;
+}
+
 // ============================================================
 // フェーズ2: ボール処理
 // ============================================================
@@ -168,10 +182,14 @@ export function processBall(
       const attackTeam  = shooter.team;
       const defenseTeam: Team = attackTeam === 'home' ? 'away' : 'home';
       const goal   = goalCoord(attackTeam);
-      const gk     = findGk(defenseTeam, pieces);
+      const gkRaw  = findGk(defenseTeam, pieces);
 
-      // シュート経路（シューターの次のHEXからゴールまで）
-      const shootPath = hexLinePath(shooter.coord, goal).slice(1); // シューター自身を除く
+      // シュート経路（シューターの隣接HEXからゴールまで）
+      // hexLinePath は from を含まないため、slice不要
+      const shootPath = hexLinePath(shooter.coord, goal);
+
+      // GKがシュートコース上にいるか判定（GK自身またはGKのZOCがshootPathと交差）
+      const gk = gkRaw && isOnShootCourse(gkRaw, shootPath) ? gkRaw : null;
 
       // ② シュートブロッカー（コース上最初の守備コマのZOC内のHEX）
       const blocker = findBlockerOnPath(shootPath, defenseTeam, pieces);

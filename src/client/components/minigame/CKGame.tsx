@@ -1,6 +1,7 @@
 // ============================================================
 // CKGame.tsx — CKミニゲーム（§4-2）
 // 攻撃/守備: PA内3ゾーン（ニア/中央/ファー）にコマ配置
+// 各ゾーンで攻守コマのコスト対決 → 勝ったゾーンが多い方がボール獲得
 // ============================================================
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -23,6 +24,12 @@ const ZONE_LABELS: Record<string, string> = {
   near: 'ニア',
   center: '中央',
   far: 'ファー',
+};
+
+const ZONE_DESCRIPTIONS: Record<string, string> = {
+  near: 'ゴール手前',
+  center: 'ゴール正面',
+  far: 'ゴール奥側',
 };
 
 const ZONES = ['near', 'center', 'far'] as const;
@@ -61,27 +68,74 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
     });
   }, [submitted, placements, selectedPieces, onSubmit]);
 
+  // カウントダウン0で自動送信（未完了ならランダムで補完）
   useEffect(() => {
-    if (countdown <= 0 && !submitted) handleSubmit();
-  }, [countdown, submitted, handleSubmit]);
+    if (countdown <= 0 && !submitted) {
+      // コマ未選択ならランダムに選択
+      let finalPieces = [...selectedPieces];
+      if (finalPieces.length < MAX_PIECES) {
+        const remaining = availablePieces.filter(p => !finalPieces.includes(p.id));
+        while (finalPieces.length < MAX_PIECES && remaining.length > 0) {
+          const idx = Math.floor(Math.random() * remaining.length);
+          finalPieces.push(remaining.splice(idx, 1)[0].id);
+        }
+      }
+      // ゾーン未配置ならランダム配置
+      const finalPlacements = new Map(placements);
+      const zones: Array<'near' | 'center' | 'far'> = ['near', 'center', 'far'];
+      const usedZones = new Set(finalPlacements.values());
+      const availZones = zones.filter(z => !usedZones.has(z));
+      for (const pieceId of finalPieces) {
+        if (!finalPlacements.has(pieceId) && availZones.length > 0) {
+          finalPlacements.set(pieceId, availZones.shift()!);
+        }
+      }
+      setSubmitted(true);
+      onSubmit({
+        placements: [...finalPlacements.entries()].map(([pieceId, zone]) => ({ pieceId, zone })),
+      });
+    }
+  }, [countdown, submitted, selectedPieces, placements, availablePieces, onSubmit]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: 20 }}>
       <div style={{ fontSize: 24, fontWeight: 'bold', color: countdown <= 3 ? '#ff4444' : '#fff' }}>
-        {isAttacker ? 'コーナーキック（攻撃）' : 'コーナーキック（守備）'} - {countdown}秒
+        {isAttacker ? '⚽ コーナーキック（攻撃）' : '🧤 コーナーキック（守備）'} - {countdown}秒
       </div>
 
-      {/* 操作説明 */}
-      <div style={{ fontSize: 15, color: '#ffd700', textAlign: 'center' }}>
-        {isAttacker
-          ? 'まず投入する3枚のコマを選び、次にゾーンに配置してください'
-          : '守備コマ3枚を選び、ゾーンに配置して守ってください'}
+      {/* ルール説明 */}
+      <div style={{
+        background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 16px',
+        maxWidth: 400, width: '100%',
+      }}>
+        <div style={{ fontSize: 14, color: '#ffd700', fontWeight: 'bold', marginBottom: 6 }}>
+          📋 ルール
+        </div>
+        <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.6 }}>
+          {isAttacker ? (
+            <>
+              ① 攻撃に送り込むコマを<strong style={{ color: '#fff' }}>3枚</strong>選ぶ<br />
+              ② 3つのゾーン（ニア・中央・ファー）に1枚ずつ配置<br />
+              ③ 各ゾーンで相手の守備コマと<strong style={{ color: '#fff' }}>コスト対決</strong><br />
+              ④ <strong style={{ color: '#4ade80' }}>2ゾーン以上勝てばヘディングチャンス！</strong>
+            </>
+          ) : (
+            <>
+              ① 守備に出すコマを<strong style={{ color: '#fff' }}>3枚</strong>選ぶ<br />
+              ② 3つのゾーン（ニア・中央・ファー）に1枚ずつ配置<br />
+              ③ 各ゾーンで相手の攻撃コマと<strong style={{ color: '#fff' }}>コスト対決</strong><br />
+              ④ <strong style={{ color: '#4ade80' }}>2ゾーン以上守ればクリア成功！</strong>
+            </>
+          )}
+        </div>
       </div>
 
       {/* フェーズ1: コマ選択 */}
       {phase === 'select' && (
         <>
-          <div style={{ fontSize: 14, color: '#aaa' }}>投入コマを{MAX_PIECES}枚選択</div>
+          <div style={{ fontSize: 14, color: '#aaa' }}>
+            {isAttacker ? '攻撃' : '守備'}コマを{MAX_PIECES}枚選択（{selectedPieces.length}/{MAX_PIECES}）
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 360 }}>
             {availablePieces.map((piece) => {
               const isSelected = selectedPieces.includes(piece.id);
@@ -104,13 +158,18 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
               );
             })}
           </div>
+          <div style={{ fontSize: 12, color: '#888' }}>
+            💡 コストの高いコマほどゾーン対決で有利
+          </div>
         </>
       )}
 
       {/* フェーズ2: ゾーン配置 */}
       {phase === 'place' && (
         <>
-          <div style={{ fontSize: 14, color: '#aaa' }}>各コマをゾーンに配置</div>
+          <div style={{ fontSize: 14, color: '#aaa' }}>
+            各コマをゾーンに1枚ずつ配置（タップで配置先を選択）
+          </div>
           <div style={{ display: 'flex', gap: 12, width: '100%', maxWidth: 400, justifyContent: 'center' }}>
             {ZONES.map((zone) => (
               <div
@@ -122,9 +181,11 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
                   borderRadius: 10,
                   padding: 8,
                   textAlign: 'center',
+                  border: '1px solid rgba(255,255,255,0.1)',
                 }}
               >
-                <div style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>{ZONE_LABELS[zone]}</div>
+                <div style={{ fontSize: 14, fontWeight: 'bold', marginBottom: 4, color: '#ffd700' }}>{ZONE_LABELS[zone]}</div>
+                <div style={{ fontSize: 10, color: '#888', marginBottom: 8 }}>{ZONE_DESCRIPTIONS[zone]}</div>
                 {selectedPieces.map((pieceId) => {
                   const piece = availablePieces.find((p) => p.id === pieceId);
                   if (!piece) return null;
@@ -167,7 +228,7 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
               cursor: submitted ? 'default' : 'pointer',
             }}
           >
-            {submitted ? '待機中...' : '確定'}
+            {submitted ? '判定中...' : '✓ 確定'}
           </button>
         </>
       )}

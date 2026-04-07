@@ -63,9 +63,14 @@ export default function PKGame({
     onSubmit(selectedZone);
   }, [selectedZone, submitted, onSubmit]);
 
+  // カウントダウン0で自動送信（未選択ならランダム）
   useEffect(() => {
-    if (countdown <= 0 && !submitted) handleSubmit();
-  }, [countdown, submitted, handleSubmit]);
+    if (countdown <= 0 && !submitted) {
+      const zone = selectedZone ?? Math.floor(Math.random() * 6);
+      setSubmitted(true);
+      onSubmit(zone);
+    }
+  }, [countdown, submitted, selectedZone, onSubmit]);
 
   return (
     <div style={{
