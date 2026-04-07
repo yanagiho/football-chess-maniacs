@@ -1,9 +1,10 @@
 // ============================================================
 // FlyingBall.tsx — ボール飛行アニメーション
 // パス/シュート時にピッチ上をボールが飛ぶ演出
+// useRef + 直接DOM操作でCSS transitionを確実にトリガー
 // ============================================================
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 export interface FlyingBallData {
   fromX: number;
@@ -19,50 +20,68 @@ interface FlyingBallProps {
   onComplete: () => void;
 }
 
+const SZ = 24;
+const HALF = SZ / 2;
+
 export default function FlyingBall({ data, onComplete }: FlyingBallProps) {
-  const [phase, setPhase] = useState<'start' | 'flying' | 'done'>('start');
+  const elRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!data) { setPhase('start'); return; }
-    setPhase('start');
-    // 次フレームでflying開始（CSS transitionをトリガー）
-    const t1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setPhase('flying'));
+    const el = elRef.current;
+    if (!el || !data) return;
+
+    // 1. 初期位置にジャンプ（transitionなし）
+    el.style.transition = 'none';
+    el.style.left = `${data.fromX - HALF}px`;
+    el.style.top = `${data.fromY - HALF}px`;
+    el.style.transform = 'rotate(0deg)';
+    el.style.opacity = '1';
+    // reflow を強制して初期位置を確定させる
+    el.getBoundingClientRect();
+
+    // 2. 次フレームでtransitionを有効にして目的地へ移動
+    requestAnimationFrame(() => {
+      el.style.transition = `left ${data.durationMs}ms ease-out, top ${data.durationMs}ms ease-out, transform ${data.durationMs}ms linear`;
+      el.style.left = `${data.toX - HALF}px`;
+      el.style.top = `${data.toY - HALF}px`;
+      el.style.transform = 'rotate(720deg)';
     });
-    const t2 = setTimeout(() => {
-      setPhase('done');
+
+    // 3. 到着後にonComplete
+    timerRef.current = setTimeout(() => {
       onComplete();
-    }, data.durationMs + 50);
-    return () => { cancelAnimationFrame(t1); clearTimeout(t2); };
+    }, data.durationMs + 30);
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, [data, onComplete]);
 
-  if (!data || phase === 'done') return null;
+  if (!data) return null;
 
-  const sz = 24;
-  const x = phase === 'start' ? data.fromX : data.toX;
-  const y = phase === 'start' ? data.fromY : data.toY;
-  const color = data.type === 'shoot' ? 'rgba(255,50,50,0.4)'
-    : data.type === 'throughPass' ? 'rgba(0,210,210,0.4)'
-    : 'rgba(60,140,255,0.4)';
+  const glowColor = data.type === 'shoot' ? 'rgba(255,50,50,0.6)'
+    : data.type === 'throughPass' ? 'rgba(0,210,210,0.6)'
+    : 'rgba(60,140,255,0.6)';
 
   return (
-    <div style={{
-      position: 'absolute',
-      left: x - sz / 2,
-      top: y - sz / 2,
-      width: sz,
-      height: sz,
-      zIndex: 30,
-      pointerEvents: 'none',
-      transition: `left ${data.durationMs}ms ease-in-out, top ${data.durationMs}ms ease-in-out, transform ${data.durationMs}ms linear`,
-      transform: phase === 'flying' ? 'rotate(720deg)' : 'rotate(0deg)',
-      filter: `drop-shadow(0 0 8px ${color})`,
-    }}>
-      <svg width={sz} height={sz} viewBox={`0 0 ${sz} ${sz}`}>
-        <circle cx={sz / 2} cy={sz / 2} r={sz / 2 - 1} fill="white" stroke="#333" strokeWidth={1} />
+    <div
+      ref={elRef}
+      style={{
+        position: 'absolute',
+        width: SZ,
+        height: SZ,
+        zIndex: 200,
+        pointerEvents: 'none',
+        filter: `drop-shadow(0 0 12px ${glowColor})`,
+      }}
+    >
+      <style>{`@keyframes fcms-ball-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+      <svg width={SZ} height={SZ} viewBox={`0 0 ${SZ} ${SZ}`} style={{ animation: 'fcms-ball-spin 0.5s linear infinite' }}>
+        <circle cx={HALF} cy={HALF} r={HALF - 1} fill="white" stroke="#333" strokeWidth={1} />
         {Array.from({ length: 5 }, (_, i) => {
           const a = ((i * 72 - 90) * Math.PI) / 180;
-          return <circle key={i} cx={sz / 2 + 6 * Math.cos(a)} cy={sz / 2 + 6 * Math.sin(a)} r={2} fill="#333" />;
+          return <circle key={i} cx={HALF + 6 * Math.cos(a)} cy={HALF + 6 * Math.sin(a)} r={2} fill="#333" />;
         })}
       </svg>
     </div>

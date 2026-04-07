@@ -1289,10 +1289,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const pe = ev as PassDeliveredEvent;
               const passer = postPieces.find(pp => pp.id === pe.passerId);
               if (passer) {
-                await launchFlyingBall(passer.coord, pe.receiverCoord, 'pass');
+                // 軌跡を先に表示（ボール飛行と同時に線が見える）
                 trails.push({ from: passer.coord, to: pe.receiverCoord, type: 'pass', result: 'success' });
                 setBallTrails([...trails]);
                 soundManager.play('pass');
+                // ボール飛行アニメーション
+                await launchFlyingBall(passer.coord, pe.receiverCoord, 'pass');
                 await wait(150);
               }
             }
@@ -1302,14 +1304,16 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               if (shooter) {
                 const goalRow = shooter.team === 'home' ? 33 : 0;
                 const goalCoord = { col: 10, row: goalRow };
-                await launchFlyingBall(shooter.coord, goalCoord, 'shoot');
                 const result = se.result.outcome === 'goal' ? 'goal' as const
                   : se.result.outcome === 'blocked' ? 'blocked' as const
                   : (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck') ? 'saved' as const
                   : 'success' as const;
+                // 軌跡を先に表示
                 trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
                 setBallTrails([...trails]);
                 soundManager.play('shoot');
+                // ボール飛行アニメーション
+                await launchFlyingBall(shooter.coord, goalCoord, 'shoot');
                 // 結果演出
                 if (se.result.outcome === 'goal') soundManager.play('goal');
                 else if (se.result.outcome === 'blocked') showOverlay('BLOCKED!', { duration: 500, fontSize: 32 });
@@ -1330,9 +1334,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const interceptorId = pc.result.cut1?.interceptor?.id ?? pc.result.cut2?.interceptor?.id;
               const interceptor = interceptorId ? turnResult.board.pieces.find(p => p.id === interceptorId) : null;
               if (passer && interceptor) {
-                await launchFlyingBall(passer.coord, interceptor.coord, 'pass');
+                // 軌跡を先に表示 → ボール飛行
                 trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
                 setBallTrails([...trails]);
+                await launchFlyingBall(passer.coord, interceptor.coord, 'pass');
               }
               const coord = interceptor?.coord ?? { col: 10, row: 16 };
               p4Effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED' });
