@@ -25,6 +25,8 @@ type GameAction =
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number; freeBallHex?: import('../types').HexCoord | null }
   | { type: 'SET_TURN_PHASE'; phase: TurnPhase }
+  | { type: 'SAVE_SNAPSHOT' }
+  | { type: 'SET_DISPLAY_PIECES'; pieces: PieceData[] }
   | { type: 'PASS_BALL'; fromPieceId: string; toPieceId: string }
   | { type: 'THROUGH_PASS'; fromPieceId: string; targetHex: HexCoord };
 
@@ -49,6 +51,7 @@ function createInitialState(): GameState {
     additionalTime1: randomAT(),
     additionalTime2: randomAT(),
     turnPhase: 'TURN_START' as TurnPhase,
+    turnStartSnapshot: null,
   };
 }
 
@@ -109,6 +112,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'SET_TURN_PHASE':
       return { ...state, turnPhase: action.phase };
+
+    case 'SAVE_SNAPSHOT':
+      return { ...state, turnStartSnapshot: state.board.pieces.map(p => ({ ...p, coord: { ...p.coord } })) };
+
+    case 'SET_DISPLAY_PIECES':
+      // 表示用のコマ位置のみ更新（gameState.boardは変えない、アニメーション用）
+      return { ...state, board: { ...state.board, pieces: action.pieces } };
 
     case 'ADD_ORDER': {
       const newOrders = new Map(state.orders);

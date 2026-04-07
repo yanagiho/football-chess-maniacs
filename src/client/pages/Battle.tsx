@@ -721,6 +721,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     }
     const normalDelay = state.turn === 1 ? 4000 : 1000; // Turn 1はチュートリアル分長く
     phaseTimeoutRef.current = setTimeout(() => {
+      dispatch({ type: 'SAVE_SNAPSHOT' });
       dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
     }, normalDelay);
     // 安全弁: 通常の2倍（Turn 1は8秒、それ以外は2秒）
@@ -1179,22 +1180,30 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         }
         setBallTrails(trails);
 
-        // 8. エンジン結果を反映 → resolving 状態に入る
-        dispatch({
-          type: 'APPLY_ENGINE_RESULT',
-          pieces: newPieces,
-          scoreHome: newScoreHome,
-          scoreAway: newScoreAway,
-          freeBallHex: turnResult.board.freeBallHex ?? null,
-        });
+        // 8. スナップショットに巻き戻し → 0.3秒後に結果を適用（CSS transitionで移動アニメーション）
+        if (state.turnStartSnapshot) {
+          dispatch({ type: 'SET_DISPLAY_PIECES', pieces: state.turnStartSnapshot });
+        }
+        // EXECUTION状態に移行（入力不可にする）
+        dispatch({ type: 'SET_TURN_PHASE', phase: 'EXECUTION' });
 
-        // 9. A10: 5段階フェーズ演出（合計≈2.2秒）
+        // 0.3秒後に最終状態を適用（Piece.tsxのCSS transitionが移動をアニメーションする）
         clearReplayTimers();
         const evts = turnResult.events;
 
-        // Phase0 (0.8s): 移動 — Piece.tsx CSS transition が自動アニメーション
+        replayTimerRef.current = setTimeout(() => {
+          dispatch({
+            type: 'APPLY_ENGINE_RESULT',
+            pieces: newPieces,
+            scoreHome: newScoreHome,
+            scoreAway: newScoreAway,
+            freeBallHex: turnResult.board.freeBallHex ?? null,
+          });
+        }, 300);
+
+        // 9. フェーズ演出（スナップショット巻き戻し0.3秒 + CSS移動0.8秒 + 効果音・エフェクト）
         setResolvingPhase(0);
-        let elapsed = 0;
+        let elapsed = 300; // スナップショット巻き戻し分
 
         // Phase1 (0.5s): 競合・タックル（§5-1b）
         elapsed += PHASE_TIMINGS[0];

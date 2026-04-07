@@ -80,6 +80,8 @@ export interface GameState {
   additionalTime2: number;
   /** ターン内フェーズ */
   turnPhase: TurnPhase;
+  /** ターン開始時の盤面スナップショット（EXECUTION再生用） */
+  turnStartSnapshot: PieceData[] | null;
 }
 
 /** WebSocketメッセージ型 */
