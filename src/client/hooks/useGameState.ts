@@ -23,7 +23,7 @@ type GameAction =
   | { type: 'NEXT_TURN' }
   | { type: 'RESUME_SECOND_HALF' }
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
-  | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number }
+  | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number; freeBallHex?: import('../types').HexCoord | null }
   | { type: 'SET_TURN_PHASE'; phase: TurnPhase }
   | { type: 'PASS_BALL'; fromPieceId: string; toPieceId: string };
 
@@ -239,7 +239,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       // COM対戦: エンジンの processTurn 結果を反映して resolving 状態に入る
       return {
         ...state,
-        board: { pieces: action.pieces },
+        board: { pieces: action.pieces, freeBallHex: action.freeBallHex ?? null },
         scoreHome: action.scoreHome,
         scoreAway: action.scoreAway,
         status: 'resolving',

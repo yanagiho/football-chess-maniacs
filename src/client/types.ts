@@ -61,6 +61,7 @@ export interface GameState {
   turn: number;
   board: {
     pieces: PieceData[];
+    freeBallHex?: HexCoord | null;
   };
   scoreHome: number;
   scoreAway: number;

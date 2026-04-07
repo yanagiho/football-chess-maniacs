@@ -1093,7 +1093,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         const awayOrders: EngineOrder[] = comResult.orders;
 
         // 3. エンジン Board 構築
-        const board: EngineBoard = { pieces: enginePieces, snapshot: [] };
+        const board: EngineBoard = { pieces: enginePieces, snapshot: [], freeBallHex: state.board.freeBallHex ?? null };
 
         // 4. processTurn 実行（Phase0〜3: 移動→タックル→ファウル→シュート→パスカット→オフサイド）
         const turnResult = processTurn(board, homeOrders, awayOrders, boardContext);
@@ -1184,6 +1184,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           pieces: newPieces,
           scoreHome: newScoreHome,
           scoreAway: newScoreAway,
+          freeBallHex: turnResult.board.freeBallHex ?? null,
         });
 
         // 9. A10: 5段階フェーズ演出（合計≈2.2秒）
@@ -1653,6 +1654,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   // ── アクションガイドテキスト ──
   const actionGuide = useMemo(() => {
+    if (state.board.freeBallHex) return 'フリーボール！コマを移動させて拾いましょう';
     if (!selectedPiece) return 'コマまたはボールを選んでください';
     // パス済みコマを選択
     if (state.orders.has(selectedPiece.id)) {
@@ -1870,6 +1872,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             longPassWarnings={longPassWarnings}
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
+            freeBallHex={state.board.freeBallHex}
           />
 
           {/* A8: オフサイドライントグル */}
@@ -2032,6 +2035,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             longPassWarnings={longPassWarnings}
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
+            freeBallHex={state.board.freeBallHex}
           />
 
           {/* A8: オフサイドライントグル (PC) */}

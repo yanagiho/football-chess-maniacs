@@ -28,6 +28,7 @@ import type {
   TackleEvent,
   ZocAdjacency,
   ZocStopEvent,
+  LooseBallEvent,
   Zone,
 } from './types';
 
@@ -239,6 +240,8 @@ export function getMovementRange(
 export interface MovementResult {
   pieces: Piece[];
   events: GameEvent[];
+  /** フリーボール位置（ルーズボール争奪の結果） */
+  freeBallHex: HexCoord | null;
 }
 
 export function processMovement(
@@ -423,5 +426,5 @@ export function processMovement(
     piece.coord = dest;
   }
 
-  return { pieces, events };
+  return { pieces, events, freeBallHex: null };
 }

@@ -26,9 +26,12 @@ import type {
   Board,
   BoardContext,
   GameEvent,
+  HexCoord,
   Order,
   Piece,
   TurnResult,
+  LooseBallEvent,
+  BallAcquiredEvent,
 } from './types';
 
 // ============================================================
@@ -71,6 +74,20 @@ export function processTurn(
   allEvents.push(...phase1.events);
 
   // ──────────────────────────────────────────────────────────
+  // フェーズ1.5: フリーボール争奪（ルーズボール）
+  // ──────────────────────────────────────────────────────────
+  let freeBallHex: HexCoord | null = board.freeBallHex ?? null;
+  if (freeBallHex) {
+    const contestResult = resolveLooseBall(phase1.pieces, freeBallHex);
+    allEvents.push(...contestResult.events);
+    if (contestResult.acquiredBy) {
+      freeBallHex = null; // 誰かが拾った
+    } else {
+      freeBallHex = contestResult.newFreeBallHex; // まだフリー
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────
   // フェーズ2: ボール処理
   // フェーズ1 完了後の盤面を使用
   // ──────────────────────────────────────────────────────────
@@ -85,14 +102,89 @@ export function processTurn(
   allEvents.push(...phase3.events);
 
   // ──────────────────────────────────────────────────────────
+  // フェーズ2後: スルーパスでフリーボールが発生したかチェック
+  // ──────────────────────────────────────────────────────────
+  // ボールを持っているコマがいなければフリーボール
+  const anyoneHasBall = phase3.pieces.some(p => p.hasBall);
+  if (!anyoneHasBall && !freeBallHex) {
+    // throughPassの結果で誰も拾えなかった場合など
+    // throughPass先のtargetHexをフリーボール位置とする
+    const tpOrder = allOrders.find(o => o.type === 'throughPass' && o.target);
+    if (tpOrder?.target) {
+      freeBallHex = tpOrder.target;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────
   // 次のターン用ボードを構築
   // ──────────────────────────────────────────────────────────
   const newBoard: Board = {
     pieces: phase3.pieces,
     snapshot,
+    freeBallHex,
   };
 
   return { board: newBoard, events: allEvents };
+}
+
+// ============================================================
+// フリーボール争奪（ルーズボール）
+// ============================================================
+
+interface LooseBallResult {
+  events: GameEvent[];
+  acquiredBy: string | null;
+  newFreeBallHex: HexCoord | null;
+}
+
+function resolveLooseBall(pieces: Piece[], freeBallHex: HexCoord): LooseBallResult {
+  const events: GameEvent[] = [];
+  const fbKey = `${freeBallHex.col},${freeBallHex.row}`;
+
+  // freeBallHexにいるコマを検出
+  const onHex = pieces.filter(p => `${p.coord.col},${p.coord.row}` === fbKey);
+
+  if (onHex.length === 0) {
+    // 隣接HEX（距離1）にいるコマを検出
+    const adjacent = pieces.filter(p => {
+      const dc = Math.abs(p.coord.col - freeBallHex.col);
+      const dr = Math.abs(p.coord.row - freeBallHex.row);
+      return dc <= 1 && dr <= 1 && (dc + dr > 0);
+    });
+    if (adjacent.length === 0) {
+      // 誰も近くにいない → フリーボール継続
+      events.push({ type: 'LOOSE_BALL', phase: 1, coord: freeBallHex, acquiredBy: null } as LooseBallEvent);
+      return { events, acquiredBy: null, newFreeBallHex: freeBallHex };
+    }
+    // 隣接コマの中でコスト最高が拾う
+    const winner = pickByHighestCost(adjacent);
+    winner.hasBall = true;
+    events.push({ type: 'LOOSE_BALL', phase: 1, coord: freeBallHex, acquiredBy: winner.id } as LooseBallEvent);
+    events.push({ type: 'BALL_ACQUIRED', phase: 1, pieceId: winner.id } as BallAcquiredEvent);
+    return { events, acquiredBy: winner.id, newFreeBallHex: null };
+  }
+
+  if (onHex.length === 1) {
+    // 1チームの1コマだけ → 自動取得
+    onHex[0].hasBall = true;
+    events.push({ type: 'LOOSE_BALL', phase: 1, coord: freeBallHex, acquiredBy: onHex[0].id } as LooseBallEvent);
+    events.push({ type: 'BALL_ACQUIRED', phase: 1, pieceId: onHex[0].id } as BallAcquiredEvent);
+    return { events, acquiredBy: onHex[0].id, newFreeBallHex: null };
+  }
+
+  // 複数コマが同一HEXにいる場合 — コスト最高で比較
+  const winner = pickByHighestCost(onHex);
+  winner.hasBall = true;
+  events.push({ type: 'LOOSE_BALL', phase: 1, coord: freeBallHex, acquiredBy: winner.id } as LooseBallEvent);
+  events.push({ type: 'BALL_ACQUIRED', phase: 1, pieceId: winner.id } as BallAcquiredEvent);
+  return { events, acquiredBy: winner.id, newFreeBallHex: null };
+}
+
+/** コスト最高のコマを選出（同コストなら乱数） */
+function pickByHighestCost(candidates: Piece[]): Piece {
+  const maxCost = Math.max(...candidates.map(p => p.cost));
+  const topCandidates = candidates.filter(p => p.cost === maxCost);
+  return topCandidates[Math.floor(Math.random() * topCandidates.length)];
 }
 
 // ============================================================

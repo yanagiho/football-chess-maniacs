@@ -49,6 +49,8 @@ export interface Board {
   pieces: Piece[];
   /** キックオフ前スナップショット（オフサイド判定用）*/
   snapshot: Piece[];
+  /** フリーボール位置（誰も持っていない場合のHEX座標） */
+  freeBallHex?: HexCoord | null;
 }
 
 // ============================================================
@@ -227,6 +229,14 @@ export interface BallAcquiredEvent {
   pieceId: string;
 }
 
+export interface LooseBallEvent {
+  type: 'LOOSE_BALL';
+  phase: 1 | 2;
+  coord: HexCoord;
+  /** ボールを拾ったコマID（null = 誰も拾えず→フリーボール継続） */
+  acquiredBy: string | null;
+}
+
 export type GameEvent =
   | PieceMovedEvent
   | ZocStopEvent
@@ -237,7 +247,8 @@ export type GameEvent =
   | PassDeliveredEvent
   | PassCutEvent
   | OffsideEvent
-  | BallAcquiredEvent;
+  | BallAcquiredEvent
+  | LooseBallEvent;
 
 // ============================================================
 // ターン結果

@@ -99,6 +99,8 @@ interface HexBoardProps {
   phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string }>;
   /** ボール軌跡（EXECUTIONフェーズ中に描画） */
   ballTrails?: BallTrail[];
+  /** フリーボール位置（誰も持っていない場合に表示） */
+  freeBallHex?: import('../../types').HexCoord | null;
 }
 
 export default function HexBoard({
@@ -121,6 +123,7 @@ export default function HexBoard({
   longPassWarnings,
   phaseEffects = [],
   ballTrails = [],
+  freeBallHex,
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -461,6 +464,35 @@ export default function HexBoard({
               />
             );
           });
+        })()}
+
+        {/* フリーボール表示 */}
+        {freeBallHex && (() => {
+          const fbCoord = flipY ? { col: freeBallHex.col, row: MAX_ROW - freeBallHex.row } : freeBallHex;
+          const cell = cellLookup.get(`${fbCoord.col},${fbCoord.row}`);
+          if (!cell) return null;
+          const sz = 40;
+          return (
+            <div style={{
+              position: 'absolute', left: cell.x - sz / 2, top: cell.y - sz / 2,
+              width: sz, height: sz, zIndex: 15, pointerEvents: 'none',
+              animation: 'fcms-free-ball-bounce 1.5s ease-in-out infinite',
+              filter: 'drop-shadow(0 0 8px rgba(255,255,0,0.6))',
+            }}>
+              <style>{`@keyframes fcms-free-ball-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}`}</style>
+              <svg width={sz} height={sz} viewBox={`0 0 ${sz} ${sz}`}>
+                <circle cx={sz / 2} cy={sz / 2} r={sz / 2 - 2} fill="white" stroke="#333" strokeWidth={1.5} />
+                {Array.from({ length: 5 }, (_, i) => {
+                  const a = ((i * 72 - 90) * Math.PI) / 180;
+                  return <circle key={i} cx={sz / 2 + (sz * 0.3) * Math.cos(a)} cy={sz / 2 + (sz * 0.3) * Math.sin(a)} r={3} fill="#333" />;
+                })}
+              </svg>
+              <div style={{
+                position: 'absolute', bottom: -12, left: '50%', transform: 'translateX(-50%)',
+                fontSize: 8, color: '#ffcc00', fontWeight: 'bold', textShadow: '0 0 3px #000',
+              }}>FREE</div>
+            </div>
+          );
         })()}
       </div>
     </div>
