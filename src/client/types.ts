@@ -5,7 +5,7 @@
 export type Position = 'GK' | 'DF' | 'SB' | 'VO' | 'MF' | 'OM' | 'WG' | 'FW';
 export type Cost = 1 | 1.5 | 2 | 2.5 | 3;
 export type Team = 'home' | 'away';
-export type ActionMode = 'move' | 'pass' | 'shoot' | 'dribble' | 'substitute' | 'skill' | null;
+export type ActionMode = 'move' | 'pass' | 'shoot' | 'dribble' | 'throughPass' | 'substitute' | 'skill' | null;
 
 export interface HexCoord {
   col: number;

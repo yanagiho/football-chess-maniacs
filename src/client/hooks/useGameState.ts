@@ -65,12 +65,31 @@ function applyOrders(pieces: PieceData[], orders: Map<string, OrderData>): Piece
     if (order?.action === 'pass' && order.targetPieceId && p.hasBall && p.id === order.pieceId) {
       return { ...p, hasBall: false };
     }
+    if (order?.action === 'throughPass' && order.targetHex && p.hasBall && p.id === order.pieceId) {
+      return { ...p, hasBall: false };
+    }
     return p;
   });
   for (const [, order] of orders) {
     if (order.action === 'pass' && order.targetPieceId) {
       const idx = moved.findIndex(p => p.id === order.targetPieceId);
       if (idx !== -1) moved[idx] = { ...moved[idx], hasBall: true };
+    }
+    // スルーパス: targetHexに最も近い味方コマがボールを受け取る（簡易処理）
+    if (order.action === 'throughPass' && order.targetHex) {
+      const target = order.targetHex;
+      let bestIdx = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < moved.length; i++) {
+        const p = moved[i];
+        if (p.id === order.pieceId || p.isBench) continue;
+        if (p.team !== moved.find(pp => pp.id === order.pieceId)?.team) continue;
+        const d = Math.abs(p.coord.col - target.col) + Math.abs(p.coord.row - target.row);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      }
+      if (bestIdx >= 0 && bestDist <= 2) {
+        moved[bestIdx] = { ...moved[bestIdx], hasBall: true };
+      }
     }
   }
   return moved;

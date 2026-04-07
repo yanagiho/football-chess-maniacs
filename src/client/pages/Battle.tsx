@@ -290,6 +290,14 @@ function clientOrderToEngine(order: import('../types').OrderData, pieces: PieceD
       targetPieceId: order.targetPieceId,
     };
   }
+  if (order.action === 'throughPass') {
+    // スルーパスはエンジン上では 'throughPass' として処理
+    return {
+      pieceId: order.pieceId,
+      type: 'throughPass',
+      target: order.targetHex,
+    };
+  }
   return {
     pieceId: order.pieceId,
     type: (order.action ?? 'stay') as EngineOrder['type'],
@@ -891,12 +899,35 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       setOpponentPopup(null);
       setShowUnorderedList(false);
 
+      // ボール保持者のコマ本体をタッチ → ドリブルモードに自動設定
+      if (pieceId) {
+        const p = state.board.pieces.find(pp => pp.id === pieceId);
+        if (p?.hasBall && p.team === state.myTeam) {
+          dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' });
+        }
+      }
+
       // §2-6 振動フィードバック
       if (isMobile && pieceId && navigator.vibrate) {
         navigator.vibrate(30);
       }
     },
-    [dispatch, isMobile, opponentPieces],
+    [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam],
+  );
+
+  /** ボールアイコンをタッチ → パス/スルーパス/シュートモード */
+  const handleBallClick = useCallback(
+    (pieceId: string) => {
+      dispatch({ type: 'SELECT_PIECE', pieceId });
+      dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); // パスモード（自動判定でスルーパス/シュートに分岐）
+      setOpponentPopup(null);
+      setShowUnorderedList(false);
+
+      if (isMobile && navigator.vibrate) {
+        navigator.vibrate(40);
+      }
+    },
+    [dispatch, isMobile],
   );
 
   /** シュート可能ゾーン判定（ゲーム座標、ポジション別距離補正付き） */
@@ -920,14 +951,26 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
       // ── 明示モードが設定されている場合 ──
       if (state.actionMode === 'pass') {
-        const target = state.board.pieces.find(
+        // ボールタッチ由来のパスモード: 味方=パス / ゴール付近=シュート / 空きHEX=スルーパス
+        const teammate = state.board.pieces.find(
           (p) => p.coord.col === coord.col && p.coord.row === coord.row
-            && p.team === state.myTeam && !p.isBench,
+            && p.team === state.myTeam && p.id !== state.selectedPieceId && !p.isBench,
         );
-        if (target && target.id !== state.selectedPieceId) {
+        if (teammate) {
           dispatch({
             type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'pass', targetPieceId: target.id },
+            order: { pieceId: state.selectedPieceId, action: 'pass', targetPieceId: teammate.id },
+          });
+        } else if (isShootZone(coord)) {
+          dispatch({
+            type: 'ADD_ORDER',
+            order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord },
+          });
+        } else {
+          // 空きHEX → スルーパス
+          dispatch({
+            type: 'ADD_ORDER',
+            order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord },
           });
         }
       } else if (state.actionMode === 'shoot') {
@@ -940,31 +983,17 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           type: 'ADD_ORDER',
           order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord },
         });
+      } else if (state.actionMode === 'throughPass') {
+        dispatch({
+          type: 'ADD_ORDER',
+          order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord },
+        });
       } else if (hasBall) {
-        // ── ボール保持者 + モード未選択 → 自動判定 ──
-        // 味方コマがいればパス（ベンチは除外）
-        const teammate = state.board.pieces.find(
-          (p) => p.coord.col === coord.col && p.coord.row === coord.row
-            && p.team === state.myTeam && p.id !== state.selectedPieceId && !p.isBench,
-        );
-        if (teammate) {
-          dispatch({
-            type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'pass', targetPieceId: teammate.id },
-          });
-        } else if (isShootZone(coord)) {
-          // シュートゾーンならシュート
-          dispatch({
-            type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord },
-          });
-        } else {
-          // それ以外はドリブル
-          dispatch({
-            type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord },
-          });
-        }
+        // ── ボール保持者 + モード未選択 → ドリブル（コマタッチからの遷移） ──
+        dispatch({
+          type: 'ADD_ORDER',
+          order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord },
+        });
       } else {
         // ── ボール非保持者 → 移動 ──
         dispatch({
@@ -1493,12 +1522,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (!selectedPiece) return 'コマを選択してください';
     const hasBall = selectedPiece.hasBall;
     switch (state.actionMode) {
-      case 'pass': return 'パス先の味方をタップ';
+      case 'pass': return 'パス先をタップ（味方=パス / 空きHEX=スルーパス / ゴール付近=シュート）';
+      case 'throughPass': return 'スルーパス先をタップ';
       case 'shoot': return 'シュート先をタップ';
       case 'dribble': return 'ドリブル先をタップ';
       case 'substitute': return '交代先のベンチを選択';
       default:
-        if (hasBall) return 'HEXタップ: ドリブル / 味方: パス / ゴール付近: シュート';
+        if (hasBall) return 'コマ=ドリブル / ⚽=パス・シュート';
         return '移動先をタップ';
     }
   }, [selectedPiece, state.actionMode]);
@@ -1690,6 +1720,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             offsideLine={offsideLine}
             onSelectPiece={handleSelectPiece}
             onHexClick={handleHexClick}
+            onBallClick={handleBallClick}
             isMobile={true}
             myTeam={state.myTeam}
             flipY={state.myTeam === 'home'}
@@ -1848,6 +1879,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             offsideLine={offsideLine}
             onSelectPiece={handleSelectPiece}
             onHexClick={handleHexClick}
+            onBallClick={handleBallClick}
             isMobile={false}
             myTeam={state.myTeam}
             flipY={state.myTeam === 'home'}

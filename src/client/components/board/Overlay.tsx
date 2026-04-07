@@ -48,6 +48,7 @@ const COLORS = {
   passLine: 'rgba(60, 140, 255, 0.70)',      // パスコース: 青い線
   passLineDanger: 'rgba(255, 160, 40, 0.75)',// パスコース危険（ZOC通過）: オレンジ
   shootArrow: 'rgba(255, 50, 50, 0.80)',     // シュートコース: 赤い線
+  throughPassLine: 'rgba(0, 210, 210, 0.70)', // スルーパスコース: シアン点線
   shootRange: 'rgba(255, 60, 60, 0.15)',     // シュート可能範囲
   shootRangeOutline: 'rgba(255, 60, 60, 0.35)',
   offsideLine: 'rgba(255, 220, 40, 0.55)',   // オフサイドライン: 黄色点線
@@ -187,6 +188,20 @@ export default function Overlay({
       const color = crossesZoc ? COLORS.passLineDanger : COLORS.passLine;
       drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, color, PASS_LINE_WIDTH, PASS_LINE_DASH);
       drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, color);
+    }
+
+    // ================================================================
+    // 5b. スルーパスライン（シアン点線）
+    // ================================================================
+    for (const [, order] of orders) {
+      if (order.action !== 'throughPass' || !order.targetHex) continue;
+      const passer = pieces.find((p) => p.id === order.pieceId);
+      if (!passer) continue;
+      const fromCell = findCell(passer.coord);
+      const toCell = findCell(order.targetHex);
+      if (!fromCell || !toCell) continue;
+      drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.throughPassLine, PASS_LINE_WIDTH, PASS_LINE_DASH);
+      drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, COLORS.throughPassLine);
     }
 
     // ================================================================

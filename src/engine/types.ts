@@ -55,7 +55,7 @@ export interface Board {
 // 指示（Order）型
 // ============================================================
 
-export type OrderType = 'move' | 'dribble' | 'pass' | 'shoot' | 'substitute' | 'stay';
+export type OrderType = 'move' | 'dribble' | 'pass' | 'throughPass' | 'shoot' | 'substitute' | 'stay';
 
 export interface Order {
   pieceId: string;

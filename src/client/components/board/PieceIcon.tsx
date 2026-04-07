@@ -15,7 +15,7 @@ export type Cost = 1 | 1.5 | 2 | 2.5 | 3;
 export type Side = "ally" | "enemy";
 
 /** C2: 命令済みバッジ種類 */
-export type OrderBadge = 'move' | 'pass' | 'shoot' | 'stay' | null;
+export type OrderBadge = 'move' | 'pass' | 'shoot' | 'throughPass' | 'stay' | null;
 
 export interface PieceIconProps {
   cost: Cost;
@@ -28,6 +28,8 @@ export interface PieceIconProps {
   /** C2: 命令済みバッジ */
   orderBadge?: OrderBadge;
   onClick?: () => void;
+  /** ボールアイコンクリック（コマ本体とは別） */
+  onBallClick?: () => void;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -83,6 +85,7 @@ const PieceIcon = memo(function PieceIcon({
   pulse = false,
   orderBadge = null,
   onClick,
+  onBallClick,
   className,
   style,
 }: PieceIconProps) {
@@ -234,17 +237,10 @@ const PieceIcon = memo(function PieceIcon({
         />
       )}
 
-      {/* ボール保持インジケーター (右下) */}
-      {hasBall && (
+      {/* ボール保持: 小さいインジケーター（右下）— 大きいボールはPiece.tsxで別要素レンダリング */}
+      {hasBall && !onBallClick && (
         <g>
-          <circle
-            cx={ballCx}
-            cy={ballCy}
-            r={ballR}
-            fill="white"
-            stroke="#222"
-            strokeWidth={0.8}
-          />
+          <circle cx={ballCx} cy={ballCy} r={ballR} fill="white" stroke="#222" strokeWidth={0.8} />
           {pentagons.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r={1.8} fill="#333" />
           ))}
@@ -257,12 +253,14 @@ const PieceIcon = memo(function PieceIcon({
           <circle cx={8} cy={size - 8} r={7} fill={
             orderBadge === 'move' ? '#44aa44'
             : orderBadge === 'pass' ? '#4488cc'
+            : orderBadge === 'throughPass' ? '#00cccc'
             : orderBadge === 'shoot' ? '#cc4444'
             : '#666'
           } stroke="#111" strokeWidth={1} />
           <text x={8} y={size - 5} textAnchor="middle" fill="white" fontSize={8} fontWeight={700}>
             {orderBadge === 'move' ? '\u2192'
             : orderBadge === 'pass' ? '\u26BD'
+            : orderBadge === 'throughPass' ? '\u21DD'
             : orderBadge === 'shoot' ? '\u{1F945}'
             : '\u2014'}
           </text>

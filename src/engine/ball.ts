@@ -295,5 +295,80 @@ export function processBall(
     }
   }
 
+  // ────────────────────────────────────────────────────────
+  // ステップ7b: スルーパス処理（throughPass）
+  // ────────────────────────────────────────────────────────
+  const throughPassOrder = orders.find(o => o.type === 'throughPass' && o.target);
+  if (throughPassOrder && !shootOrder && !passOrder) {
+    const passer = pieceById.get(throughPassOrder.pieceId);
+    if (passer?.hasBall && throughPassOrder.target) {
+      const defenseTeam: Team = passer.team === 'home' ? 'away' : 'home';
+      const targetCoord = throughPassOrder.target;
+
+      // targetHexに最も近い味方コマを受け手として検索
+      let receiver: Piece | null = null;
+      let bestDist = Infinity;
+      for (const p of pieces) {
+        if (p.team !== passer.team || p.id === passer.id) continue;
+        const d = Math.abs(p.coord.col - targetCoord.col) + Math.abs(p.coord.row - targetCoord.row);
+        if (d < bestDist) { bestDist = d; receiver = p; }
+      }
+      // 距離2以内なら受け手として成立、それ以外はルーズボール（最寄りが拾う）
+      if (receiver && bestDist <= 2) {
+        // パスカット判定は通常パスと同じ
+        const passPath = hexLinePath(passer.coord, receiver.coord);
+        const cut1Interceptor = findCut1Interceptor(passPath, defenseTeam, pieces);
+        const cut1Zoc: ZocAdjacency = cut1Interceptor
+          ? getZocAdjacency(cut1Interceptor.coord, passer.team, pieces)
+          : { attackCount: 0, defenseCount: 0 };
+        const cut2Defenders = findCut2Defenders(receiver, defenseTeam, pieces);
+        const cut2Zoc: ZocAdjacency = {
+          attackCount: getZocAdjacency(receiver.coord, passer.team, pieces).attackCount,
+          defenseCount: Math.max(0, cut2Defenders.length - 1),
+        };
+
+        const passResult = resolvePass({
+          passer, receiver, cut1Interceptor, cut1Zoc, cut2Defenders, cut2Zoc,
+        });
+
+        if (passResult.outcome === 'delivered') {
+          passer.hasBall = false;
+          receiver.hasBall = true;
+          deliveredPass = { passerId: passer.id, receiverId: receiver.id };
+          events.push({
+            type: 'PASS_DELIVERED', phase: 2,
+            passerId: passer.id, receiverId: receiver.id,
+            receiverCoord: { ...receiver.coord },
+          } as PassDeliveredEvent);
+          events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: receiver.id } as BallAcquiredEvent);
+        } else {
+          const interceptor = passResult.outcome === 'cut1'
+            ? passResult.cut1!.interceptor
+            : passResult.cut2!.interceptor;
+          passer.hasBall = false;
+          interceptor.hasBall = true;
+          events.push({
+            type: 'PASS_CUT', phase: 2,
+            passerId: passer.id, receiverId: receiver.id, result: passResult,
+          } as PassCutEvent);
+          events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: interceptor.id } as BallAcquiredEvent);
+        }
+      } else {
+        // ルーズボール: 最寄りのコマ（敵味方問わず）がボールを獲得
+        let looseReceiver: Piece | null = null;
+        let looseBestDist = Infinity;
+        for (const p of pieces) {
+          const d = Math.abs(p.coord.col - targetCoord.col) + Math.abs(p.coord.row - targetCoord.row);
+          if (d < looseBestDist) { looseBestDist = d; looseReceiver = p; }
+        }
+        if (looseReceiver) {
+          passer.hasBall = false;
+          looseReceiver.hasBall = true;
+          events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: looseReceiver.id } as BallAcquiredEvent);
+        }
+      }
+    }
+  }
+
   return { pieces, events, deliveredPass };
 }
