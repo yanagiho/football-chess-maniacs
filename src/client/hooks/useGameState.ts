@@ -289,7 +289,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'PASS_BALL': {
-      // パスを出したコマのpass命令を登録し、ボールを受け手に移動（クライアント側仮更新）
+      // パスを出したコマのpass命令を登録し、ボール表示を受け手に移動（仮表示）
+      // ※hasBallの変更はUI表示用。エンジンにはturnStartSnapshotのhasBallを使って復元する
       const newOrders = new Map(state.orders);
       newOrders.set(action.fromPieceId, {
         pieceId: action.fromPieceId, action: 'pass', targetPieceId: action.toPieceId,
@@ -309,7 +310,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'THROUGH_PASS': {
-      // スルーパス: 命令登録 + ボールを元の選手から外す + フリーボール仮表示
+      // スルーパス: 命令登録 + ボール仮表示変更
+      // ※hasBallの変更はUI表示用。エンジンにはturnStartSnapshotのhasBallを使って復元する
       const newOrders = new Map(state.orders);
       newOrders.set(action.fromPieceId, {
         pieceId: action.fromPieceId, action: 'throughPass', targetHex: action.targetHex,

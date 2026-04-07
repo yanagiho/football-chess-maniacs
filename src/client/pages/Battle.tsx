@@ -1104,7 +1104,17 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (isCom) {
       try {
         // 1. プレイヤー命令をエンジン形式に変換
-        const fieldPieces = state.board.pieces.filter(p => !p.isBench);
+        // ※ hasBallをスナップショット（ターン開始時）から復元してエンジンに渡す
+        // PASS_BALL/THROUGH_PASSがクライアント側でhasBallを変更しているが、
+        // エンジンはhasBallを見てパス/スルーパスを判定するため元の状態が必要
+        const snapshotBallMap = new Map<string, boolean>();
+        if (state.turnStartSnapshot) {
+          for (const sp of state.turnStartSnapshot) snapshotBallMap.set(sp.id, sp.hasBall);
+        }
+        const fieldPieces = state.board.pieces.filter(p => !p.isBench).map(p => ({
+          ...p,
+          hasBall: snapshotBallMap.get(p.id) ?? p.hasBall,
+        }));
         const homeOrders: EngineOrder[] = [...state.orders.values()]
           .map(o => clientOrderToEngine(o, fieldPieces));
 

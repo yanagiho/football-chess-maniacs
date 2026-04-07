@@ -43,6 +43,32 @@ const GOAL_ROW: Record<Team, number> = { home: 33, away: 0 };
 /** ゴール中央列（22列中央: col 9-11、中心 col=10） */
 const GOAL_CENTER_COL = 10;
 
+/** 正確パス距離 */
+const BASE_ACCURATE_PASS_RANGE = 6;
+
+/** ロングパスのズレ処理 */
+function resolvePassDeviation(
+  from: HexCoord, to: HexCoord, passer: Piece,
+): { actualTarget: HexCoord; isDeviated: boolean } {
+  const dist = hexDistance(from, to);
+  let range = BASE_ACCURATE_PASS_RANGE;
+  if (passer.cost === 3) range += 1;
+  if (passer.position === 'OM') range += 1;
+
+  if (dist <= range) return { actualTarget: to, isDeviated: false };
+
+  const over = dist - range;
+  const deviationChance = Math.min(0.9, over * 0.3);
+  if (Math.random() >= deviationChance) return { actualTarget: to, isDeviated: false };
+
+  // ズレ: targetの隣接6HEXからランダムに1つ
+  const neighbors = getZocHexes(to); // 隣接6HEX
+  const valid = neighbors.filter(h => h.col >= 0 && h.col <= 21 && h.row >= 0 && h.row <= 33);
+  if (valid.length === 0) return { actualTarget: to, isDeviated: false };
+  const actualTarget = valid[Math.floor(Math.random() * valid.length)];
+  return { actualTarget, isDeviated: true };
+}
+
 // ============================================================
 // ヘルパー
 // ============================================================
@@ -238,6 +264,7 @@ export function processBall(
 
       if (receiver) {
         // ステップ8: パスコース（パサー除く、受け手含む）
+        // ※ 通常パスはID指定で受け手確定。ズレはthroughPassのみ適用。
         const passPath = hexLinePath(passer.coord, receiver.coord);
 
         // パスカット1 の候補: パスコース上のHEXが ZOC or ZOC2 内
@@ -306,7 +333,9 @@ export function processBall(
     const passer = pieceById.get(throughPassOrder.pieceId);
     if (passer?.hasBall && throughPassOrder.target) {
       const defenseTeam: Team = passer.team === 'home' ? 'away' : 'home';
-      const targetCoord = throughPassOrder.target;
+      // ロングパスズレ判定
+      const tpDev = resolvePassDeviation(passer.coord, throughPassOrder.target, passer);
+      const targetCoord = tpDev.actualTarget;
 
       // targetHexに最も近い味方コマを受け手として検索
       let receiver: Piece | null = null;
