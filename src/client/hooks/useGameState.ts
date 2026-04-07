@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useReducer, useCallback, useMemo } from 'react';
-import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team } from '../types';
+import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team, BallChainStep } from '../types';
 
 /** 前半/後半の基本ターン数 */
 const HALF_TURNS = 15;
@@ -23,7 +23,10 @@ type GameAction =
   | { type: 'NEXT_TURN' }
   | { type: 'RESUME_SECOND_HALF' }
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
-  | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number };
+  | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number }
+  | { type: 'START_BALL_CHAIN'; holderId: string }
+  | { type: 'ADD_CHAIN_PASS'; step: BallChainStep; newHolderId: string | null }
+  | { type: 'END_BALL_CHAIN' };
 
 /** ランダムなアディショナルタイム（1〜3） */
 function randomAT(): number {
@@ -45,6 +48,9 @@ function createInitialState(): GameState {
     actionMode: null,
     additionalTime1: randomAT(),
     additionalTime2: randomAT(),
+    ballOperationActive: false,
+    chainBallHolderId: null,
+    ballChain: { steps: [] },
   };
 }
 
@@ -123,7 +129,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'CLEAR_ORDERS':
-      return { ...state, orders: new Map(), selectedPieceId: null, actionMode: null };
+      return { ...state, orders: new Map(), selectedPieceId: null, actionMode: null,
+        ballOperationActive: false, chainBallHolderId: null, ballChain: { steps: [] } };
 
     case 'SET_BOARD':
       return {
@@ -261,6 +268,56 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         selectedPieceId: null,
         actionMode: null,
         turnStartedAt: newStatus === 'playing' ? Date.now() : null,
+      };
+    }
+
+    case 'START_BALL_CHAIN': {
+      return {
+        ...state,
+        ballOperationActive: true,
+        chainBallHolderId: action.holderId,
+        ballChain: { steps: [] },
+        selectedPieceId: action.holderId,
+        actionMode: 'pass',
+      };
+    }
+
+    case 'ADD_CHAIN_PASS': {
+      const newOrders = new Map(state.orders);
+      // パスを出したコマに pass/throughPass/shoot 命令を登録
+      const step = action.step;
+      if (step.type === 'pass' && step.toPieceId) {
+        newOrders.set(step.fromPieceId, {
+          pieceId: step.fromPieceId, action: 'pass', targetPieceId: step.toPieceId,
+        });
+      } else if (step.type === 'throughPass' && step.toHex) {
+        newOrders.set(step.fromPieceId, {
+          pieceId: step.fromPieceId, action: 'throughPass', targetHex: step.toHex,
+        });
+      } else if (step.type === 'shoot' && step.toHex) {
+        newOrders.set(step.fromPieceId, {
+          pieceId: step.fromPieceId, action: 'shoot', targetHex: step.toHex,
+        });
+      }
+      return {
+        ...state,
+        orders: newOrders,
+        ballChain: { steps: [...state.ballChain.steps, step] },
+        chainBallHolderId: action.newHolderId,
+        // シュートやスルーパスの場合はチェーン終了
+        ballOperationActive: step.type === 'pass' && action.newHolderId !== null,
+        selectedPieceId: action.newHolderId,
+        actionMode: action.newHolderId ? 'pass' : null,
+      };
+    }
+
+    case 'END_BALL_CHAIN': {
+      return {
+        ...state,
+        ballOperationActive: false,
+        chainBallHolderId: null,
+        selectedPieceId: null,
+        actionMode: null,
       };
     }
 

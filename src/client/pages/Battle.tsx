@@ -915,11 +915,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam],
   );
 
-  /** ボールアイコンをタッチ → パス/スルーパス/シュートモード */
+  /** ボールアイコンをタッチ → チェーンパス開始/継続 */
   const handleBallClick = useCallback(
     (pieceId: string) => {
-      dispatch({ type: 'SELECT_PIECE', pieceId });
-      dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); // パスモード（自動判定でスルーパス/シュートに分岐）
+      dispatch({ type: 'START_BALL_CHAIN', holderId: pieceId });
       setOpponentPopup(null);
       setShowUnorderedList(false);
 
@@ -929,6 +928,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     },
     [dispatch, isMobile],
   );
+
+  /** チェーンパス中の「キープ」ボタン */
+  const handleChainKeep = useCallback(() => {
+    dispatch({ type: 'END_BALL_CHAIN' });
+  }, [dispatch]);
 
   /** シュート可能ゾーン判定（ゲーム座標、ポジション別距離補正付き） */
   const isShootZone = useCallback((coord: HexCoord) => {
@@ -949,64 +953,72 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       const selPiece = state.board.pieces.find(p => p.id === state.selectedPieceId);
       const hasBall = selPiece?.hasBall ?? false;
 
-      // ── 明示モードが設定されている場合 ──
+      // ── チェーンパス中の操作 ──
+      if (state.ballOperationActive && state.chainBallHolderId) {
+        const holderId = state.chainBallHolderId;
+        const teammate = state.board.pieces.find(
+          (p) => p.coord.col === coord.col && p.coord.row === coord.row
+            && p.team === state.myTeam && p.id !== holderId && !p.isBench,
+        );
+
+        if (teammate) {
+          // 味方コマ → チェーンパス（パスを繋ぐ）
+          dispatch({
+            type: 'ADD_CHAIN_PASS',
+            step: { fromPieceId: holderId, toPieceId: teammate.id, type: 'pass' },
+            newHolderId: teammate.id,
+          });
+        } else if (isShootZone(coord)) {
+          // シュートゾーン → シュート（チェーン終了）
+          dispatch({
+            type: 'ADD_CHAIN_PASS',
+            step: { fromPieceId: holderId, toHex: coord, type: 'shoot' },
+            newHolderId: null,
+          });
+        } else {
+          // 空きHEX → スルーパス（チェーン終了）
+          dispatch({
+            type: 'ADD_CHAIN_PASS',
+            step: { fromPieceId: holderId, toHex: coord, type: 'throughPass' },
+            newHolderId: null,
+          });
+        }
+
+        if (isMobile && navigator.vibrate) navigator.vibrate(20);
+        return;
+      }
+
+      // ── 通常モード ──
       if (state.actionMode === 'pass') {
-        // ボールタッチ由来のパスモード: 味方=パス / ゴール付近=シュート / 空きHEX=スルーパス
         const teammate = state.board.pieces.find(
           (p) => p.coord.col === coord.col && p.coord.row === coord.row
             && p.team === state.myTeam && p.id !== state.selectedPieceId && !p.isBench,
         );
         if (teammate) {
-          dispatch({
-            type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'pass', targetPieceId: teammate.id },
-          });
+          dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'pass', targetPieceId: teammate.id } });
         } else if (isShootZone(coord)) {
-          dispatch({
-            type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord },
-          });
+          dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord } });
         } else {
-          // 空きHEX → スルーパス
-          dispatch({
-            type: 'ADD_ORDER',
-            order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord },
-          });
+          dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord } });
         }
       } else if (state.actionMode === 'shoot') {
-        dispatch({
-          type: 'ADD_ORDER',
-          order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord },
-        });
+        dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'shoot', targetHex: coord } });
       } else if (state.actionMode === 'dribble') {
-        dispatch({
-          type: 'ADD_ORDER',
-          order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord },
-        });
+        dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord } });
       } else if (state.actionMode === 'throughPass') {
-        dispatch({
-          type: 'ADD_ORDER',
-          order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord },
-        });
+        dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'throughPass', targetHex: coord } });
       } else if (hasBall) {
-        // ── ボール保持者 + モード未選択 → ドリブル（コマタッチからの遷移） ──
-        dispatch({
-          type: 'ADD_ORDER',
-          order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord },
-        });
+        // ボール保持者 + モード未選択 → ドリブル
+        dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'dribble', targetHex: coord } });
       } else {
-        // ── ボール非保持者 → 移動 ──
-        dispatch({
-          type: 'ADD_ORDER',
-          order: { pieceId: state.selectedPieceId, action: 'move', targetHex: coord },
-        });
+        // ボール非保持者 → 移動
+        dispatch({ type: 'ADD_ORDER', order: { pieceId: state.selectedPieceId, action: 'move', targetHex: coord } });
       }
 
-      if (isMobile && navigator.vibrate) {
-        navigator.vibrate(20);
-      }
+      if (isMobile && navigator.vibrate) navigator.vibrate(20);
     },
-    [state.selectedPieceId, state.actionMode, state.board.pieces, state.myTeam, dispatch, isMobile, isShootZone],
+    [state.selectedPieceId, state.actionMode, state.board.pieces, state.myTeam,
+     state.ballOperationActive, state.chainBallHolderId, dispatch, isMobile, isShootZone],
   );
 
   /** リプレイアニメーション時間（ms）。§5-1: 約2.5秒 */
@@ -1519,6 +1531,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   // ── アクションガイドテキスト ──
   const actionGuide = useMemo(() => {
+    if (state.ballOperationActive) {
+      const chainCount = state.ballChain.steps.length;
+      const prefix = chainCount > 0 ? `Pass \u00D7${chainCount} ` : '';
+      return `${prefix}味方=パス / 空きHEX=スルーパス / ゴール付近=シュート`;
+    }
     if (!selectedPiece) return 'コマを選択してください';
     const hasBall = selectedPiece.hasBall;
     switch (state.actionMode) {
@@ -1531,7 +1548,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         if (hasBall) return 'コマ=ドリブル / ⚽=パス・シュート';
         return '移動先をタップ';
     }
-  }, [selectedPiece, state.actionMode]);
+  }, [selectedPiece, state.actionMode, state.ballOperationActive, state.ballChain.steps.length]);
 
   // ── A10: フェーズ別ラベル ──
   const phaseLabels = ['移動', '衝突判定', 'ファウル判定', 'ボール移動', 'パスカット/オフサイド'];
@@ -1548,6 +1565,31 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       {isResolving
         ? `実行${resolvingPhase >= 0 ? ` — ${phaseLabels[resolvingPhase] ?? ''}` : ''}`
         : '⏳ 相手の入力を待っています...'}
+    </div>
+  );
+
+  // ── チェーンパスUI ──
+  const chainPassEl = state.ballOperationActive && state.chainBallHolderId && (
+    <div style={{
+      position: 'fixed', bottom: 60, left: '50%', transform: 'translateX(-50%)',
+      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px',
+      background: 'rgba(0,0,0,0.85)', borderRadius: 12, zIndex: 180,
+      border: '1px solid rgba(68,136,204,0.4)',
+    }}>
+      {state.ballChain.steps.length > 0 && (
+        <span style={{ color: '#4488cc', fontWeight: 'bold', fontSize: 14 }}>
+          Pass \u00D7{state.ballChain.steps.length}
+        </span>
+      )}
+      <span style={{ color: '#aaa', fontSize: 12 }}>
+        味方タップ=パス継続
+      </span>
+      <button onClick={handleChainKeep} style={{
+        padding: '6px 16px', borderRadius: 6, border: 'none',
+        background: '#44aa44', color: '#fff', fontSize: 13, fontWeight: 'bold', cursor: 'pointer',
+      }}>
+        キープ
+      </button>
     </div>
   );
 
@@ -1615,6 +1657,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {ceremonyEl}
         {resolvingBannerEl}
         {disconnectBannerEl}
+        {chainPassEl}
         {miniGameEl}
 
         {/* ヘッダー（44px）: スコア | 試合時間 | 残り時間 | 指示カウント */}
@@ -1854,6 +1897,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       {ceremonyEl}
       {resolvingBannerEl}
       {disconnectBannerEl}
+      {chainPassEl}
       {miniGameEl}
 
       {/* メインエリア: 左パネル + ボード + 右パネル */}

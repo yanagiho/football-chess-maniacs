@@ -52,6 +52,19 @@ export const POSITION_COLORS: Record<Position, string> = {
   FW: '#e8e8e8',
 };
 
+/** チェーンパスの1ステップ */
+export interface BallChainStep {
+  fromPieceId: string;
+  toPieceId?: string;
+  toHex?: HexCoord;
+  type: 'pass' | 'throughPass' | 'shoot';
+}
+
+/** チェーンパス記録 */
+export interface BallChain {
+  steps: BallChainStep[];
+}
+
 /** ゲーム状態 */
 export interface GameState {
   matchId: string;
@@ -74,6 +87,12 @@ export interface GameState {
   additionalTime1: number;
   /** 後半アディショナルタイム（1〜3ターン） */
   additionalTime2: number;
+  /** チェーンパス操作中かどうか */
+  ballOperationActive: boolean;
+  /** 現在チェーンパス中にボールを持っているコマID */
+  chainBallHolderId: string | null;
+  /** チェーンパス記録 */
+  ballChain: BallChain;
 }
 
 /** WebSocketメッセージ型 */
