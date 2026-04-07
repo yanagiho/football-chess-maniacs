@@ -275,72 +275,72 @@ export default function Overlay({
       ctx.save();
       switch (trail.type) {
         case 'pass':
-          ctx.setLineDash([6, 4]);
-          ctx.strokeStyle = 'rgba(60, 140, 255, 0.8)';
-          ctx.lineWidth = 2;
+          ctx.setLineDash([8, 5]);
+          ctx.strokeStyle = 'rgba(60, 140, 255, 0.95)';
+          ctx.lineWidth = 3;
           ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
           ctx.setLineDash([]);
-          ctx.fillStyle = 'rgba(60, 140, 255, 0.8)';
-          ctx.beginPath(); ctx.arc(toCell.x, toCell.y, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = 'rgba(60, 140, 255, 0.95)';
+          ctx.beginPath(); ctx.arc(toCell.x, toCell.y, 6, 0, Math.PI * 2); ctx.fill();
           break;
         case 'throughPass':
-          ctx.setLineDash([6, 4]);
-          ctx.strokeStyle = 'rgba(0, 210, 210, 0.8)';
-          ctx.lineWidth = 2;
+          ctx.setLineDash([8, 5]);
+          ctx.strokeStyle = 'rgba(0, 210, 210, 0.95)';
+          ctx.lineWidth = 3;
           ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
           ctx.setLineDash([]);
-          ctx.fillStyle = 'rgba(0, 210, 210, 0.8)';
-          ctx.beginPath(); ctx.arc(toCell.x, toCell.y, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = 'rgba(0, 210, 210, 0.95)';
+          ctx.beginPath(); ctx.arc(toCell.x, toCell.y, 6, 0, Math.PI * 2); ctx.fill();
           break;
         case 'passCut':
-          ctx.setLineDash([6, 4]);
-          ctx.strokeStyle = 'rgba(255, 140, 40, 0.8)';
-          ctx.lineWidth = 2;
+          ctx.setLineDash([8, 5]);
+          ctx.strokeStyle = 'rgba(255, 140, 40, 0.95)';
+          ctx.lineWidth = 3;
           ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
           ctx.setLineDash([]);
-          // × マーク
-          ctx.strokeStyle = '#cc3333';
-          ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.moveTo(toCell.x - 5, toCell.y - 5); ctx.lineTo(toCell.x + 5, toCell.y + 5); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(toCell.x + 5, toCell.y - 5); ctx.lineTo(toCell.x - 5, toCell.y + 5); ctx.stroke();
+          // × マーク（大きめ）
+          ctx.strokeStyle = '#ee3333';
+          ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(toCell.x - 8, toCell.y - 8); ctx.lineTo(toCell.x + 8, toCell.y + 8); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(toCell.x + 8, toCell.y - 8); ctx.lineTo(toCell.x - 8, toCell.y + 8); ctx.stroke();
           break;
         case 'dribble':
           ctx.setLineDash([]);
-          ctx.strokeStyle = 'rgba(80, 200, 80, 0.7)';
-          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(80, 200, 80, 0.85)';
+          ctx.lineWidth = 4;
           ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
-          // 小さいボールアイコン
+          // ボールアイコン（大きめ）
           ctx.fillStyle = '#fff';
           const bx = (fromCell.x + toCell.x) / 2;
           const by = (fromCell.y + toCell.y) / 2;
-          ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = '#333'; ctx.lineWidth = 0.5;
-          ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.stroke();
+          ctx.beginPath(); ctx.arc(bx, by, 6, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(bx, by, 6, 0, Math.PI * 2); ctx.stroke();
           break;
         case 'shoot': {
           ctx.setLineDash([]);
-          ctx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
-          ctx.lineWidth = 4;
+          ctx.strokeStyle = 'rgba(255, 50, 50, 0.95)';
+          ctx.lineWidth = 5;
           ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
           // 結果マーカー
           if (trail.result === 'goal') {
-            // 金色の星
+            // 金色の星（大きめ）
             ctx.fillStyle = '#FFD700';
             const sx = toCell.x, sy = toCell.y;
             ctx.beginPath();
-            for (let i = 0; i < 5; i++) {
-              const a = (i * 72 - 90) * Math.PI / 180;
-              const r = i % 2 === 0 ? 8 : 4;
-              if (i === 0) ctx.moveTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
+            for (let j = 0; j < 10; j++) {
+              const a = (j * 36 - 90) * Math.PI / 180;
+              const r = j % 2 === 0 ? 14 : 7;
+              if (j === 0) ctx.moveTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
               else ctx.lineTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
             }
             ctx.closePath(); ctx.fill();
           } else if (trail.result === 'blocked' || trail.result === 'saved') {
-            ctx.strokeStyle = '#cc3333'; ctx.lineWidth = 3;
+            ctx.strokeStyle = '#ee3333'; ctx.lineWidth = 5;
             const mx = (fromCell.x * 0.3 + toCell.x * 0.7);
             const my = (fromCell.y * 0.3 + toCell.y * 0.7);
-            ctx.beginPath(); ctx.moveTo(mx - 5, my - 5); ctx.lineTo(mx + 5, my + 5); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(mx + 5, my - 5); ctx.lineTo(mx - 5, my + 5); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(mx - 10, my - 10); ctx.lineTo(mx + 10, my + 10); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(mx + 10, my - 10); ctx.lineTo(mx - 10, my + 10); ctx.stroke();
           }
           break;
         }
@@ -424,7 +424,7 @@ export default function Overlay({
       ref={canvasRef}
       width={width}
       height={height}
-      style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: 2 }}
+      style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: 5 }}
     />
   );
 }

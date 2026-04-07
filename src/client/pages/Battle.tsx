@@ -1121,31 +1121,34 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         cumulativeEventsRef.current = [...cumulativeEventsRef.current, ...(turnResult.events as unknown as GameEvent[])];
         resolvingEventsRef.current = turnResult.events;
 
-        // 7b. ボール軌跡を生成
+        // 7b. ボール軌跡を生成（移動後の座標で描画するためturnResult.board.piecesを使用）
+        const postPieces = turnResult.board.pieces;
         const trails: BallTrail[] = [];
         for (const ev of turnResult.events) {
           if (ev.type === 'PIECE_MOVED') {
-            const p = turnResult.board.pieces.find(pp => pp.id === ev.pieceId);
+            // ドリブル: 移動前→移動後（イベント自体にfrom/toが入っている）
+            const p = postPieces.find(pp => pp.id === ev.pieceId);
             if (p?.hasBall) {
               trails.push({ from: ev.from, to: ev.to, type: 'dribble', result: 'success' });
             }
           }
           if (ev.type === 'PASS_DELIVERED') {
-            const passer = fieldPieces.find(pp => pp.id === ev.passerId);
+            // パス: パサーの移動後位置 → 受け手の移動後位置
+            const passer = postPieces.find(pp => pp.id === ev.passerId);
             if (passer) {
               trails.push({ from: passer.coord, to: ev.receiverCoord, type: 'pass', result: 'success' });
             }
           }
           if (ev.type === 'PASS_CUT') {
-            const passer = fieldPieces.find(pp => pp.id === ev.passerId);
+            const passer = postPieces.find(pp => pp.id === ev.passerId);
             const interceptorId = ev.result.cut1?.interceptor?.id ?? ev.result.cut2?.interceptor?.id;
-            const interceptor = interceptorId ? turnResult.board.pieces.find(pp => pp.id === interceptorId) : null;
+            const interceptor = interceptorId ? postPieces.find(pp => pp.id === interceptorId) : null;
             if (passer && interceptor) {
               trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
             }
           }
           if (ev.type === 'SHOOT') {
-            const shooter = fieldPieces.find(pp => pp.id === ev.shooterId);
+            const shooter = postPieces.find(pp => pp.id === ev.shooterId);
             if (shooter) {
               const goalRow = shooter.team === 'home' ? 33 : 0;
               const goalCoord = { col: 10, row: goalRow };
