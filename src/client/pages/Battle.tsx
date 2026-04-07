@@ -11,6 +11,7 @@ import { soundManager } from '../audio/SoundManager';
 import { useSettings } from '../contexts/SettingsContext';
 import type { BallTrail } from '../components/board/Overlay';
 import FlyingBall, { type FlyingBallData } from '../components/FlyingBall';
+import BallActionMenu from '../components/BallActionMenu';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -765,6 +766,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const [phaseEffects, setPhaseEffects] = useState<Array<{ coord: HexCoord; icon: string; color: string; text?: string }>>([]);
   const [ballTrails, setBallTrails] = useState<BallTrail[]>([]);
   const [flyingBall, setFlyingBall] = useState<FlyingBallData | null>(null);
+  const [ballActionMenu, setBallActionMenu] = useState<{ pieceId: string; x: number; y: number } | null>(null);
   const flyingBallResolveRef = useRef<(() => void) | null>(null);
   const resolvingEventsRef = useRef<EngineGameEvent[]>([]);
 
@@ -969,6 +971,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const handleSelectPiece = useCallback(
     (pieceId: string | null) => {
       if (state.turnPhase !== 'INPUT') return;
+      setBallActionMenu(null); // メニューを閉じる
+
       // §2-3 相手コマタップで情報ポップアップ
       if (pieceId && isMobile) {
         const op = opponentPieces.find((p) => p.id === pieceId);
@@ -978,16 +982,27 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         }
       }
 
-      dispatch({ type: 'SELECT_PIECE', pieceId });
       setOpponentPopup(null);
       setShowUnorderedList(false);
 
-      // ボール保持者のコマ本体をタッチ → ドリブルモードに自動設定
       if (pieceId) {
         const p = state.board.pieces.find(pp => pp.id === pieceId);
-        if (p?.hasBall && p.team === state.myTeam) {
-          dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' });
+
+        // ボール保持者（味方）→ アクション選択メニューを表示
+        if (p?.hasBall && p.team === state.myTeam && !state.orders.has(pieceId)) {
+          dispatch({ type: 'SELECT_PIECE', pieceId });
+          // コマのピクセル座標を計算してメニュー位置に使う
+          const cell = (hexMapData as Array<{ col: number; row: number; x: number; y: number }>)
+            .find(c => c.col === p.coord.col && c.row === (state.myTeam === 'home' ? MAX_ROW - p.coord.row : p.coord.row));
+          setBallActionMenu({ pieceId, x: cell?.x ?? 500, y: cell?.y ?? 400 });
+          if (isMobile && navigator.vibrate) navigator.vibrate(30);
+          return;
         }
+
+        // 命令済みコマ → 選択のみ（ガイドに「命令済み」表示）
+        dispatch({ type: 'SELECT_PIECE', pieceId });
+      } else {
+        dispatch({ type: 'SELECT_PIECE', pieceId: null });
       }
 
       // §2-6 振動フィードバック
@@ -995,24 +1010,38 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         navigator.vibrate(30);
       }
     },
-    [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam, state.turnPhase],
+    [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam, state.turnPhase, state.orders],
   );
 
-  /** ボールアイコンをタッチ → パス/スルーパス/シュートモード */
+  /** ボールアイコンをタッチ → handleSelectPiece と同じ動作（統合） */
   const handleBallClick = useCallback(
     (pieceId: string) => {
-      if (state.turnPhase !== 'INPUT') return;
-      dispatch({ type: 'SELECT_PIECE', pieceId });
-      dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' });
-      setOpponentPopup(null);
-      setShowUnorderedList(false);
-
-      if (isMobile && navigator.vibrate) {
-        navigator.vibrate(40);
-      }
+      handleSelectPiece(pieceId);
     },
-    [dispatch, isMobile, state.turnPhase],
+    [handleSelectPiece],
   );
+
+  /** アクションメニュー: パスを選択 */
+  const handleActionPass = useCallback(() => {
+    if (ballActionMenu) {
+      dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' });
+    }
+    setBallActionMenu(null);
+  }, [ballActionMenu, dispatch]);
+
+  /** アクションメニュー: ドリブルを選択 */
+  const handleActionDribble = useCallback(() => {
+    if (ballActionMenu) {
+      dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' });
+    }
+    setBallActionMenu(null);
+  }, [ballActionMenu, dispatch]);
+
+  /** アクションメニュー: キャンセル */
+  const handleActionCancel = useCallback(() => {
+    dispatch({ type: 'SELECT_PIECE', pieceId: null });
+    setBallActionMenu(null);
+  }, [dispatch]);
 
   /** シュート可能ゾーン判定（ゲーム座標、ポジション別距離補正付き） */
   const isShootZone = useCallback((coord: HexCoord) => {
@@ -1026,6 +1055,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
       if (state.turnPhase !== 'INPUT') return;
+      setBallActionMenu(null); // メニューを閉じる
       if (!state.selectedPieceId) {
         dispatch({ type: 'SELECT_PIECE', pieceId: null });
         return;
@@ -1740,7 +1770,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // ── アクションガイドテキスト ──
   const actionGuide = useMemo(() => {
     if (state.board.freeBallHex) return 'フリーボール！コマを移動させて拾いましょう';
-    if (!selectedPiece) return 'コマまたはボールを選んでください';
+    if (ballActionMenu) return 'パス or ドリブルを選んでください';
+    if (!selectedPiece) return 'コマを選んでください';
     // パス済みコマを選択
     if (state.orders.has(selectedPiece.id)) {
       const order = state.orders.get(selectedPiece.id);
@@ -1758,7 +1789,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         if (hasBall) return 'コマ=ドリブル / ⚽=パス・シュート';
         return '移動先をタップ';
     }
-  }, [selectedPiece, state.actionMode, state.orders]);
+  }, [selectedPiece, state.actionMode, state.orders, ballActionMenu, state.board.freeBallHex]);
 
   // ── A10: フェーズ別ラベル ──
   const phaseLabels = ['移動', '衝突判定', 'ファウル判定', 'ボール移動', 'パスカット/オフサイド'];
@@ -1939,6 +1970,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
+          {ballActionMenu && (
+            <BallActionMenu
+              x={ballActionMenu.x}
+              y={ballActionMenu.y}
+              onPass={handleActionPass}
+              onDribble={handleActionDribble}
+              onCancel={handleActionCancel}
+            />
+          )}
           <HexBoard
             pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
@@ -2103,6 +2143,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
+          {ballActionMenu && (
+            <BallActionMenu
+              x={ballActionMenu.x}
+              y={ballActionMenu.y}
+              onPass={handleActionPass}
+              onDribble={handleActionDribble}
+              onCancel={handleActionCancel}
+            />
+          )}
           <HexBoard
             pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
