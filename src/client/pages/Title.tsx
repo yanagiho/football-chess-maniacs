@@ -44,10 +44,21 @@ export default function Title({ onNavigate }: TitleProps) {
         </p>
       </div>
 
-      {/* メニューボタン */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 240 }}>
+      {/* メインメニュー */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
         <TitleButton label="対戦する" onClick={() => onNavigate('modeSelect')} primary />
-        <TitleButton label="リプレイ" onClick={() => onNavigate('replay')} />
+        <TitleButton label="フレンドマッチ" onClick={() => onNavigate('friendMatch')} />
+        <TitleButton label="プリセットチーム" onClick={() => onNavigate('presetTeams')} />
+      </div>
+
+      {/* サブメニュー */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <SubButton label="ショップ" onClick={() => onNavigate('shop')} />
+        <SubButton label="コレクション" onClick={() => onNavigate('collection')} />
+        <SubButton label="ランキング" onClick={() => onNavigate('ranking')} />
+        <SubButton label="プロフィール" onClick={() => onNavigate('profile')} />
+        <SubButton label="リプレイ" onClick={() => onNavigate('replay')} />
+        <SubButton label="設定" onClick={() => onNavigate('settings')} />
       </div>
 
       {/* フッター */}
@@ -82,6 +93,25 @@ function TitleButton({
         fontWeight: 'bold',
         cursor: 'pointer',
         transition: 'transform 0.1s',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function SubButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '8px 14px',
+        borderRadius: 8,
+        border: '1px solid rgba(255,255,255,0.1)',
+        background: 'rgba(255,255,255,0.03)',
+        color: '#999',
+        fontSize: 12,
+        cursor: 'pointer',
       }}
     >
       {label}

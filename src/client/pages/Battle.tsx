@@ -5,7 +5,7 @@
 // ============================================================
 
 import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
-import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece } from '../types';
+import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo } from '../types';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -38,6 +38,137 @@ interface BattleProps {
   authToken?: string;
   myTeam?: Team;
   formationData?: FormationData | null;
+  onMatchEnd?: (data: MatchEndData) => void;
+}
+
+/** イベントログからスタッツを集計 */
+function computeStats(allEvents: GameEvent[], totalTurns: number): MatchStats {
+  const stats: MatchStats = {
+    possession: { home: 50, away: 50 },
+    shots: { home: 0, away: 0 },
+    shotsOnTarget: { home: 0, away: 0 },
+    passesAttempted: { home: 0, away: 0 },
+    passesCompleted: { home: 0, away: 0 },
+    tackles: { home: 0, away: 0 },
+    fouls: { home: 0, away: 0 },
+    offsides: { home: 0, away: 0 },
+    cornerKicks: { home: 0, away: 0 },
+  };
+
+  let homePossessionTurns = 0;
+  let awayPossessionTurns = 0;
+
+  for (const ev of allEvents) {
+    const e = ev as Record<string, unknown>;
+    const pieceId = (e.pieceId ?? e.shooterId ?? e.passerId ?? '') as string;
+    const team = pieceId.startsWith('h') ? 'home' : 'away';
+
+    switch (ev.type) {
+      case 'SHOOT': {
+        stats.shots[team]++;
+        const outcome = (e.result as Record<string, unknown>)?.outcome;
+        if (outcome === 'goal' || outcome === 'saved_catch' || outcome === 'saved_ck') {
+          stats.shotsOnTarget[team]++;
+        }
+        if (outcome === 'saved_ck') stats.cornerKicks[team]++;
+        break;
+      }
+      case 'PASS_DELIVERED':
+        stats.passesAttempted[pieceId.startsWith('h') ? 'home' : 'away']++;
+        stats.passesCompleted[pieceId.startsWith('h') ? 'home' : 'away']++;
+        break;
+      case 'PASS_CUT': {
+        const pTeam = pieceId.startsWith('h') ? 'home' : 'away';
+        stats.passesAttempted[pTeam]++;
+        break;
+      }
+      case 'TACKLE': {
+        const tackler = ((e.result as Record<string, unknown>)?.tackler as Record<string, unknown>);
+        const tTeam = (tackler?.team as string) === 'home' ? 'home' : 'away';
+        if ((e.result as Record<string, unknown>)?.success) stats.tackles[tTeam]++;
+        break;
+      }
+      case 'FOUL': {
+        const fTeam = (e.tacklerId as string)?.startsWith('h') ? 'home' : 'away';
+        stats.fouls[fTeam]++;
+        break;
+      }
+      case 'OFFSIDE': {
+        const rTeam = (e.receiverId as string)?.startsWith('h') ? 'home' : 'away';
+        stats.offsides[rTeam]++;
+        break;
+      }
+      case 'BALL_ACQUIRED':
+        if (team === 'home') homePossessionTurns++;
+        else awayPossessionTurns++;
+        break;
+    }
+  }
+
+  const totalPoss = homePossessionTurns + awayPossessionTurns;
+  if (totalPoss > 0) {
+    stats.possession.home = Math.round((homePossessionTurns / totalPoss) * 100);
+    stats.possession.away = 100 - stats.possession.home;
+  }
+  return stats;
+}
+
+/** イベントログからMVPを選出 */
+function computeMvp(allEvents: GameEvent[]): MvpInfo | null {
+  const scores = new Map<string, { goals: number; assists: number; tackles: number; team: string; position: string; cost: number }>();
+
+  for (const ev of allEvents) {
+    const e = ev as Record<string, unknown>;
+    if (ev.type === 'SHOOT') {
+      const outcome = (e.result as Record<string, unknown>)?.outcome;
+      if (outcome === 'goal') {
+        const id = e.shooterId as string;
+        const s = scores.get(id) ?? { goals: 0, assists: 0, tackles: 0, team: id.startsWith('h') ? 'home' : 'away', position: '', cost: 1 };
+        s.goals++;
+        scores.set(id, s);
+      }
+    }
+    if (ev.type === 'PASS_DELIVERED') {
+      // Assist = パス→次ターンゴール（簡易的にパス送り手をアシスト候補に）
+      const id = e.passerId as string;
+      const s = scores.get(id) ?? { goals: 0, assists: 0, tackles: 0, team: id.startsWith('h') ? 'home' : 'away', position: '', cost: 1 };
+      s.assists++;
+      scores.set(id, s);
+    }
+    if (ev.type === 'TACKLE') {
+      const result = e.result as Record<string, unknown>;
+      if (result?.success) {
+        const tackler = result.tackler as Record<string, unknown>;
+        const id = tackler?.id as string;
+        if (id) {
+          const s = scores.get(id) ?? { goals: 0, assists: 0, tackles: 0, team: id.startsWith('h') ? 'home' : 'away', position: '', cost: 1 };
+          s.tackles++;
+          scores.set(id, s);
+        }
+      }
+    }
+  }
+
+  if (scores.size === 0) return null;
+
+  let best: [string, typeof scores extends Map<string, infer V> ? V : never] | null = null;
+  for (const [id, s] of scores) {
+    if (!best || s.goals > best[1].goals || (s.goals === best[1].goals && s.assists > best[1].assists) || (s.goals === best[1].goals && s.assists === best[1].assists && s.tackles > best[1].tackles)) {
+      best = [id, s];
+    }
+  }
+
+  if (!best) return null;
+  const [id, s] = best;
+  return {
+    pieceId: id,
+    position: (s.position || 'FW') as Position,
+    cost: (s.cost || 1) as Cost,
+    team: s.team as Team,
+    goals: s.goals,
+    assists: s.assists,
+    tackles: s.tackles,
+  };
 }
 
 /** ハーフライン（row 16 が中央、キックオフ時は各チーム自陣のみ） */
@@ -330,7 +461,7 @@ function getMatchTimeLabel(turn: number, at1: number, at2: number): { label: str
   return { label: `${FULLTIME_MINUTE}+${secondHalfTurn - HALF_TURNS * 2}`, isAT: true };
 }
 
-export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData }: BattleProps) {
+export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd }: BattleProps) {
   const device = useDeviceType();
   const isMobile = device === 'mobile' || device === 'tablet';
   const {
@@ -347,6 +478,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [disconnectBanner, setDisconnectBanner] = useState<string | null>(null);
+  /** 全ターンの累積イベントログ（スタッツ集計用） */
+  const cumulativeEventsRef = useRef<GameEvent[]>([]);
 
   const isCom = gameMode === 'com' || matchId?.startsWith('com_');
 
@@ -943,6 +1076,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         // 7. イベントログ保存
         setEvents(turnResult.events as unknown as GameEvent[]);
+        cumulativeEventsRef.current = [...cumulativeEventsRef.current, ...(turnResult.events as unknown as GameEvent[])];
         resolvingEventsRef.current = turnResult.events;
 
         // 8. エンジン結果を反映 → resolving 状態に入る
@@ -1327,7 +1461,31 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             </div>
             {showResultBtn && (
               <button
-                onClick={() => onNavigate('result')}
+                onClick={() => {
+                  if (onMatchEnd) {
+                    const allEvts = cumulativeEventsRef.current;
+                    const stats = computeStats(allEvts, state.turn);
+                    const mvp = computeMvp(allEvts);
+                    // Enrich MVP with piece data
+                    if (mvp) {
+                      const piece = state.board.pieces.find(p => p.id === mvp.pieceId);
+                      if (piece) {
+                        mvp.position = piece.position;
+                        mvp.cost = piece.cost;
+                      }
+                    }
+                    onMatchEnd({
+                      scoreHome: state.scoreHome,
+                      scoreAway: state.scoreAway,
+                      myTeam: state.myTeam,
+                      reason: 'completed',
+                      stats,
+                      mvp,
+                    });
+                  } else {
+                    onNavigate('result');
+                  }
+                }}
                 style={{
                   marginTop: 24, padding: '10px 32px', borderRadius: 8, border: 'none',
                   background: '#16a34a', color: '#fff', fontSize: 16, fontWeight: 700,

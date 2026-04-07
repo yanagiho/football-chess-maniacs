@@ -115,6 +115,9 @@ export const MAX_ROW = 33;
 /** ゲームモード */
 export type GameMode = 'ranked' | 'casual' | 'com';
 
+/** COM難易度 */
+export type ComDifficulty = 'beginner' | 'regular' | 'maniac';
+
 /** 画面遷移 */
 export type Page =
   | 'title'
@@ -125,7 +128,49 @@ export type Page =
   | 'battle'
   | 'halfTime'
   | 'result'
-  | 'replay';
+  | 'replay'
+  | 'shop'
+  | 'ranking'
+  | 'collection'
+  | 'profile'
+  | 'settings'
+  | 'difficultySelect'
+  | 'friendMatch'
+  | 'presetTeams';
+
+/** 試合スタッツ（リザルト画面用） */
+export interface MatchStats {
+  possession: { home: number; away: number };
+  shots: { home: number; away: number };
+  shotsOnTarget: { home: number; away: number };
+  passesAttempted: { home: number; away: number };
+  passesCompleted: { home: number; away: number };
+  tackles: { home: number; away: number };
+  fouls: { home: number; away: number };
+  offsides: { home: number; away: number };
+  cornerKicks: { home: number; away: number };
+}
+
+/** MVP情報 */
+export interface MvpInfo {
+  pieceId: string;
+  position: Position;
+  cost: Cost;
+  team: Team;
+  goals: number;
+  assists: number;
+  tackles: number;
+}
+
+/** 試合終了データ（Battle→Result引継ぎ） */
+export interface MatchEndData {
+  scoreHome: number;
+  scoreAway: number;
+  myTeam: Team;
+  reason: 'completed' | 'disconnect';
+  stats: MatchStats;
+  mvp: MvpInfo | null;
+}
 
 /** マッチメイキングWebSocketメッセージ型 */
 export type MatchmakingWsMessage =
