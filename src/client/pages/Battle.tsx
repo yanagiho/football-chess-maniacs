@@ -719,13 +719,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         });
       }, 1200);
     }
+    const normalDelay = state.turn === 1 ? 4000 : 1000; // Turn 1はチュートリアル分長く
     phaseTimeoutRef.current = setTimeout(() => {
       dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
-    }, state.turn === 1 ? 4000 : 1000); // Turn 1はチュートリアル分長く
-    // 安全弁: 2秒
+    }, normalDelay);
+    // 安全弁: 通常の2倍（Turn 1は8秒、それ以外は2秒）
+    const safetyDelay = normalDelay * 2;
     const safety = setTimeout(() => {
       if (state.turnPhase === 'TURN_START') dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
-    }, 2000);
+    }, safetyDelay);
     return () => { clearPhaseTimeout(); clearTimeout(safety); };
   }, [state.turnPhase, state.status, state.turn, dispatch, clearPhaseTimeout, showOverlay]);
 
@@ -959,6 +961,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   const handleSelectPiece = useCallback(
     (pieceId: string | null) => {
+      if (state.turnPhase !== 'INPUT') return;
       // §2-3 相手コマタップで情報ポップアップ
       if (pieceId && isMobile) {
         const op = opponentPieces.find((p) => p.id === pieceId);
@@ -985,12 +988,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         navigator.vibrate(30);
       }
     },
-    [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam],
+    [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam, state.turnPhase],
   );
 
   /** ボールアイコンをタッチ → パス/スルーパス/シュートモード */
   const handleBallClick = useCallback(
     (pieceId: string) => {
+      if (state.turnPhase !== 'INPUT') return;
       dispatch({ type: 'SELECT_PIECE', pieceId });
       dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' });
       setOpponentPopup(null);
@@ -1000,7 +1004,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         navigator.vibrate(40);
       }
     },
-    [dispatch, isMobile],
+    [dispatch, isMobile, state.turnPhase],
   );
 
   /** シュート可能ゾーン判定（ゲーム座標、ポジション別距離補正付き） */
@@ -1014,6 +1018,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
+      if (state.turnPhase !== 'INPUT') return;
       if (!state.selectedPieceId) {
         dispatch({ type: 'SELECT_PIECE', pieceId: null });
         return;
@@ -1053,7 +1058,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       if (isMobile && navigator.vibrate) navigator.vibrate(20);
     },
     [state.selectedPieceId, state.actionMode, state.board.pieces, state.myTeam,
-     dispatch, isMobile, isShootZone],
+     dispatch, isMobile, isShootZone, state.turnPhase],
   );
 
   /** リプレイアニメーション時間（ms）。§5-1: 約2.5秒 */
@@ -1121,42 +1126,53 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         cumulativeEventsRef.current = [...cumulativeEventsRef.current, ...(turnResult.events as unknown as GameEvent[])];
         resolvingEventsRef.current = turnResult.events;
 
-        // 7b. ボール軌跡を生成（移動後の座標で描画するためturnResult.board.piecesを使用）
+        // 7b. ボール軌跡を生成
+        // イベントをtyped assertionで安全にアクセスするため、型キャストを使用
         const postPieces = turnResult.board.pieces;
+        const prePieces = fieldPieces; // 移動前のコマ配列
         const trails: BallTrail[] = [];
         for (const ev of turnResult.events) {
-          if (ev.type === 'PIECE_MOVED') {
-            // ドリブル: 移動前→移動後（イベント自体にfrom/toが入っている）
-            const p = postPieces.find(pp => pp.id === ev.pieceId);
-            if (p?.hasBall) {
-              trails.push({ from: ev.from, to: ev.to, type: 'dribble', result: 'success' });
+          switch (ev.type) {
+            case 'PIECE_MOVED': {
+              const movedEv = ev as import('../../engine/types').PieceMovedEvent;
+              // ドリブル判定: 移動前にボールを持っていたコマ
+              const prePiece = prePieces.find(pp => pp.id === movedEv.pieceId);
+              if (prePiece && prePiece.hasBall) {
+                trails.push({ from: movedEv.from, to: movedEv.to, type: 'dribble', result: 'success' });
+              }
+              break;
             }
-          }
-          if (ev.type === 'PASS_DELIVERED') {
-            // パス: パサーの移動後位置 → 受け手の移動後位置
-            const passer = postPieces.find(pp => pp.id === ev.passerId);
-            if (passer) {
-              trails.push({ from: passer.coord, to: ev.receiverCoord, type: 'pass', result: 'success' });
+            case 'PASS_DELIVERED': {
+              const passEv = ev as import('../../engine/types').PassDeliveredEvent;
+              const passer = postPieces.find(pp => pp.id === passEv.passerId);
+              if (passer) {
+                trails.push({ from: passer.coord, to: passEv.receiverCoord, type: 'pass', result: 'success' });
+              }
+              break;
             }
-          }
-          if (ev.type === 'PASS_CUT') {
-            const passer = postPieces.find(pp => pp.id === ev.passerId);
-            const interceptorId = ev.result.cut1?.interceptor?.id ?? ev.result.cut2?.interceptor?.id;
-            const interceptor = interceptorId ? postPieces.find(pp => pp.id === interceptorId) : null;
-            if (passer && interceptor) {
-              trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
+            case 'PASS_CUT': {
+              const cutEv = ev as import('../../engine/types').PassCutEvent;
+              const passer = postPieces.find(pp => pp.id === cutEv.passerId);
+              const intId = cutEv.result.cut1?.interceptor?.id ?? cutEv.result.cut2?.interceptor?.id;
+              const interceptor = intId ? postPieces.find(pp => pp.id === intId) : null;
+              if (passer && interceptor) {
+                trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
+              }
+              break;
             }
-          }
-          if (ev.type === 'SHOOT') {
-            const shooter = postPieces.find(pp => pp.id === ev.shooterId);
-            if (shooter) {
-              const goalRow = shooter.team === 'home' ? 33 : 0;
-              const goalCoord = { col: 10, row: goalRow };
-              const result = ev.result.outcome === 'goal' ? 'goal' as const
-                : (ev.result.outcome === 'blocked' ? 'blocked' as const
-                : (ev.result.outcome === 'saved_catch' || ev.result.outcome === 'saved_ck') ? 'saved' as const
-                : 'success' as const);
-              trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
+            case 'SHOOT': {
+              const shootEv = ev as import('../../engine/types').ShootEvent;
+              const shooter = postPieces.find(pp => pp.id === shootEv.shooterId);
+              if (shooter) {
+                const goalRow = shooter.team === 'home' ? 33 : 0;
+                const goalCoord = { col: 10, row: goalRow };
+                const result = shootEv.result.outcome === 'goal' ? 'goal' as const
+                  : (shootEv.result.outcome === 'blocked' ? 'blocked' as const
+                  : (shootEv.result.outcome === 'saved_catch' || shootEv.result.outcome === 'saved_ck') ? 'saved' as const
+                  : 'success' as const);
+                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
+              }
+              break;
             }
           }
         }
