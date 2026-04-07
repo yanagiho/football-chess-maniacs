@@ -1,7 +1,7 @@
-# Football Chess ManiacS — ゲーム仕様書 v11
+# Football Chess ManiacS — ゲーム仕様書 v12
 **作成日：2025年** | **制作：GADE Inc.**
-**v10更新：Phase A〜D実装との完全同期。延長戦+PK戦・コイントス・Eloレーティング・ショップ・200枚コマ管理・設定画面・サウンド・リプレイビューア・全画面一覧を反映。**
-**v11更新：ボール操作刷新（コマ/ボール分離タッチ、キープ廃止）、フリーボール、ロングパスズレ、ターンフェーズ管理(6段階)、実行リプレイ演出(スナップショット巻き戻し+FlyingBall)、CenterOverlay統一演出、同一HEX競合オフセット表示を反映。**
+**v11更新：ボール操作刷新、フリーボール、ロングパスズレ、ターンフェーズ管理、実行リプレイ演出。**
+**v12更新：ボール13ケース全処理確認、validateBallState安全弁、パス/ドリブル選択UI(コマ近く表示)、入力ブロック(透明オーバーレイ)、ボール消失復帰強化を反映。**
 
 ---
 
@@ -73,12 +73,23 @@ Turn 1 のINPUT開始時にチュートリアルヒント（CenterOverlay 2.5秒
 | **ボールアイコン** | パス/スルーパス/シュートモード |
 | **ボール非保持コマ** | 移動モード（4HEX） |
 
-**ボールタッチ後のタップ先判定（自動）:**
+**ボール保持者タップ時の操作 【v12更新】:**
+コマ本体タップでもボールアイコンタップでも、同じ「アクション選択メニュー」が表示される。
+
+| ボタン | 動作 |
+|---|---|
+| ⚽ パス | パスモード（味方=パス / 空きHEX=スルーパス / ゴール方向=シュート） |
+| 🏃 ドリブル | ドリブルモード（3HEX移動範囲ハイライト） |
+
+メニューはコマの上側-70pxに表示（HexBoard transform内に配置、ズーム追従）。
+画面端はみ出し時は下側に表示。z-index: 200。onPointerDownで即座に反応。
+
+**パスモード後のタップ先判定（自動）:**
 1. 味方コマ → **パス**（PASS_BALL: ボールが即座に味方に移動、パス元は命令済み）
 2. 空きHEX → **スルーパス**（THROUGH_PASS: ボールがHEXに飛ぶ）
 3. シュートゾーン → **シュート**
 
-**チェーンパス:** パス成功後、受け取った味方のボールをタップすればさらにパスを出せる。特別なモードやボタンは不要 — 通常のINPUT操作の繰り返し。パスを出したコマはそのターン移動不可（命令済み）。
+**チェーンパス:** パス成功後、受け手をタップ → アクション選択メニュー → 「パス」→ 次の味方へ。回数制限なし（止まる条件に該当するまで何回でも繋がる）。パスを出したコマはそのターン移動不可（命令済み）。
 
 **ボールアイコンの表示:**
 - コマ右上に配置、コマの60%サイズ（約40px）
@@ -224,21 +235,24 @@ Turn 1 のINPUT開始時にチュートリアルヒント（CenterOverlay 2.5秒
 
 ---
 
-## 20. CenterOverlay統一演出 【v11追加】
+## 20. CenterOverlay統一演出 【v12更新】
 
 全ての演出テキストをピッチ中央のCenterOverlayコンポーネントで統一表示。キュー方式。
 
-| 演出 | テキスト | 色 | サイズ | 表示時間 | サウンド |
-|---|---|---|---|---|---|
-| ターン開始 | Turn X | 白 | 36px | 0.8秒 | — |
-| チュートリアル | コマタップ→移動... | 白 | 24px | 2.5秒 | — |
-| タックル成功 | TACKLE! | 白 | 32px | 0.5秒 | tackle |
-| ファウル | FOUL! | 黄 | 40px | 1.0秒 | foul |
-| シュートブロック | BLOCKED! | 白 | 32px | 0.5秒 | — |
-| セーブ | SAVE! | 緑 | 40px | 0.8秒 | — |
-| パスカット | BALL CUT! | 白 | 40px | 0.8秒 | tackle |
-| オフサイド | OFFSIDE! | 黄 | 40px | 1.0秒 | — |
-| ゴール | GOAL! + スコア | 金 | 64px | 1.8秒 | goal |
+| 演出 | テキスト | サブテキスト | 色 | サイズ | 表示時間 | サウンド |
+|---|---|---|---|---|---|---|
+| ターン開始 | Turn X | — | 白 | 36px | 0.8秒 | — |
+| チュートリアル | コマタップ→移動... | ボールタップ→パス... | 白 | 24px | 2.5秒 | — |
+| タックル成功 | TACKLE! | DF ★2 等 | 白 | 48px | 1.0秒 | tackle |
+| タックル失敗 | BREAKTHROUGH! | — | シアン | 40px | 0.8秒 | — |
+| ファウル | FOUL! | FK or PK | 黄 | 48px | 1.5秒 | foul |
+| シュートブロック | BLOCKED! | — | 白 | 44px | 0.8秒 | — |
+| GKセーブ | GREAT SAVE! | GK ★X | 緑 | 48px | 1.2秒 | — |
+| GKキャッチ | GK CATCH! | — | 緑 | 40px | 0.8秒 | — |
+| パスカット | BALL CUT! | VO ★2 等 | 白 | 48px | 1.2秒 | tackle |
+| オフサイド | OFFSIDE! | — | 黄 | 48px | 1.2秒 | — |
+| ゴール | GOAL!! | スコア表示 | 金 | 64px | 2.5秒 | goal |
+| フリーボール | LOOSE BALL! | — | 白 | 40px | 1.0秒 | — |
 
 実装: components/CenterOverlay.tsx
 
@@ -287,7 +301,56 @@ Turn 1 のINPUT開始時にチュートリアルヒント（CenterOverlay 2.5秒
 
 ---
 
-## 22. 未確認・要確認事項
+## 22. ボールロスト全13ケースの処理 【v12追加】
+
+| # | ケース | ボール処理 | イベント |
+|---|--------|-----------|---------|
+| 1 | パスカット1（ZOC内の敵がカット） | passer→false, interceptor→true | PASS_CUT + BALL_ACQUIRED |
+| 2 | パスカット2（ZOC2上の敵がカット） | passer→false, interceptor→true | PASS_CUT + BALL_ACQUIRED |
+| 3 | パスカット3（受け手HEXの敵がカット） | passer→false, interceptor→true | PASS_CUT + BALL_ACQUIRED |
+| 4 | GKキャッチ（セーブ成功+キャッチ） | shooter→false, GK→true | SHOOT(saved_catch) + BALL_ACQUIRED |
+| 5 | タックル成功 | dribbler→false, tackler→true（ファウル時は反転） | TACKLE + BALL_ACQUIRED |
+| 6 | ロングパスズレ→敵 | passer→false, enemy→true | BALL_ACQUIRED |
+| 7 | スルーパス→空きHEX | passer→false, freeBallHex設定 | LOOSE_BALL |
+| 8 | スルーパス→敵のいるHEX | passer→false, enemy→true | BALL_ACQUIRED |
+| 9 | 競合でボール保持者が負ける | loser→resetToStart | COLLISION |
+| 10 | ファウル後FK/PK | 攻撃側にボール復帰 | FOUL |
+| 11 | オフサイド | 全コマhasBall=false → 守備側GK→true | OFFSIDE + BALL_ACQUIRED |
+| 12 | ゴール後リセット | createGoalRestartPieces（キックオフ側FWがボール保持） | — |
+| 13 | ハーフタイム後リセット | 同上（後半キックオフ側） | — |
+
+### validateBallState 安全弁 【v12追加】
+
+processTurn の最後に呼び出される整合性チェック+自動修正。
+
+| チェック | 処理 |
+|---------|------|
+| hasBall=true が2人以上 | 最初の1人に絞る |
+| hasBall=true が0人 + freeBallHex=null | スナップショットの保持者に復帰 → GK → 最初のFP |
+| 保持者あり + freeBallHex共存 | freeBallHexをクリア |
+
+クライアント側（Battle.tsx INPUT開始時）でも同様のチェック:
+ボール消失時は味方GKまたは最初のFPに強制復帰。
+
+実装: turn_processor.ts `validateBallState()` + ballManager.ts `setBallHolder()` + Battle.tsx useEffect
+
+---
+
+## 23. ターンフェーズ中の入力ブロック 【v12追加】
+
+turnPhase !== 'INPUT' 時の全操作を3層でブロック:
+
+| 層 | 仕組み |
+|----|--------|
+| 1. ハンドラガード | handleSelectPiece/handleHexClick/handleConfirm の先頭で `turnPhase !== 'INPUT'` return |
+| 2. 透明オーバーレイ | ピッチ全体を覆うdiv (z-index:250) が onPointerDown/onClick で stopPropagation+preventDefault |
+| 3. UI非表示 | BallActionMenu: turnPhase !== 'INPUT' → null渡し。確定ボタン: disabled |
+
+実装: Battle.tsx 内の boardRef コンテナに透明div挿入
+
+---
+
+## 24. 未確認・要確認事項
 
 ### 残存する未確定/未実装事項
 
@@ -315,8 +378,12 @@ Turn 1 のINPUT開始時にチュートリアルヒント（CenterOverlay 2.5秒
 |---|---|
 | v2〜v9.2 | （従来と同一） |
 | v10 | Phase A〜D実装同期。延長戦+PK戦、コイントス、Elo、ショップ、200枚コマ管理API、設定画面、サウンド、リプレイビューア、全18画面、演出タイミング統一 |
-| **v11** | **ボール操作刷新: コマ/ボール分離タッチ、キープ廃止、パス成功後は通常INPUT状態に戻る統一モデル。PASS_BALL/THROUGH_PASSアクション。フリーボール状態(freeBallHex+LooseBallEvent+resolveLooseBall)。ロングパスズレ(resolvePassDeviation, throughPassのみ適用)。ターンフェーズ管理(TURN_START→INPUT→WAITING→EXECUTION→EVENT→TURN_END)。CenterOverlay統一演出(キュー方式)。EXECUTION再生リプレイ化(turnStartSnapshot巻き戻し+async順次再生)。FlyingBall(useRef+CSS transition, 24px, z-index:200)。ボール軌跡(ballTrails Canvas描画)。同一HEX複数コマオフセット表示。アニメーション速度設定適用。エンジンhasBall復元(snapshotBallMap)。** |
+| v11 | ボール操作刷新: コマ/ボール分離タッチ、キープ廃止、パス成功後は通常INPUT状態に戻る統一モデル。PASS_BALL/THROUGH_PASSアクション。フリーボール状態(freeBallHex+LooseBallEvent+resolveLooseBall)。ロングパスズレ(resolvePassDeviation, throughPassのみ適用)。ターンフェーズ管理(TURN_START→INPUT→WAITING→EXECUTION→EVENT→TURN_END)。CenterOverlay統一演出(キュー方式)。EXECUTION再生リプレイ化(turnStartSnapshot巻き戻し+async順次再生)。FlyingBall(useRef+CSS transition, 24px, z-index:200)。ボール軌跡(ballTrails Canvas描画)。同一HEX複数コマオフセット表示。アニメーション速度設定適用。エンジンhasBall復元(snapshotBallMap)。** |
 
 ---
 
-*本仕様書はFCMS企画スライド、Football Chess企画書、GrassRoots世界観ドキュメント、GDD資料、およびオーナー指示をもとに作成。v11は実装コードとの完全同期版。*
+| **v12** | **ボール13ケース全処理確認・テーブル化。validateBallState安全弁(processTurn最後+CLIENT INPUT開始時)。パス/ドリブル選択UI変更(コマ近く表示、HexBoard transform内配置)。CenterOverlay演出テーブル拡充(TACKLE!48px/FOUL!+FK or PK/GREAT SAVE!+GK情報/BREAKTHROUGH!/LOOSE BALL!)。ターンフェーズ入力ブロック3層(ハンドラガード+透明オーバーレイz-index:250+UI非表示)。オフサイド時全コマhasBallリセート→GK保持。ロングパスズレ→敵取得の処理追加。setBallHolder安全弁強化(holder未発見時/ボール消失時フォールバック)。** |
+
+---
+
+*本仕様書はFCMS企画スライド、Football Chess企画書、GrassRoots世界観ドキュメント、GDD資料、およびオーナー指示をもとに作成。v12は実装コードとの完全同期版。*
