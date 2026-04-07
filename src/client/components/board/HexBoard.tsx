@@ -15,6 +15,7 @@ import type { PieceData, HexCoord, HexCell, OrderData, ActionMode } from '../../
 import { MAX_ROW } from '../../types';
 import hexMapData from '../../data/hex_map.json';
 import Piece from './Piece';
+import type { BallTrail } from './Overlay';
 import Overlay from './Overlay';
 import { useControls, fitToContainer, type Transform } from './Controls';
 
@@ -96,6 +97,8 @@ interface HexBoardProps {
   longPassWarnings?: Map<string, number>;
   /** フェーズ演出エフェクト（§5-1b） */
   phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string }>;
+  /** ボール軌跡（EXECUTIONフェーズ中に描画） */
+  ballTrails?: BallTrail[];
 }
 
 export default function HexBoard({
@@ -117,6 +120,7 @@ export default function HexBoard({
   shootRangeHexes = [],
   longPassWarnings,
   phaseEffects = [],
+  ballTrails = [],
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -399,6 +403,11 @@ export default function HexBoard({
           shootRangeHexes={displayShootRangeHexes}
           longPassWarnings={longPassWarnings}
           phaseEffects={displayPhaseEffects}
+          ballTrails={flipY ? ballTrails.map(t => ({
+            ...t,
+            from: { col: t.from.col, row: MAX_ROW - t.from.row },
+            to: { col: t.to.col, row: MAX_ROW - t.to.row },
+          })) : ballTrails}
         />
 
         {/* ════════════════════════════════════════

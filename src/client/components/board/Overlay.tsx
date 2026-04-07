@@ -8,6 +8,14 @@
 import React, { useRef, useEffect } from 'react';
 import type { HexCoord, HexCell, PieceData, OrderData, ActionMode } from '../../types';
 
+/** ボール軌跡（EXECUTIONフェーズ中に表示） */
+export interface BallTrail {
+  from: HexCoord;
+  to: HexCoord;
+  type: 'pass' | 'throughPass' | 'passCut' | 'dribble' | 'shoot';
+  result?: 'success' | 'blocked' | 'goal' | 'saved' | 'cut';
+}
+
 interface OverlayProps {
   width: number;
   height: number;
@@ -28,6 +36,8 @@ interface OverlayProps {
   longPassWarnings?: Map<string, number>;
   /** 演出フェーズ中のイベントアイコン表示（§5-1b） */
   phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string }>;
+  /** ボール軌跡（EXECUTIONフェーズ中に描画） */
+  ballTrails?: BallTrail[];
 }
 
 /** flat-top HEX の半径（hex_map.json の間隔から算出） */
@@ -97,6 +107,7 @@ export default function Overlay({
   shootRangeHexes = [],
   longPassWarnings,
   phaseEffects = [],
+  ballTrails = [],
 }: OverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -254,6 +265,90 @@ export default function Overlay({
     }
 
     // ================================================================
+    // 6c. ボール軌跡（EXECUTIONフェーズ）
+    // ================================================================
+    for (const trail of ballTrails) {
+      const fromCell = findCell(trail.from);
+      const toCell = findCell(trail.to);
+      if (!fromCell || !toCell) continue;
+
+      ctx.save();
+      switch (trail.type) {
+        case 'pass':
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = 'rgba(60, 140, 255, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(60, 140, 255, 0.8)';
+          ctx.beginPath(); ctx.arc(toCell.x, toCell.y, 4, 0, Math.PI * 2); ctx.fill();
+          break;
+        case 'throughPass':
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = 'rgba(0, 210, 210, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(0, 210, 210, 0.8)';
+          ctx.beginPath(); ctx.arc(toCell.x, toCell.y, 4, 0, Math.PI * 2); ctx.fill();
+          break;
+        case 'passCut':
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = 'rgba(255, 140, 40, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
+          ctx.setLineDash([]);
+          // × マーク
+          ctx.strokeStyle = '#cc3333';
+          ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(toCell.x - 5, toCell.y - 5); ctx.lineTo(toCell.x + 5, toCell.y + 5); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(toCell.x + 5, toCell.y - 5); ctx.lineTo(toCell.x - 5, toCell.y + 5); ctx.stroke();
+          break;
+        case 'dribble':
+          ctx.setLineDash([]);
+          ctx.strokeStyle = 'rgba(80, 200, 80, 0.7)';
+          ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
+          // 小さいボールアイコン
+          ctx.fillStyle = '#fff';
+          const bx = (fromCell.x + toCell.x) / 2;
+          const by = (fromCell.y + toCell.y) / 2;
+          ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#333'; ctx.lineWidth = 0.5;
+          ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.stroke();
+          break;
+        case 'shoot': {
+          ctx.setLineDash([]);
+          ctx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+          ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(fromCell.x, fromCell.y); ctx.lineTo(toCell.x, toCell.y); ctx.stroke();
+          // 結果マーカー
+          if (trail.result === 'goal') {
+            // 金色の星
+            ctx.fillStyle = '#FFD700';
+            const sx = toCell.x, sy = toCell.y;
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+              const a = (i * 72 - 90) * Math.PI / 180;
+              const r = i % 2 === 0 ? 8 : 4;
+              if (i === 0) ctx.moveTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
+              else ctx.lineTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
+            }
+            ctx.closePath(); ctx.fill();
+          } else if (trail.result === 'blocked' || trail.result === 'saved') {
+            ctx.strokeStyle = '#cc3333'; ctx.lineWidth = 3;
+            const mx = (fromCell.x * 0.3 + toCell.x * 0.7);
+            const my = (fromCell.y * 0.3 + toCell.y * 0.7);
+            ctx.beginPath(); ctx.moveTo(mx - 5, my - 5); ctx.lineTo(mx + 5, my + 5); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(mx + 5, my - 5); ctx.lineTo(mx - 5, my + 5); ctx.stroke();
+          }
+          break;
+        }
+      }
+      ctx.restore();
+    }
+
+    // ================================================================
     // 6d. フェーズ演出エフェクト（§5-1b: アイコン + テキスト）
     // ================================================================
     for (const effect of phaseEffects) {
@@ -321,7 +416,7 @@ export default function Overlay({
     width, height, highlightHexes, zocHexes, offsideLine,
     selectedPieceId, actionMode, orders, pieces, hexMap,
     showZoneBorders, hoverCoord, shootRangeHexes, longPassWarnings,
-    phaseEffects,
+    phaseEffects, ballTrails,
   ]);
 
   return (

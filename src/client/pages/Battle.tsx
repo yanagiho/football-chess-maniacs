@@ -8,6 +8,7 @@ import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react'
 import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo, TurnPhase } from '../types';
 import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
 import { soundManager } from '../audio/SoundManager';
+import type { BallTrail } from '../components/board/Overlay';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -755,6 +756,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // ── A10: フェーズ演出 ──
   const [resolvingPhase, setResolvingPhase] = useState(-1); // -1 = not in animation
   const [phaseEffects, setPhaseEffects] = useState<Array<{ coord: HexCoord; icon: string; color: string; text?: string }>>([]);
+  const [ballTrails, setBallTrails] = useState<BallTrail[]>([]);
   const resolvingEventsRef = useRef<EngineGameEvent[]>([]);
 
   // ── A2: 移動範囲（selectedPiece の移動可能HEX） ──
@@ -1119,6 +1121,44 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         cumulativeEventsRef.current = [...cumulativeEventsRef.current, ...(turnResult.events as unknown as GameEvent[])];
         resolvingEventsRef.current = turnResult.events;
 
+        // 7b. ボール軌跡を生成
+        const trails: BallTrail[] = [];
+        for (const ev of turnResult.events) {
+          if (ev.type === 'PIECE_MOVED') {
+            const p = turnResult.board.pieces.find(pp => pp.id === ev.pieceId);
+            if (p?.hasBall) {
+              trails.push({ from: ev.from, to: ev.to, type: 'dribble', result: 'success' });
+            }
+          }
+          if (ev.type === 'PASS_DELIVERED') {
+            const passer = fieldPieces.find(pp => pp.id === ev.passerId);
+            if (passer) {
+              trails.push({ from: passer.coord, to: ev.receiverCoord, type: 'pass', result: 'success' });
+            }
+          }
+          if (ev.type === 'PASS_CUT') {
+            const passer = fieldPieces.find(pp => pp.id === ev.passerId);
+            const interceptorId = ev.result.cut1?.interceptor?.id ?? ev.result.cut2?.interceptor?.id;
+            const interceptor = interceptorId ? turnResult.board.pieces.find(pp => pp.id === interceptorId) : null;
+            if (passer && interceptor) {
+              trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
+            }
+          }
+          if (ev.type === 'SHOOT') {
+            const shooter = fieldPieces.find(pp => pp.id === ev.shooterId);
+            if (shooter) {
+              const goalRow = shooter.team === 'home' ? 33 : 0;
+              const goalCoord = { col: 10, row: goalRow };
+              const result = ev.result.outcome === 'goal' ? 'goal' as const
+                : (ev.result.outcome === 'blocked' ? 'blocked' as const
+                : (ev.result.outcome === 'saved_catch' || ev.result.outcome === 'saved_ck') ? 'saved' as const
+                : 'success' as const);
+              trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
+            }
+          }
+        }
+        setBallTrails(trails);
+
         // 8. エンジン結果を反映 → resolving 状態に入る
         dispatch({
           type: 'APPLY_ENGINE_RESULT',
@@ -1253,6 +1293,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         replayTimerRef.current = setTimeout(() => {
           setResolvingPhase(-1);
           setPhaseEffects([]);
+          setBallTrails([]);
           replayTimerRef.current = null;
 
           // A7: FK/PK ミニゲーム遷移
@@ -1337,6 +1378,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           goalScoredRef.current = { scored: false, scorerTeam: null };
           setResolvingPhase(-1);
           setPhaseEffects([]);
+          setBallTrails([]);
           setMiniGame(null);
           clearReplayTimers();
           dispatch({ type: 'NEXT_TURN' });
@@ -1808,6 +1850,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             shootRangeHexes={shootRangeHexes}
             longPassWarnings={longPassWarnings}
             phaseEffects={phaseEffects}
+            ballTrails={ballTrails}
           />
 
           {/* A8: オフサイドライントグル */}
@@ -1969,6 +2012,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             shootRangeHexes={shootRangeHexes}
             longPassWarnings={longPassWarnings}
             phaseEffects={phaseEffects}
+            ballTrails={ballTrails}
           />
 
           {/* A8: オフサイドライントグル (PC) */}
