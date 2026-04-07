@@ -11,7 +11,7 @@ import { soundManager } from '../audio/SoundManager';
 import { useSettings } from '../contexts/SettingsContext';
 import type { BallTrail } from '../components/board/Overlay';
 import FlyingBall, { type FlyingBallData } from '../components/FlyingBall';
-import BallActionMenu from '../components/BallActionMenu';
+// BallActionMenu is now inlined in the render
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -971,7 +971,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const handleSelectPiece = useCallback(
     (pieceId: string | null) => {
       if (state.turnPhase !== 'INPUT') return;
-      setBallActionMenu(null); // メニューを閉じる
 
       // §2-3 相手コマタップで情報ポップアップ
       if (pieceId && isMobile) {
@@ -988,7 +987,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       if (pieceId) {
         const p = state.board.pieces.find(pp => pp.id === pieceId);
 
-        // ボール保持者（味方）→ アクション選択メニューを表示
+        // ボール保持者（味方・未命令）→ 選択してメニュー表示
         if (p?.hasBall && p.team === state.myTeam && !state.orders.has(pieceId)) {
           dispatch({ type: 'SELECT_PIECE', pieceId });
           setBallActionMenu(pieceId);
@@ -996,49 +995,23 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           return;
         }
 
-        // 命令済みコマ → 選択のみ（ガイドに「命令済み」表示）
         dispatch({ type: 'SELECT_PIECE', pieceId });
+        setBallActionMenu(null);
       } else {
         dispatch({ type: 'SELECT_PIECE', pieceId: null });
+        setBallActionMenu(null);
       }
 
-      // §2-6 振動フィードバック
-      if (isMobile && pieceId && navigator.vibrate) {
-        navigator.vibrate(30);
-      }
+      if (isMobile && pieceId && navigator.vibrate) navigator.vibrate(30);
     },
     [dispatch, isMobile, opponentPieces, state.board.pieces, state.myTeam, state.turnPhase, state.orders],
   );
 
-  /** ボールアイコンをタッチ → handleSelectPiece と同じ動作（統合） */
+  /** ボールアイコンをタッチ → handleSelectPiece と同じ */
   const handleBallClick = useCallback(
-    (pieceId: string) => {
-      handleSelectPiece(pieceId);
-    },
+    (pieceId: string) => handleSelectPiece(pieceId),
     [handleSelectPiece],
   );
-
-  /** アクションメニュー: パスを選択 */
-  const handleActionPass = useCallback(() => {
-    if (ballActionMenu) {
-      dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' });
-    }
-    setBallActionMenu(null);
-  }, [ballActionMenu, dispatch]);
-
-  /** アクションメニュー: ドリブルを選択 */
-  const handleActionDribble = useCallback(() => {
-    if (ballActionMenu) {
-      dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' });
-    }
-    setBallActionMenu(null);
-  }, [ballActionMenu, dispatch]);
-
-  /** アクションメニュー: キャンセル */
-  const handleActionCancel = useCallback(() => {
-    dispatch({ type: 'SELECT_PIECE', pieceId: null });
-    setBallActionMenu(null);
-  }, [dispatch]);
 
   /** シュート可能ゾーン判定（ゲーム座標、ポジション別距離補正付き） */
   const isShootZone = useCallback((coord: HexCoord) => {
@@ -1872,7 +1845,50 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {disconnectBannerEl}
         {miniGameEl}
         {ballActionMenu && (
-          <BallActionMenu onPass={handleActionPass} onDribble={handleActionDribble} onCancel={handleActionCancel} />
+          <div
+            style={{
+              position: 'fixed', bottom: 0, left: 0, right: 0,
+              display: 'flex', justifyContent: 'center', gap: 12,
+              padding: '14px 16px', zIndex: 300,
+              background: 'rgba(0,0,0,0.9)',
+              borderTop: '2px solid rgba(255,255,255,0.15)',
+            }}
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
+              style={{
+                minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none',
+                background: 'linear-gradient(135deg, #2563EB, #3B82F6)', color: '#fff',
+                fontSize: 18, fontWeight: 'bold', cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(37,99,235,0.5)',
+              }}
+            >
+              ⚽ パス
+            </button>
+            <button
+              onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
+              style={{
+                minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none',
+                background: 'linear-gradient(135deg, #16A34A, #22C55E)', color: '#fff',
+                fontSize: 18, fontWeight: 'bold', cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(22,163,74,0.5)',
+              }}
+            >
+              🏃 ドリブル
+            </button>
+            <button
+              onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
+              style={{
+                minWidth: 60, minHeight: 56, padding: '12px 16px', borderRadius: 12,
+                border: '1px solid rgba(255,255,255,0.2)', background: 'transparent',
+                color: '#888', fontSize: 14, cursor: 'pointer',
+              }}
+            >
+              戻る
+            </button>
+          </div>
         )}
 
         {/* ヘッダー（44px）: スコア | 試合時間 | 残り時間 | 指示カウント */}
@@ -2119,7 +2135,30 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       {disconnectBannerEl}
       {miniGameEl}
       {ballActionMenu && (
-        <BallActionMenu onPass={handleActionPass} onDribble={handleActionDribble} onCancel={handleActionCancel} />
+        <div
+          style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0,
+            display: 'flex', justifyContent: 'center', gap: 12,
+            padding: '14px 16px', zIndex: 300,
+            background: 'rgba(0,0,0,0.9)',
+            borderTop: '2px solid rgba(255,255,255,0.15)',
+          }}
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
+            style={{ minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #2563EB, #3B82F6)', color: '#fff', fontSize: 18, fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 16px rgba(37,99,235,0.5)' }}
+          >⚽ パス</button>
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
+            style={{ minWidth: 130, minHeight: 56, padding: '12px 28px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #16A34A, #22C55E)', color: '#fff', fontSize: 18, fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 16px rgba(22,163,74,0.5)' }}
+          >🏃 ドリブル</button>
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
+            style={{ minWidth: 60, minHeight: 56, padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#888', fontSize: 14, cursor: 'pointer' }}
+          >戻る</button>
+        </div>
       )}
 
       {/* メインエリア: 左パネル + ボード + 右パネル */}
