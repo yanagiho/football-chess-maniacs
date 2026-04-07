@@ -766,7 +766,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const [phaseEffects, setPhaseEffects] = useState<Array<{ coord: HexCoord; icon: string; color: string; text?: string }>>([]);
   const [ballTrails, setBallTrails] = useState<BallTrail[]>([]);
   const [flyingBall, setFlyingBall] = useState<FlyingBallData | null>(null);
-  const [ballActionMenu, setBallActionMenu] = useState<{ pieceId: string; x: number; y: number } | null>(null);
+  const [ballActionMenu, setBallActionMenu] = useState<string | null>(null); // pieceId or null
   const flyingBallResolveRef = useRef<(() => void) | null>(null);
   const resolvingEventsRef = useRef<EngineGameEvent[]>([]);
 
@@ -991,10 +991,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         // ボール保持者（味方）→ アクション選択メニューを表示
         if (p?.hasBall && p.team === state.myTeam && !state.orders.has(pieceId)) {
           dispatch({ type: 'SELECT_PIECE', pieceId });
-          // コマのピクセル座標を計算してメニュー位置に使う
-          const cell = (hexMapData as Array<{ col: number; row: number; x: number; y: number }>)
-            .find(c => c.col === p.coord.col && c.row === (state.myTeam === 'home' ? MAX_ROW - p.coord.row : p.coord.row));
-          setBallActionMenu({ pieceId, x: cell?.x ?? 500, y: cell?.y ?? 400 });
+          setBallActionMenu(pieceId);
           if (isMobile && navigator.vibrate) navigator.vibrate(30);
           return;
         }
@@ -1874,6 +1871,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {resolvingBannerEl}
         {disconnectBannerEl}
         {miniGameEl}
+        {ballActionMenu && (
+          <BallActionMenu onPass={handleActionPass} onDribble={handleActionDribble} onCancel={handleActionCancel} />
+        )}
 
         {/* ヘッダー（44px）: スコア | 試合時間 | 残り時間 | 指示カウント */}
         <div style={{
@@ -1970,15 +1970,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
-          {ballActionMenu && (
-            <BallActionMenu
-              x={ballActionMenu.x}
-              y={ballActionMenu.y}
-              onPass={handleActionPass}
-              onDribble={handleActionDribble}
-              onCancel={handleActionCancel}
-            />
-          )}
           <HexBoard
             pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
@@ -2127,6 +2118,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       {resolvingBannerEl}
       {disconnectBannerEl}
       {miniGameEl}
+      {ballActionMenu && (
+        <BallActionMenu onPass={handleActionPass} onDribble={handleActionDribble} onCancel={handleActionCancel} />
+      )}
 
       {/* メインエリア: 左パネル + ボード + 右パネル */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
@@ -2143,15 +2137,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
-          {ballActionMenu && (
-            <BallActionMenu
-              x={ballActionMenu.x}
-              y={ballActionMenu.y}
-              onPass={handleActionPass}
-              onDribble={handleActionDribble}
-              onCancel={handleActionCancel}
-            />
-          )}
           <HexBoard
             pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
