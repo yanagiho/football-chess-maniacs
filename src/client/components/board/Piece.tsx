@@ -82,6 +82,7 @@ export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam
         opacity,
         cursor: 'pointer',
         pointerEvents: 'auto',
+        overflow: 'visible', // ボールアイコンがコマの外に出ても表示されるように
         zIndex: isSelected ? 20 : 10,
         // §5-1 フェーズ1 コマ移動アニメーション 0.8s
         transition: 'left 0.8s ease-out, top 0.8s ease-out, opacity 0.2s',
@@ -105,7 +106,7 @@ export default function Piece({ piece, x, y, isSelected, hasOrder, order, myTeam
             top: -ballSize * 0.35,
             right: -ballSize * 0.55,
             pointerEvents: 'auto',
-            zIndex: 25,
+            zIndex: 100, // HexBoardの他のコマより確実に上
             animation: ballPulse
               ? 'fcms-ball-pulse-strong 1s ease-in-out infinite'
               : 'fcms-ball-pulse-gentle 2s ease-in-out infinite',
