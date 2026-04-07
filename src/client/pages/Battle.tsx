@@ -737,6 +737,26 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return () => { clearPhaseTimeout(); clearTimeout(safety); };
   }, [state.turnPhase, state.status, state.turn, dispatch, clearPhaseTimeout, showOverlay]);
 
+  // ── 非INPUTフェーズではメニューを閉じる ──
+  useEffect(() => {
+    if (state.turnPhase !== 'INPUT') setBallActionMenu(null);
+  }, [state.turnPhase]);
+
+  // ── ボール整合性チェック（INPUT開始時） ──
+  useEffect(() => {
+    if (state.turnPhase !== 'INPUT' || state.status !== 'playing') return;
+    const holders = state.board.pieces.filter(p => p.hasBall && !p.isBench);
+    if (holders.length === 0 && !state.board.freeBallHex) {
+      console.error('[Battle] BALL SAFETY: No ball at INPUT start, restoring to GK');
+      const gk = state.board.pieces.find(p => p.position === 'GK' && p.team === state.myTeam && !p.isBench);
+      const fallback = gk ?? state.board.pieces.find(p => p.team === state.myTeam && !p.isBench);
+      if (fallback) {
+        const fixed = state.board.pieces.map(p => p.id === fallback.id ? { ...p, hasBall: true } : p);
+        dispatch({ type: 'SET_DISPLAY_PIECES', pieces: fixed });
+      }
+    }
+  }, [state.turnPhase, state.status, state.board.pieces, state.board.freeBallHex, state.myTeam, dispatch]);
+
   // EXECUTION → EVENT → TURN_END は handleConfirm のsetTimeoutチェーンで管理（既存）
   // EXECUTION 安全弁: 8秒（既存の replaySafetyRef）
   // TURN_END → 次ターン: NEXT_TURN dispatch で TURN_START に戻る
@@ -1937,6 +1957,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         {/* §2-1 メインエリア: HEXボード（画面の75%） */}
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
+          {/* INPUT以外のフェーズではピッチ全体を覆ってクリックをブロック */}
+          {state.turnPhase !== 'INPUT' && (
+            <div
+              style={{ position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed' }}
+              onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
+              onClick={e => { e.stopPropagation(); e.preventDefault(); }}
+            />
+          )}
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
@@ -1959,7 +1987,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
             freeBallHex={state.board.freeBallHex}
-            ballActionMenu={ballActionMenu}
+            ballActionMenu={state.turnPhase === 'INPUT' ? ballActionMenu : null}
             onActionPass={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
             onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
             onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
@@ -2105,6 +2133,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         {/* §3-1 中央ボード */}
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
+          {state.turnPhase !== 'INPUT' && (
+            <div
+              style={{ position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed' }}
+              onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
+              onClick={e => { e.stopPropagation(); e.preventDefault(); }}
+            />
+          )}
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
@@ -2127,7 +2162,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
             freeBallHex={state.board.freeBallHex}
-            ballActionMenu={ballActionMenu}
+            ballActionMenu={state.turnPhase === 'INPUT' ? ballActionMenu : null}
             onActionPass={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
             onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
             onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
