@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useReducer, useCallback, useMemo } from 'react';
-import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team, BallChainStep } from '../types';
+import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team, BallChainStep, TurnPhase } from '../types';
 
 /** 前半/後半の基本ターン数 */
 const HALF_TURNS = 15;
@@ -24,6 +24,7 @@ type GameAction =
   | { type: 'RESUME_SECOND_HALF' }
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number }
+  | { type: 'SET_TURN_PHASE'; phase: TurnPhase }
   | { type: 'START_BALL_CHAIN'; holderId: string }
   | { type: 'ADD_CHAIN_PASS'; step: BallChainStep; newHolderId: string | null }
   | { type: 'END_BALL_CHAIN' };
@@ -48,6 +49,7 @@ function createInitialState(): GameState {
     actionMode: null,
     additionalTime1: randomAT(),
     additionalTime2: randomAT(),
+    turnPhase: 'TURN_START' as TurnPhase,
     ballOperationActive: false,
     chainBallHolderId: null,
     ballChain: { steps: [] },
@@ -109,6 +111,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'SET_ACTION_MODE':
       return { ...state, actionMode: action.mode };
 
+    case 'SET_TURN_PHASE':
+      return { ...state, turnPhase: action.phase };
+
     case 'ADD_ORDER': {
       const newOrders = new Map(state.orders);
       newOrders.set(action.order.pieceId, action.order);
@@ -161,6 +166,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         turnStartedAt: Date.now(),
         additionalTime1: at1,
         additionalTime2: at2,
+        turnPhase: 'TURN_START' as TurnPhase,
       };
     }
 
@@ -203,12 +209,16 @@ function gameReducer(state: GameState, action: GameAction): GameState {
           actionMode: null,
           status: 'halftime',
           turnStartedAt: null,
+          turnPhase: 'TURN_END' as TurnPhase,
+          ballOperationActive: false, chainBallHolderId: null, ballChain: { steps: [] },
         };
       }
 
       // 試合終了
       if (nextTurn > fullEnd) {
-        return { ...state, status: 'finished', orders: new Map(), selectedPieceId: null, actionMode: null };
+        return { ...state, status: 'finished', orders: new Map(), selectedPieceId: null, actionMode: null,
+          turnPhase: 'TURN_END' as TurnPhase,
+          ballOperationActive: false, chainBallHolderId: null, ballChain: { steps: [] } };
       }
 
       return {
@@ -220,6 +230,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         actionMode: null,
         status: 'playing',
         turnStartedAt: Date.now(),
+        turnPhase: 'TURN_START' as TurnPhase,
+        ballOperationActive: false, chainBallHolderId: null, ballChain: { steps: [] },
       };
     }
 
@@ -228,6 +240,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         status: 'playing',
         turnStartedAt: Date.now(),
+        turnPhase: 'TURN_START' as TurnPhase,
       };
 
     case 'APPLY_ENGINE_RESULT': {
@@ -242,6 +255,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         orders: new Map(),
         selectedPieceId: null,
         actionMode: null,
+        turnPhase: 'EXECUTION' as TurnPhase,
+        ballOperationActive: false, chainBallHolderId: null, ballChain: { steps: [] },
       };
     }
 

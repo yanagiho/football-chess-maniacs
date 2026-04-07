@@ -7,6 +7,9 @@ export type Cost = 1 | 1.5 | 2 | 2.5 | 3;
 export type Team = 'home' | 'away';
 export type ActionMode = 'move' | 'pass' | 'shoot' | 'dribble' | 'throughPass' | 'substitute' | 'skill' | null;
 
+/** ターン内フェーズ（入力制御に使用） */
+export type TurnPhase = 'TURN_START' | 'INPUT' | 'WAITING' | 'EXECUTION' | 'EVENT' | 'TURN_END';
+
 export interface HexCoord {
   col: number;
   row: number;
@@ -87,6 +90,8 @@ export interface GameState {
   additionalTime1: number;
   /** 後半アディショナルタイム（1〜3ターン） */
   additionalTime2: number;
+  /** ターン内フェーズ */
+  turnPhase: TurnPhase;
   /** チェーンパス操作中かどうか */
   ballOperationActive: boolean;
   /** 現在チェーンパス中にボールを持っているコマID */

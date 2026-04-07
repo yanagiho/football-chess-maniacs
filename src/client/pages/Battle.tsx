@@ -5,7 +5,8 @@
 // ============================================================
 
 import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
-import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo } from '../types';
+import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo, TurnPhase } from '../types';
+import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -672,7 +673,65 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // リプレイ中 or 相手待ちフラグ（操作不可）
   const isResolving = state.status === 'resolving';
   const isWaiting = state.status === 'waiting_opponent';
-  const isInputDisabled = isResolving || isWaiting;
+  const isInputDisabled = isResolving || isWaiting || state.turnPhase !== 'INPUT';
+
+  // ── CenterOverlay キュー管理 ──
+  const [overlayQueue, setOverlayQueue] = useState<OverlayItem[]>([]);
+  const overlayIdCounter = useRef(0);
+
+  const showOverlay = useCallback((text: string, opts?: { subText?: string; duration?: number; color?: string; fontSize?: number; glow?: boolean }) => {
+    const id = `ov_${++overlayIdCounter.current}`;
+    setOverlayQueue(prev => [...prev, {
+      id, text, duration: opts?.duration ?? 1000,
+      subText: opts?.subText, color: opts?.color, fontSize: opts?.fontSize, glow: opts?.glow,
+    }]);
+    return id;
+  }, []);
+
+  const handleOverlayComplete = useCallback((id: string) => {
+    setOverlayQueue(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+  // ── turnPhase 遷移管理 ──
+  const phaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPhaseTimeout = useCallback(() => {
+    if (phaseTimeoutRef.current) { clearTimeout(phaseTimeoutRef.current); phaseTimeoutRef.current = null; }
+  }, []);
+
+  // TURN_START → INPUT（1秒後、安全弁2秒）
+  useEffect(() => {
+    if (state.turnPhase !== 'TURN_START' || state.status !== 'playing') return;
+    clearPhaseTimeout();
+    // Turn X の演出表示
+    if (state.turn > 0) {
+      showOverlay(`Turn ${state.turn}`, { duration: 800, fontSize: 36 });
+    }
+    phaseTimeoutRef.current = setTimeout(() => {
+      dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
+    }, 1000);
+    // 安全弁: 2秒
+    const safety = setTimeout(() => {
+      if (state.turnPhase === 'TURN_START') dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
+    }, 2000);
+    return () => { clearPhaseTimeout(); clearTimeout(safety); };
+  }, [state.turnPhase, state.status, state.turn, dispatch, clearPhaseTimeout, showOverlay]);
+
+  // EXECUTION → EVENT → TURN_END は handleConfirm のsetTimeoutチェーンで管理（既存）
+  // EXECUTION 安全弁: 8秒（既存の replaySafetyRef）
+  // TURN_END → 次ターン: NEXT_TURN dispatch で TURN_START に戻る
+
+  // WAITING 安全弁（COM用: 10秒）
+  useEffect(() => {
+    if (state.turnPhase !== 'WAITING' || !isCom) return;
+    const safety = setTimeout(() => {
+      if (state.turnPhase === 'WAITING') dispatch({ type: 'SET_TURN_PHASE', phase: 'EXECUTION' });
+    }, 10000);
+    return () => clearTimeout(safety);
+  }, [state.turnPhase, isCom, dispatch]);
+
+  useEffect(() => {
+    return () => clearPhaseTimeout();
+  }, [clearPhaseTimeout]);
 
   // ── A8: オフサイドライン表示トグル ──
   const [showOffsideLine, setShowOffsideLine] = useState(true);
@@ -1056,7 +1115,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const REPLAY_DURATION = 2500;
 
   const handleConfirm = useCallback(() => {
-    if (state.status !== 'playing') return;
+    if (state.status !== 'playing' || state.turnPhase !== 'INPUT') return;
+
+    // フェーズをWAITINGに移行
+    dispatch({ type: 'SET_TURN_PHASE', phase: 'WAITING' });
 
     if (isCom) {
       try {
@@ -1277,7 +1339,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           }
 
           // A6: ゴール判定
+          dispatch({ type: 'SET_TURN_PHASE', phase: 'EVENT' });
           if (goalScoredRef.current.scored) {
+            showOverlay('GOAL!', {
+              subText: `${newScoreHome} - ${newScoreAway}`,
+              duration: 1800, color: '#ffd700', fontSize: 64, glow: true,
+            });
             setCeremony('goal');
             replayTimerRef.current = setTimeout(() => {
               setCeremony(null);
@@ -1295,7 +1362,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               clearReplayTimers();
             }, GOAL_CEREMONY_MS);
           } else {
-            dispatch({ type: 'NEXT_TURN' });
+            dispatch({ type: 'SET_TURN_PHASE', phase: 'TURN_END' });
+            setTimeout(() => {
+              dispatch({ type: 'NEXT_TURN' });
+            }, 500);
             clearReplayTimers();
           }
         }, elapsed);
@@ -1805,6 +1875,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         {/* §2-1 メインエリア: HEXボード（画面の75%） */}
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
+          <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <HexBoard
             pieces={state.board.pieces}
             selectedPieceId={state.selectedPieceId}
@@ -1966,6 +2037,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         {/* §3-1 中央ボード */}
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
+          <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
           <HexBoard
             pieces={state.board.pieces}
             selectedPieceId={state.selectedPieceId}
