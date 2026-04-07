@@ -8,6 +8,7 @@ import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react'
 import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo, TurnPhase } from '../types';
 import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
 import { soundManager } from '../audio/SoundManager';
+import { useSettings } from '../contexts/SettingsContext';
 import type { BallTrail } from '../components/board/Overlay';
 import FlyingBall, { type FlyingBallData } from '../components/FlyingBall';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
@@ -475,6 +476,8 @@ function getMatchTimeLabel(turn: number, at1: number, at2: number): { label: str
 
 export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd }: BattleProps) {
   const device = useDeviceType();
+  const { settings } = useSettings();
+  const animSpeed = settings.animationSpeed || 1;
   const isMobile = device === 'mobile' || device === 'tablet';
   const {
     state,
@@ -1082,12 +1085,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     const fromPx = hexToPixel(from);
     const toPx = hexToPixel(to);
     const dist = Math.hypot(toPx.x - fromPx.x, toPx.y - fromPx.y);
-    const durationMs = Math.max(200, Math.min(500, dist * 0.8));
+    const durationMs = Math.round(Math.max(200, Math.min(500, dist * 0.8)) / animSpeed);
     return new Promise<void>(resolve => {
       flyingBallResolveRef.current = resolve;
       setFlyingBall({ fromX: fromPx.x, fromY: fromPx.y, toX: toPx.x, toY: toPx.y, type, durationMs });
     });
-  }, [hexToPixel]);
+  }, [hexToPixel, animSpeed]);
 
   const handleFlyingBallComplete = useCallback(() => {
     setFlyingBall(null);
@@ -1229,7 +1232,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         const evts = turnResult.events;
 
         // === 非同期イベント再生 ===
-        const wait = (ms: number) => new Promise<void>(r => { replayTimerRef.current = setTimeout(r, ms); });
+        const wait = (ms: number) => new Promise<void>(r => { replayTimerRef.current = setTimeout(r, Math.round(ms / animSpeed)); });
 
         (async () => {
           // Phase0: 全コマ同時移動（0.3秒待ち → APPLY_ENGINE_RESULT → CSS transition 0.8秒）
