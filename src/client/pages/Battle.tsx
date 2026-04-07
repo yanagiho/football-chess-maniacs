@@ -9,6 +9,7 @@ import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, 
 import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
 import { soundManager } from '../audio/SoundManager';
 import type { BallTrail } from '../components/board/Overlay';
+import FlyingBall, { type FlyingBallData } from '../components/FlyingBall';
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -760,6 +761,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const [resolvingPhase, setResolvingPhase] = useState(-1); // -1 = not in animation
   const [phaseEffects, setPhaseEffects] = useState<Array<{ coord: HexCoord; icon: string; color: string; text?: string }>>([]);
   const [ballTrails, setBallTrails] = useState<BallTrail[]>([]);
+  const [flyingBall, setFlyingBall] = useState<FlyingBallData | null>(null);
+  const flyingBallResolveRef = useRef<(() => void) | null>(null);
   const resolvingEventsRef = useRef<EngineGameEvent[]>([]);
 
   // ── A2: 移動範囲（selectedPiece の移動可能HEX） ──
@@ -1066,6 +1069,32 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   /** リプレイアニメーション時間（ms）。§5-1: 約2.5秒 */
   const REPLAY_DURATION = 2500;
 
+  // ── HEX座標→ピクセル座標変換（hex_mapデータを使用、flipY対応） ──
+  const hexToPixel = useCallback((coord: HexCoord): { x: number; y: number } => {
+    const displayRow = state.myTeam === 'home' ? MAX_ROW - coord.row : coord.row;
+    const cell = (hexMapData as Array<{ col: number; row: number; x: number; y: number }>)
+      .find(c => c.col === coord.col && c.row === displayRow);
+    return cell ? { x: cell.x, y: cell.y } : { x: 500, y: 900 };
+  }, [state.myTeam]);
+
+  // ── ボール飛行 → Promise ──
+  const launchFlyingBall = useCallback((from: HexCoord, to: HexCoord, type: FlyingBallData['type']): Promise<void> => {
+    const fromPx = hexToPixel(from);
+    const toPx = hexToPixel(to);
+    const dist = Math.hypot(toPx.x - fromPx.x, toPx.y - fromPx.y);
+    const durationMs = Math.max(200, Math.min(500, dist * 0.8));
+    return new Promise<void>(resolve => {
+      flyingBallResolveRef.current = resolve;
+      setFlyingBall({ fromX: fromPx.x, fromY: fromPx.y, toX: toPx.x, toY: toPx.y, type, durationMs });
+    });
+  }, [hexToPixel]);
+
+  const handleFlyingBallComplete = useCallback(() => {
+    setFlyingBall(null);
+    flyingBallResolveRef.current?.();
+    flyingBallResolveRef.current = null;
+  }, []);
+
   const handleConfirm = useCallback(() => {
     if (state.status !== 'playing' || state.turnPhase !== 'INPUT') return;
 
@@ -1180,18 +1209,22 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         }
         setBallTrails(trails);
 
-        // 8. スナップショットに巻き戻し → 0.3秒後に結果を適用（CSS transitionで移動アニメーション）
+        // 8. スナップショットに巻き戻し → EXECUTION再生
         if (state.turnStartSnapshot) {
           dispatch({ type: 'SET_DISPLAY_PIECES', pieces: state.turnStartSnapshot });
         }
-        // EXECUTION状態に移行（入力不可にする）
         dispatch({ type: 'SET_TURN_PHASE', phase: 'EXECUTION' });
 
-        // 0.3秒後に最終状態を適用（Piece.tsxのCSS transitionが移動をアニメーションする）
         clearReplayTimers();
         const evts = turnResult.events;
 
-        replayTimerRef.current = setTimeout(() => {
+        // === 非同期イベント再生 ===
+        const wait = (ms: number) => new Promise<void>(r => { replayTimerRef.current = setTimeout(r, ms); });
+
+        (async () => {
+          // Phase0: 全コマ同時移動（0.3秒待ち → APPLY_ENGINE_RESULT → CSS transition 0.8秒）
+          setResolvingPhase(0);
+          await wait(300);
           dispatch({
             type: 'APPLY_ENGINE_RESULT',
             pieces: newPieces,
@@ -1199,110 +1232,102 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             scoreAway: newScoreAway,
             freeBallHex: turnResult.board.freeBallHex ?? null,
           });
-        }, 300);
+          await wait(800); // CSS transition完了を待つ
 
-        // 9. フェーズ演出（スナップショット巻き戻し0.3秒 + CSS移動0.8秒 + 効果音・エフェクト）
-        setResolvingPhase(0);
-        let elapsed = 300; // スナップショット巻き戻し分
-
-        // Phase1 (0.5s): 競合・タックル（§5-1b）
-        elapsed += PHASE_TIMINGS[0];
-        replayTimerRef.current = setTimeout(() => {
+          // Phase1: 競合・タックル
           setResolvingPhase(1);
-          const effects: typeof phaseEffects = [];
+          const p1Effects: typeof phaseEffects = [];
           for (const ev of evts) {
             if (ev.type === 'COLLISION') {
               const ce = ev as CollisionEvent;
-              effects.push({ coord: ce.coord, icon: '💪', color: '#fff', text: '' });
-              // 敗者のスタート位置（ここでは競合位置に表示）
-              effects.push({ coord: ce.coord, icon: '💫', color: '#aaa', text: '' });
+              p1Effects.push({ coord: ce.coord, icon: '💪', color: '#fff', text: '' });
+              p1Effects.push({ coord: ce.coord, icon: '💫', color: '#aaa', text: '' });
             }
             if (ev.type === 'TACKLE') {
               const te = ev as TackleEvent;
               if (te.result.success) {
-                effects.push({ coord: te.coord, icon: '⚔', color: '#fff', text: 'TACKLE' });
+                p1Effects.push({ coord: te.coord, icon: '⚔', color: '#fff', text: 'TACKLE' });
                 showOverlay('TACKLE!', { duration: 500, fontSize: 32 });
                 soundManager.play('tackle');
               } else {
-                effects.push({ coord: te.coord, icon: '💨', color: '#888', text: 'MISS' });
+                p1Effects.push({ coord: te.coord, icon: '💨', color: '#888', text: 'MISS' });
               }
             }
           }
-          setPhaseEffects(effects);
-        }, elapsed);
+          setPhaseEffects(p1Effects);
+          if (p1Effects.length > 0) await wait(500);
 
-        // Phase2 (0.5s): ファウル（§5-1b）
-        elapsed += PHASE_TIMINGS[1];
-        replayTimerRef.current = setTimeout(() => {
+          // Phase2: ファウル
           setResolvingPhase(2);
-          const effects: typeof phaseEffects = [];
+          const p2Effects: typeof phaseEffects = [];
           for (const ev of evts) {
             if (ev.type === 'FOUL') {
               const fe = ev as EngineFoulEvent;
-              effects.push({ coord: fe.coord, icon: '🟨', color: '#ffcc00', text: 'FOUL' });
+              p2Effects.push({ coord: fe.coord, icon: '🟨', color: '#ffcc00', text: 'FOUL' });
               showOverlay('FOUL!', { duration: 1000, color: '#ffcc00', fontSize: 40 });
               soundManager.play('foul');
             }
           }
-          setPhaseEffects(effects);
-        }, elapsed);
+          setPhaseEffects(p2Effects);
+          if (p2Effects.length > 0) await wait(500);
 
-        // Phase3 (0.5s): ボール移動 — パス/シュート（§5-1b）
-        elapsed += PHASE_TIMINGS[2];
-        replayTimerRef.current = setTimeout(() => {
+          // Phase3: ボール移動（パス/シュート）— FlyingBall で順番に再生
           setResolvingPhase(3);
-          const effects: typeof phaseEffects = [];
+          setPhaseEffects([]);
           for (const ev of evts) {
-            if (ev.type === 'SHOOT') {
-              const se = ev as ShootEvent;
-              switch (se.result.outcome) {
-                case 'goal':
-                  effects.push({ coord: se.coord, icon: '⚽', color: '#FFD700', text: 'GOAL!' });
-                  soundManager.play('goal');
-                  break;
-                case 'blocked':
-                  effects.push({ coord: se.coord, icon: '🛡', color: '#ff8800', text: 'BLOCKED' });
-                  showOverlay('BLOCKED!', { duration: 500, fontSize: 32 });
-                  break;
-                case 'saved_catch':
-                  effects.push({ coord: se.coord, icon: '🧤', color: '#44aaff', text: 'CATCH' });
-                  showOverlay('SAVE!', { duration: 800, color: '#44cc44', fontSize: 40 });
-                  break;
-                case 'saved_ck':
-                  effects.push({ coord: se.coord, icon: '🧤', color: '#44aaff', text: 'SAVED' });
-                  showOverlay('SAVE!', { duration: 800, color: '#44cc44', fontSize: 40 });
-                  break;
-                case 'missed':
-                  effects.push({ coord: se.coord, icon: '💨', color: '#888', text: 'WIDE' });
-                  break;
-              }
-            }
             if (ev.type === 'PASS_DELIVERED') {
               const pe = ev as PassDeliveredEvent;
-              effects.push({ coord: pe.receiverCoord, icon: '⚽', color: '#ffdd44', text: '' });
+              const passer = postPieces.find(pp => pp.id === pe.passerId);
+              if (passer) {
+                await launchFlyingBall(passer.coord, pe.receiverCoord, 'pass');
+                trails.push({ from: passer.coord, to: pe.receiverCoord, type: 'pass', result: 'success' });
+                setBallTrails([...trails]);
+                soundManager.play('pass');
+                await wait(150);
+              }
+            }
+            if (ev.type === 'SHOOT') {
+              const se = ev as ShootEvent;
+              const shooter = postPieces.find(pp => pp.id === se.shooterId);
+              if (shooter) {
+                const goalRow = shooter.team === 'home' ? 33 : 0;
+                const goalCoord = { col: 10, row: goalRow };
+                await launchFlyingBall(shooter.coord, goalCoord, 'shoot');
+                const result = se.result.outcome === 'goal' ? 'goal' as const
+                  : se.result.outcome === 'blocked' ? 'blocked' as const
+                  : (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck') ? 'saved' as const
+                  : 'success' as const;
+                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
+                setBallTrails([...trails]);
+                soundManager.play('shoot');
+                // 結果演出
+                if (se.result.outcome === 'goal') soundManager.play('goal');
+                else if (se.result.outcome === 'blocked') showOverlay('BLOCKED!', { duration: 500, fontSize: 32 });
+                else if (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck')
+                  showOverlay('SAVE!', { duration: 800, color: '#44cc44', fontSize: 40 });
+                await wait(300);
+              }
             }
           }
-          setPhaseEffects(effects);
-        }, elapsed);
 
-        // Phase4 (0.5s): パスカット/オフサイド（§5-1b）
-        elapsed += PHASE_TIMINGS[3];
-        replayTimerRef.current = setTimeout(() => {
+          // Phase4: パスカット/オフサイド
           setResolvingPhase(4);
-          const effects: typeof phaseEffects = [];
+          const p4Effects: typeof phaseEffects = [];
           for (const ev of evts) {
             if (ev.type === 'PASS_CUT') {
               const pc = ev as PassCutEvent;
+              const passer = postPieces.find(pp => pp.id === pc.passerId);
               const interceptorId = pc.result.cut1?.interceptor?.id ?? pc.result.cut2?.interceptor?.id;
-              const interceptor = interceptorId
-                ? turnResult.board.pieces.find(p => p.id === interceptorId)
-                : null;
+              const interceptor = interceptorId ? turnResult.board.pieces.find(p => p.id === interceptorId) : null;
+              if (passer && interceptor) {
+                await launchFlyingBall(passer.coord, interceptor.coord, 'pass');
+                trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
+                setBallTrails([...trails]);
+              }
               const coord = interceptor?.coord ?? { col: 10, row: 16 };
-              effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED' });
-              const intPos = interceptor?.position ?? '';
-              const intCost = interceptor?.cost ?? 0;
+              p4Effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED' });
               showOverlay('BALL CUT!', {
-                subText: intPos && intCost ? `${intPos} \u2605${intCost}` : undefined,
+                subText: interceptor ? `${interceptor.position} \u2605${interceptor.cost}` : undefined,
                 duration: 800, fontSize: 40,
               });
               soundManager.play('tackle');
@@ -1311,20 +1336,20 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const oe = ev as OffsideEvent;
               const receiver = turnResult.board.pieces.find(p => p.id === oe.receiverId);
               const coord = receiver?.coord ?? { col: 10, row: 16 };
-              effects.push({ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' });
+              p4Effects.push({ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' });
               showOverlay('OFFSIDE!', { duration: 1000, color: '#ffcc00', fontSize: 40 });
             }
           }
-          setPhaseEffects(effects);
-        }, elapsed);
+          setPhaseEffects(p4Effects);
+          if (p4Effects.length > 0) await wait(500);
 
-        // 全フェーズ完了 → A7: FK/CK/PK判定 or ゴール or NEXT_TURN
-        elapsed += PHASE_TIMINGS[4];
-        replayTimerRef.current = setTimeout(() => {
+          // 全フェーズ完了
           setResolvingPhase(-1);
           setPhaseEffects([]);
+
+          // 軌跡を1秒表示してからクリア
+          await wait(800);
           setBallTrails([]);
-          replayTimerRef.current = null;
 
           // A7: FK/PK ミニゲーム遷移
           const foulEv = evts.find((e): e is EngineFoulEvent => e.type === 'FOUL');
@@ -1343,7 +1368,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 isKicker: foulEv.result.isPA,
               });
               setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
-              return; // ミニゲーム完了後に NEXT_TURN
+              return;
             } else if (foulEv.result.outcome === 'fk') {
               setMiniGame({
                 type: 'fk', coord: foulEv.coord,
@@ -1356,7 +1381,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             }
           }
 
-          // A7: CK遷移（シュートがゴール外=saved_ck）
+          // A7: CK遷移
           const ckShoot = evts.find(
             (e): e is ShootEvent => e.type === 'SHOOT' && e.result.outcome === 'saved_ck',
           );
@@ -1377,31 +1402,27 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               duration: 1800, color: '#ffd700', fontSize: 64, glow: true,
             });
             setCeremony('goal');
-            replayTimerRef.current = setTimeout(() => {
-              setCeremony(null);
-              const kickoff = goalScoredRef.current.scorerTeam === 'home' ? 'away' : 'home';
-              const resetPieces = createGoalRestartPieces(formationData, kickoff);
-              goalScoredRef.current = { scored: false, scorerTeam: null };
-              dispatch({
-                type: 'SET_BOARD',
-                board: { pieces: resetPieces },
-                turn: state.turn,
-                scoreHome: newScoreHome,
-                scoreAway: newScoreAway,
-              });
-              dispatch({ type: 'NEXT_TURN' });
-              clearReplayTimers();
-            }, GOAL_CEREMONY_MS);
+            await wait(GOAL_CEREMONY_MS);
+            setCeremony(null);
+            const kickoff = goalScoredRef.current.scorerTeam === 'home' ? 'away' : 'home';
+            const resetPieces = createGoalRestartPieces(formationData, kickoff);
+            goalScoredRef.current = { scored: false, scorerTeam: null };
+            dispatch({
+              type: 'SET_BOARD',
+              board: { pieces: resetPieces },
+              turn: state.turn,
+              scoreHome: newScoreHome,
+              scoreAway: newScoreAway,
+            });
+            dispatch({ type: 'NEXT_TURN' });
           } else {
             dispatch({ type: 'SET_TURN_PHASE', phase: 'TURN_END' });
-            setTimeout(() => {
-              dispatch({ type: 'NEXT_TURN' });
-            }, 500);
-            clearReplayTimers();
+            await wait(500);
+            dispatch({ type: 'NEXT_TURN' });
           }
-        }, elapsed);
+        })();
 
-        // 安全タイムアウト
+        // 安全タイムアウト（async再生が何らかの理由で止まった場合）
         replaySafetyRef.current = setTimeout(() => {
           console.warn(`[Battle] Safety timeout (${SAFETY_TIMEOUT_MS}ms): forcing NEXT_TURN`);
           replaySafetyRef.current = null;
@@ -1409,6 +1430,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           setResolvingPhase(-1);
           setPhaseEffects([]);
           setBallTrails([]);
+          setFlyingBall(null);
           setMiniGame(null);
           clearReplayTimers();
           dispatch({ type: 'NEXT_TURN' });
@@ -1863,6 +1885,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {/* §2-1 メインエリア: HEXボード（画面の75%） */}
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
+          <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
             pieces={state.board.pieces}
             selectedPieceId={state.selectedPieceId}
@@ -2026,6 +2049,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {/* §3-1 中央ボード */}
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
+          <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
             pieces={state.board.pieces}
             selectedPieceId={state.selectedPieceId}
