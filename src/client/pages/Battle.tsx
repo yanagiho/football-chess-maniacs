@@ -26,7 +26,6 @@ import {
   getMovementRange, getNeighbors, hexKey, hexDistance,
   buildZocMap, buildZoc2Map,
 } from '../../engine/movement';
-import { getOffsideLine } from '../../engine/offside';
 import type {
   Piece as EnginePiece, Board as EngineBoard, Order as EngineOrder,
   ShootEvent, FoulEvent as EngineFoulEvent, GameEvent as EngineGameEvent,
@@ -263,7 +262,7 @@ function createDefaultHomePieces(): PieceData[] {
 }
 
 /** 初期コマ配置生成（Formation データ優先、なければデフォルト） */
-function createInitialPieces(formationData?: FormationData | null): PieceData[] {
+function createInitialPieces(formationData?: FormationData | null, kickoffTeam: Team = 'home'): PieceData[] {
   // ── homeチーム: フォーメーションデータがあればそれを使用 ──
   const homePieces = formationData
     ? formationToPieces(formationData.starters, formationData.bench, 'home')
@@ -274,9 +273,9 @@ function createInitialPieces(formationData?: FormationData | null): PieceData[] 
 
   const pieces = [...homePieces, ...awayPieces];
 
-  // キックオフ: home FW にボール
-  const homeFW = pieces.find((p) => p.team === 'home' && p.position === 'FW' && !p.isBench);
-  if (homeFW) homeFW.hasBall = true;
+  // キックオフ: 指定チームの FW にボール
+  const fw = pieces.find((p) => p.team === kickoffTeam && p.position === 'FW' && !p.isBench);
+  if (fw) fw.hasBall = true;
 
   return pieces;
 }
@@ -332,11 +331,7 @@ function createGoalRestartPieces(
   fd: FormationData | null | undefined,
   kickoffTeam: Team,
 ): PieceData[] {
-  const pieces = createInitialPieces(fd);
-  for (const p of pieces) p.hasBall = false;
-  const fw = pieces.find(p => p.team === kickoffTeam && p.position === 'FW' && !p.isBench);
-  if (fw) fw.hasBall = true;
-  return pieces;
+  return createInitialPieces(fd, kickoffTeam);
 }
 
 // ============================================================
@@ -622,11 +617,16 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [isCom, matchId, authToken, wsConnect, wsDisconnect, dispatch, propMyTeam]);
 
   // ── COM対戦: ゲーム状態を即座に初期化 ──
+  // ── 1st Halfキックオフチーム（ランダム決定、2nd Halfは逆） ──
+  const firstHalfKickoffRef = useRef<Team>(Math.random() < 0.5 ? 'home' : 'away');
+
   // refガードなし: StrictModeの再マウントでも正常に初期化する
   useEffect(() => {
     if (!isCom) return;
 
-    const pieces = createInitialPieces(formationData);
+    const kickoffTeam = firstHalfKickoffRef.current;
+    const pieces = createInitialPieces(formationData, kickoffTeam);
+    console.log(`[Battle] COM init: 1st half kickoff = ${kickoffTeam}`);
     dispatch({
       type: 'INIT_MATCH',
       matchId: matchId ?? `com_${Date.now()}`,
@@ -653,23 +653,29 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   useEffect(() => {
     if (state.status !== 'halftime') return;
     setCeremony('halftime');
+    // キャプチャ: エフェクト実行時の値を保持
+    const capturedTurn = state.turn;
+    const capturedScoreHome = state.scoreHome;
+    const capturedScoreAway = state.scoreAway;
+    // 後半リセット用コマ（2nd halfは1st halfと逆チームがキックオフ）
+    const secondHalfKickoff: Team = firstHalfKickoffRef.current === 'home' ? 'away' : 'home';
+    const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
     const t1 = setTimeout(() => setCeremony('secondhalf'), HALFTIME_CEREMONY_MS);
     const t2 = setTimeout(() => {
-      // 後半開始: 初期配置にリセット。awayチームがキックオフ（前半はhome）
-      const resetPieces = createGoalRestartPieces(formationData, 'away');
-      dispatch({
-        type: 'SET_BOARD',
-        board: { pieces: resetPieces },
-        turn: state.turn,
-        scoreHome: state.scoreHome,
-        scoreAway: state.scoreAway,
-      });
-      // キックオフ演出を表示してから後半開始
+      // キックオフ演出表示と同時にコマを初期位置に表示（演出中に配置が見える）
+      dispatch({ type: 'SET_DISPLAY_PIECES', pieces: resetPieces });
       setCeremony('kickoff2nd');
     }, SECOND_HALF_DELAY_MS);
     const t3 = setTimeout(() => {
+      // 後半開始: 正式にボード状態をリセット — 1回のdispatchで原子的に実行
       setCeremony(null);
-      dispatch({ type: 'RESUME_SECOND_HALF' });
+      dispatch({
+        type: 'RESUME_SECOND_HALF',
+        board: { pieces: resetPieces },
+        turn: capturedTurn,
+        scoreHome: capturedScoreHome,
+        scoreAway: capturedScoreAway,
+      });
     }, SECOND_HALF_DELAY_MS + KICKOFF_CEREMONY_MS);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [state.status, dispatch, formationData, state.turn, state.scoreHome, state.scoreAway]);
@@ -780,7 +786,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [clearPhaseTimeout]);
 
   // ── A8: オフサイドライン表示トグル ──
-  const [showOffsideLine, setShowOffsideLine] = useState(true);
+  // オフサイドライン表示は無効化（判定ロジックはエンジン側で維持）
 
   // ── A7: ミニゲーム状態 ──
   const [miniGame, setMiniGame] = useState<MiniGameState>(null);
@@ -825,17 +831,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [state.selectedPieceId, state.board.pieces, state.myTeam]);
 
   // ── A8: オフサイドライン計算（GK除外 + ハーフライン制約 + ボール位置制約） ──
-  const offsideLine = useMemo(() => {
-    if (!showOffsideLine) return null;
-    const fieldPieces = state.board.pieces.filter(p => !p.isBench).map(toEnginePiece);
-    const attackTeam = state.myTeam;
-    const defenseTeam: Team = attackTeam === 'home' ? 'away' : 'home';
-    const defenders = fieldPieces.filter(p => p.team === defenseTeam);
-    if (defenders.length < 2) return null;
-    const defenderGoalIsLowRow = attackTeam === 'home'; // home attacks high → defender goal at low row
-    const ballPiece = fieldPieces.find(p => p.hasBall);
-    return getOffsideLine(defenders, defenderGoalIsLowRow, ballPiece?.coord.row);
-  }, [showOffsideLine, state.board.pieces, state.myTeam]);
+  // オフサイドライン表示は無効化（常にnull）
+  const offsideLine = null;
 
   // ── A4: シュート可能範囲HEX（シュートモード時に表示） ──
   const shootRangeHexes = useMemo(() => {
@@ -1160,6 +1157,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           maxFieldCost: MAX_FIELD_COST,
         });
         const awayOrders: EngineOrder[] = comResult.orders;
+        console.log(`[Battle] COM AI: strategy=${comResult.strategy}, orders=${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
 
         // 3. エンジン Board 構築
         const board: EngineBoard = { pieces: enginePieces, snapshot: [], freeBallHex: state.board.freeBallHex ?? null };
@@ -1195,57 +1193,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         cumulativeEventsRef.current = [...cumulativeEventsRef.current, ...(turnResult.events as unknown as GameEvent[])];
         resolvingEventsRef.current = turnResult.events;
 
-        // 7b. ボール軌跡を生成
-        // イベントをtyped assertionで安全にアクセスするため、型キャストを使用
+        // 7b. ボール軌跡用のデータ準備（Phase3再生で段階的に表示）
         const postPieces = turnResult.board.pieces;
         const prePieces = fieldPieces; // 移動前のコマ配列
         const trails: BallTrail[] = [];
-        for (const ev of turnResult.events) {
-          switch (ev.type) {
-            case 'PIECE_MOVED': {
-              const movedEv = ev as import('../../engine/types').PieceMovedEvent;
-              // ドリブル判定: 移動前にボールを持っていたコマ
-              const prePiece = prePieces.find(pp => pp.id === movedEv.pieceId);
-              if (prePiece && prePiece.hasBall) {
-                trails.push({ from: movedEv.from, to: movedEv.to, type: 'dribble', result: 'success' });
-              }
-              break;
-            }
-            case 'PASS_DELIVERED': {
-              const passEv = ev as import('../../engine/types').PassDeliveredEvent;
-              const passer = postPieces.find(pp => pp.id === passEv.passerId);
-              if (passer) {
-                trails.push({ from: passer.coord, to: passEv.receiverCoord, type: 'pass', result: 'success' });
-              }
-              break;
-            }
-            case 'PASS_CUT': {
-              const cutEv = ev as import('../../engine/types').PassCutEvent;
-              const passer = postPieces.find(pp => pp.id === cutEv.passerId);
-              const intId = cutEv.result.cut1?.interceptor?.id ?? cutEv.result.cut2?.interceptor?.id;
-              const interceptor = intId ? postPieces.find(pp => pp.id === intId) : null;
-              if (passer && interceptor) {
-                trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
-              }
-              break;
-            }
-            case 'SHOOT': {
-              const shootEv = ev as import('../../engine/types').ShootEvent;
-              const shooter = postPieces.find(pp => pp.id === shootEv.shooterId);
-              if (shooter) {
-                const goalRow = shooter.team === 'home' ? 33 : 0;
-                const goalCoord = { col: 10, row: goalRow };
-                const result = shootEv.result.outcome === 'goal' ? 'goal' as const
-                  : (shootEv.result.outcome === 'blocked' ? 'blocked' as const
-                  : (shootEv.result.outcome === 'saved_catch' || shootEv.result.outcome === 'saved_ck') ? 'saved' as const
-                  : 'success' as const);
-                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
-              }
-              break;
-            }
-          }
-        }
-        setBallTrails(trails);
+        // 初期軌跡はPhase3で段階的に追加するため、ここではクリア
+        setBallTrails([]);
 
         // 8. スナップショットに巻き戻し → EXECUTION再生
         if (state.turnStartSnapshot) {
@@ -1271,6 +1224,18 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             freeBallHex: turnResult.board.freeBallHex ?? null,
           });
           await wait(800); // CSS transition完了を待つ
+
+          // ドリブル軌跡を追加（移動完了後に表示）
+          for (const ev of evts) {
+            if (ev.type === 'PIECE_MOVED') {
+              const movedEv = ev as import('../../engine/types').PieceMovedEvent;
+              const prePiece = prePieces.find(pp => pp.id === movedEv.pieceId);
+              if (prePiece && prePiece.hasBall) {
+                trails.push({ from: movedEv.from, to: movedEv.to, type: 'dribble', result: 'success' });
+              }
+            }
+          }
+          if (trails.length > 0) setBallTrails([...trails]);
 
           // Phase1: 競合・タックル
           setResolvingPhase(1);
@@ -1320,6 +1285,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           // Phase3: ボール移動（パス/シュート）— FlyingBall で順番に再生
           setResolvingPhase(3);
           setPhaseEffects([]);
+          // オフサイドイベントを先に検索（パス直後に表示するため）
+          const offsideEv = evts.find((e): e is OffsideEvent => e.type === 'OFFSIDE');
           for (const ev of evts) {
             if (ev.type === 'PASS_DELIVERED') {
               const pe = ev as PassDeliveredEvent;
@@ -1331,6 +1298,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 soundManager.play('pass');
                 // ボール飛行アニメーション
                 await launchFlyingBall(passer.coord, pe.receiverCoord, 'pass');
+                // パス直後にオフサイド判定結果を表示（同ターン内で即時）
+                if (offsideEv) {
+                  const receiver = turnResult.board.pieces.find(p => p.id === offsideEv.receiverId);
+                  const coord = receiver?.coord ?? { col: 10, row: 16 };
+                  setPhaseEffects([{ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' }]);
+                  showOverlay('OFFSIDE!', { duration: 1200, color: '#FACC15', fontSize: 48 });
+                  await wait(800);
+                  setPhaseEffects([]);
+                }
                 await wait(150);
               }
             }
@@ -1393,13 +1369,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               });
               soundManager.play('tackle');
             }
-            if (ev.type === 'OFFSIDE') {
-              const oe = ev as OffsideEvent;
-              const receiver = turnResult.board.pieces.find(p => p.id === oe.receiverId);
-              const coord = receiver?.coord ?? { col: 10, row: 16 };
-              p4Effects.push({ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' });
-              showOverlay('OFFSIDE!', { duration: 1200, color: '#FACC15', fontSize: 48 });
-            }
+            // オフサイドはPhase3（パス直後）で表示済み
           }
           setPhaseEffects(p4Effects);
           if (p4Effects.length > 0) await wait(500);
@@ -1479,6 +1449,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
           // A6: ゴール判定
           dispatch({ type: 'SET_TURN_PHASE', phase: 'EVENT' });
+          // リプレイ正常完了 → 安全タイマーをクリア（二重NEXT_TURN防止）
+          clearReplayTimers();
           if (goalScoredRef.current.scored) {
             showOverlay('GOAL!!', {
               subText: `${newScoreHome} - ${newScoreAway}`,
@@ -2071,21 +2043,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     </div>
   );
 
-  // ── A8: オフサイドライントグル（共通） ──
-  const offsideToggleEl = (
-    <button
-      onClick={() => setShowOffsideLine(v => !v)}
-      style={{
-        position: 'absolute', left: 4, bottom: 4, zIndex: 30,
-        padding: '4px 8px', borderRadius: 4, border: 'none',
-        background: showOffsideLine ? 'rgba(255,220,40,0.3)' : 'rgba(255,255,255,0.1)',
-        color: showOffsideLine ? '#ffd700' : '#888', fontSize: 10, cursor: 'pointer',
-      }}
-    >
-      {showOffsideLine ? 'OS線 ON' : 'OS線 OFF'}
-    </button>
-  );
-
   // ================================================================
   // スマホ UI（§2）
   // ================================================================
@@ -2191,10 +2148,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         {/* §2-1 メインエリア: HEXボード（画面の75%） */}
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
-          {/* INPUT以外のフェーズではピッチ全体を覆ってクリックをブロック */}
-          {state.turnPhase !== 'INPUT' && (
+          {/* INPUT以外のフェーズではピッチ全体を覆ってクリックをブロック + 暗転 */}
+          {/* ただし試合終了/ハーフタイム/ミニゲーム中は非表示（演出UIのクリックを妨げない） */}
+          {state.turnPhase !== 'INPUT' && !miniGame && state.status !== 'finished' && state.status !== 'halftime' && (
             <div
-              style={{ position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed' }}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed',
+                background: 'rgba(0,0,0,0.45)',
+              }}
               onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
               onClick={e => { e.stopPropagation(); e.preventDefault(); }}
             />
@@ -2227,8 +2188,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
           />
 
-          {/* A8: オフサイドライントグル */}
-          {offsideToggleEl}
+          {/* A8: オフサイドライントグル削除済 */}
 
           {/* §2-6 クイック選択（右端の縦アイコン列） — 全未指示コマ表示 */}
           <div style={{
@@ -2367,9 +2327,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
         {/* §3-1 中央ボード */}
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
-          {state.turnPhase !== 'INPUT' && (
+          {/* INPUT以外のフェーズではピッチ全体を覆ってクリックをブロック + 暗転 */}
+          {/* ただし試合終了/ハーフタイム/ミニゲーム中は非表示（演出UIのクリックを妨げない） */}
+          {state.turnPhase !== 'INPUT' && !miniGame && state.status !== 'finished' && state.status !== 'halftime' && (
             <div
-              style={{ position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed' }}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed',
+                background: 'rgba(0,0,0,0.45)',
+              }}
               onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
               onClick={e => { e.stopPropagation(); e.preventDefault(); }}
             />
@@ -2401,9 +2366,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
             onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
           />
-
-          {/* A8: オフサイドライントグル (PC) */}
-          {offsideToggleEl}
 
           {/* §3-2 右クリックコンテキストメニュー */}
           {contextMenu && (

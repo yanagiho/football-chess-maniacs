@@ -22,7 +22,7 @@ type GameAction =
   | { type: 'INIT_MATCH'; matchId: string; myTeam: Team; board: GameState['board'] }
   | { type: 'RESOLVE_TURN' }
   | { type: 'NEXT_TURN' }
-  | { type: 'RESUME_SECOND_HALF' }
+  | { type: 'RESUME_SECOND_HALF'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number; freeBallHex?: import('../types').HexCoord | null }
   | { type: 'SET_TURN_PHASE'; phase: TurnPhase }
@@ -242,6 +242,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'RESUME_SECOND_HALF':
       return {
         ...state,
+        board: action.board,
+        turn: action.turn,
+        scoreHome: action.scoreHome,
+        scoreAway: action.scoreAway,
+        orders: new Map(),
+        selectedPieceId: null,
+        actionMode: null,
         status: 'playing',
         turnStartedAt: Date.now(),
         turnPhase: 'TURN_START' as TurnPhase,

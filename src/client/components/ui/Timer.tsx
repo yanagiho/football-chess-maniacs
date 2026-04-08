@@ -60,19 +60,23 @@ export default function Timer({
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const progress = remaining / durationMs;
+  const isWarning = remaining <= 15_000;
   const isUrgent = remaining <= 10_000;
 
-  const timerColor = isAdditionalTime ? '#ff4444' : isUrgent ? '#ff4444' : '#eee';
-  const barColor = isAdditionalTime ? '#ff4444' : isUrgent ? '#ff4444' : '#44cc44';
+  const timerColor = isAdditionalTime ? '#ff4444' : isWarning ? '#ff4444' : '#fff';
+  const barColor = isAdditionalTime ? '#ff4444' : isWarning ? '#ff4444' : '#44cc44';
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <style>{`
+        @keyframes fcms-timer-pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+      `}</style>
       <div
         style={{
-          width: isMobile ? 36 : 50,
-          height: 4,
+          width: isMobile ? 48 : 64,
+          height: 6,
           background: 'rgba(255,255,255,0.15)',
-          borderRadius: 2,
+          borderRadius: 3,
           overflow: 'hidden',
         }}
       >
@@ -81,9 +85,8 @@ export default function Timer({
             width: `${progress * 100}%`,
             height: '100%',
             background: barColor,
-            borderRadius: 2,
+            borderRadius: 3,
             transition: 'width 0.2s linear',
-            animation: isUrgent ? 'urgentBlink 0.5s infinite' : undefined,
           }}
         />
       </div>
@@ -91,12 +94,15 @@ export default function Timer({
         style={{
           fontVariantNumeric: 'tabular-nums',
           color: timerColor,
-          animation: isUrgent ? 'urgentBlink 0.5s infinite' : undefined,
-          fontSize: isMobile ? 11 : 12,
-          opacity: 0.8,
+          fontSize: isMobile ? 18 : 20,
+          fontWeight: 'bold',
+          background: 'rgba(0,0,0,0.5)',
+          borderRadius: 4,
+          padding: '2px 6px',
+          animation: isUrgent ? 'fcms-timer-pulse 0.8s ease-in-out infinite' : undefined,
         }}
       >
-        ({minutes}:{String(seconds).padStart(2, '0')})
+        {minutes}:{String(seconds).padStart(2, '0')}
       </span>
     </div>
   );
