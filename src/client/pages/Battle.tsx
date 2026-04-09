@@ -34,6 +34,7 @@ import type {
 import FKGame from '../components/minigame/FKGame';
 import CKGame from '../components/minigame/CKGame';
 import PKGame from '../components/minigame/PKGame';
+import HalftimeSubPanel from '../components/ui/HalftimeSubPanel';
 import hexMapData from '../data/hex_map.json';
 import { setBallHolder } from '../utils/ballManager';
 
@@ -495,6 +496,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   const isCom = gameMode === 'com' || matchId?.startsWith('com_');
 
+  // ── ハーフタイム交代管理 ──
+  const [halftimeSubsUsed, setHalftimeSubsUsed] = useState(0);
+  const [halftimeCountdown, setHalftimeCountdown] = useState(30);
+  const [halftimeReady, setHalftimeReady] = useState(false);
+
   // ── リプレイタイマー管理（cleanup用） ──
   const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const replaySafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -636,7 +642,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [isCom, matchId, dispatch, formationData]);
 
   // ── 演出フェーズ管理 ──
-  type CeremonyPhase = 'kickoff' | 'kickoff2nd' | 'halftime' | 'secondhalf' | 'fulltime' | 'turn' | 'goal' | null;
+  type CeremonyPhase = 'kickoff' | 'kickoff2nd' | 'halftime' | 'halftime_sub' | 'secondhalf' | 'fulltime' | 'turn' | 'goal' | null;
   const [ceremony, setCeremony] = useState<CeremonyPhase>(null);
   const [showResultBtn, setShowResultBtn] = useState(false);
 
@@ -648,37 +654,94 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return () => clearTimeout(timer);
   }, [state.turn, state.status]);
 
-  // ハーフタイム演出 → 3秒後に「SECOND HALF」→ 1.5秒後にボードリセット+キックオフ演出 → 2.5秒後に後半開始
-  // 後半は前半にキックオフしなかった方（away）がキックオフ
+  // ハーフタイム: HALF TIME演出(3秒) → 交代パネル表示(30秒カウントダウン) → 後半開始
   useEffect(() => {
     if (state.status !== 'halftime') return;
     setCeremony('halftime');
-    // キャプチャ: エフェクト実行時の値を保持
+    setHalftimeReady(false);
+    setHalftimeCountdown(30);
+    // 3秒後に交代パネルへ遷移
+    const t1 = setTimeout(() => setCeremony('halftime_sub'), HALFTIME_CEREMONY_MS);
+    return () => clearTimeout(t1);
+  }, [state.status]);
+
+  // ハーフタイム交代パネルのカウントダウン
+  useEffect(() => {
+    if (ceremony !== 'halftime_sub') return;
+    if (halftimeCountdown <= 0) {
+      setHalftimeReady(true);
+      return;
+    }
+    const t = setTimeout(() => setHalftimeCountdown(prev => prev - 1), 1000);
+    return () => clearTimeout(t);
+  }, [ceremony, halftimeCountdown]);
+
+  // 「後半開始」ボタン or カウントダウン完了 → SECOND HALF演出 → 後半開始
+  useEffect(() => {
+    if (!halftimeReady || state.status !== 'halftime') return;
     const capturedTurn = state.turn;
     const capturedScoreHome = state.scoreHome;
     const capturedScoreAway = state.scoreAway;
-    // 後半リセット用コマ（2nd halfは1st halfと逆チームがキックオフ）
     const secondHalfKickoff: Team = firstHalfKickoffRef.current === 'home' ? 'away' : 'home';
-    const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
-    const t1 = setTimeout(() => setCeremony('secondhalf'), HALFTIME_CEREMONY_MS);
-    const t2 = setTimeout(() => {
-      // キックオフ演出表示と同時にコマを初期位置に表示（演出中に配置が見える）
-      dispatch({ type: 'SET_DISPLAY_PIECES', pieces: resetPieces });
+
+    setCeremony('secondhalf');
+    const t1 = setTimeout(() => {
+      // 後半リセット: 交代済みコマを反映して初期位置に戻す
+      const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
+      // 交代済みのベンチ入れ替えを反映: 現在のpiecesからisBenchフラグを引き継ぐ
+      const currentPieces = state.board.pieces;
+      const updatedReset = resetPieces.map(rp => {
+        const current = currentPieces.find(cp => cp.id === rp.id);
+        if (current) {
+          return { ...rp, isBench: current.isBench, position: current.position, cost: current.cost };
+        }
+        return rp;
+      }).filter(p => !p.isBench); // フィールドコマのみ配置
+
+      // ベンチコマも含めた全コマリスト
+      const benchPieces = currentPieces.filter(cp => cp.isBench);
+      const allPieces = [...updatedReset, ...benchPieces];
+
+      // ボール配置: キックオフチームのFWにボール
+      const fw = allPieces.find(p => p.team === secondHalfKickoff && p.position === 'FW' && !p.isBench);
+      if (fw) {
+        for (const p of allPieces) p.hasBall = false;
+        fw.hasBall = true;
+      }
+
+      dispatch({ type: 'SET_DISPLAY_PIECES', pieces: allPieces });
       setCeremony('kickoff2nd');
-    }, SECOND_HALF_DELAY_MS);
-    const t3 = setTimeout(() => {
-      // 後半開始: 正式にボード状態をリセット — 1回のdispatchで原子的に実行
+    }, 1500);
+    const t2 = setTimeout(() => {
+      const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
+      const currentPieces = state.board.pieces;
+      const updatedReset = resetPieces.map(rp => {
+        const current = currentPieces.find(cp => cp.id === rp.id);
+        if (current) {
+          return { ...rp, isBench: current.isBench, position: current.position, cost: current.cost };
+        }
+        return rp;
+      }).filter(p => !p.isBench);
+      const benchPieces = currentPieces.filter(cp => cp.isBench);
+      const allPieces = [...updatedReset, ...benchPieces];
+      const fw = allPieces.find(p => p.team === secondHalfKickoff && p.position === 'FW' && !p.isBench);
+      if (fw) {
+        for (const p of allPieces) p.hasBall = false;
+        fw.hasBall = true;
+      }
+
       setCeremony(null);
+      setHalftimeReady(false);
       dispatch({
         type: 'RESUME_SECOND_HALF',
-        board: { pieces: resetPieces },
+        board: { pieces: allPieces },
         turn: capturedTurn,
         scoreHome: capturedScoreHome,
         scoreAway: capturedScoreAway,
       });
-    }, SECOND_HALF_DELAY_MS + KICKOFF_CEREMONY_MS);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [state.status, dispatch, formationData, state.turn, state.scoreHome, state.scoreAway]);
+    }, 1500 + KICKOFF_CEREMONY_MS);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [halftimeReady, state.status, dispatch, formationData, state.turn, state.scoreHome, state.scoreAway, state.board.pieces]);
 
   // タイムアップ演出（試合終了時）
   useEffect(() => {
@@ -947,8 +1010,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         case 'e': // 交代メニュー
           dispatch({ type: 'SET_ACTION_MODE', mode: state.actionMode === 'substitute' ? null : 'substitute' });
           break;
-        case 'z': // Undo
-          dispatch({ type: 'UNDO_LAST_ORDER' });
+        case 'z': // Undo (Shift+Z = 全取消)
+          if (e.shiftKey) {
+            dispatch({ type: 'CLEAR_ORDERS' });
+          } else {
+            dispatch({ type: 'UNDO_LAST_ORDER' });
+          }
           break;
         case ' ': // ターン確定
           e.preventDefault();
@@ -1807,7 +1874,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         position: 'fixed', inset: 0,
         background: ceremony === 'turn' ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.7)',
         zIndex: 200,
-        pointerEvents: ceremony === 'fulltime' && showResultBtn ? 'auto' : 'none',
+        pointerEvents: (ceremony === 'fulltime' && showResultBtn) || ceremony === 'halftime_sub' ? 'auto' : 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {/* ── KICK OFF ── */}
@@ -1856,6 +1923,24 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               {state.scoreHome} - {state.scoreAway}
             </div>
           </div>
+        )}
+
+        {/* ── HALFTIME SUBSTITUTION ── */}
+        {ceremony === 'halftime_sub' && (
+          <HalftimeSubPanel
+            pieces={state.board.pieces}
+            myTeam={state.myTeam}
+            maxSubs={MAX_SUBSTITUTIONS}
+            subsUsed={halftimeSubsUsed}
+            onSubstitute={(fieldPieceId, benchPieceId) => {
+              dispatch({ type: 'HALFTIME_SUBSTITUTE', fieldPieceId, benchPieceId });
+              setHalftimeSubsUsed(prev => prev + 1);
+            }}
+            onReady={() => setHalftimeReady(true)}
+            countdown={halftimeCountdown}
+            scoreHome={state.scoreHome}
+            scoreAway={state.scoreAway}
+          />
         )}
 
         {/* ── SECOND HALF ── */}
@@ -2265,9 +2350,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           selectedPiece={selectedPiece}
           actionMode={state.actionMode}
           hasOrders={state.orders.size > 0}
+          orderCount={state.orders.size}
           remainingSubs={MAX_SUBSTITUTIONS}
           benchPieces={myBenchPieces}
           onUndo={() => dispatch({ type: 'UNDO_LAST_ORDER' })}
+          onClearAll={() => dispatch({ type: 'CLEAR_ORDERS' })}
           onSetMode={handleSetMode}
           onConfirm={handleConfirm}
           onSubstitute={handleSubstitute}
@@ -2495,6 +2582,32 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <span style={{ fontSize: 13, color: '#aaa' }}>
           <span style={{ color: '#fff', fontWeight: 'bold' }}>{orderedCount}</span>/{totalFieldPieces} 指示済
         </span>
+
+        {/* 戻す / 全取消 */}
+        <button
+          onClick={() => dispatch({ type: 'UNDO_LAST_ORDER' })}
+          disabled={isInputDisabled || state.orders.size === 0}
+          style={{
+            padding: '4px 10px', borderRadius: 4, border: 'none',
+            background: state.orders.size > 0 && !isInputDisabled ? 'rgba(255,255,255,0.1)' : 'transparent',
+            color: state.orders.size > 0 && !isInputDisabled ? '#ccc' : '#555',
+            fontSize: 12, cursor: state.orders.size > 0 && !isInputDisabled ? 'pointer' : 'default',
+          }}
+        >
+          戻す (Z)
+        </button>
+        <button
+          onClick={() => dispatch({ type: 'CLEAR_ORDERS' })}
+          disabled={isInputDisabled || state.orders.size === 0}
+          style={{
+            padding: '4px 10px', borderRadius: 4, border: 'none',
+            background: state.orders.size > 0 && !isInputDisabled ? 'rgba(220,60,60,0.15)' : 'transparent',
+            color: state.orders.size > 0 && !isInputDisabled ? '#f88' : '#555',
+            fontSize: 12, cursor: state.orders.size > 0 && !isInputDisabled ? 'pointer' : 'default',
+          }}
+        >
+          全取消
+        </button>
 
         {/* スペーサー */}
         <div style={{ flex: 1 }} />

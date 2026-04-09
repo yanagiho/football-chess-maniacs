@@ -29,7 +29,8 @@ type GameAction =
   | { type: 'SAVE_SNAPSHOT' }
   | { type: 'SET_DISPLAY_PIECES'; pieces: PieceData[] }
   | { type: 'PASS_BALL'; fromPieceId: string; toPieceId: string }
-  | { type: 'THROUGH_PASS'; fromPieceId: string; targetHex: HexCoord };
+  | { type: 'THROUGH_PASS'; fromPieceId: string; targetHex: HexCoord }
+  | { type: 'HALFTIME_SUBSTITUTE'; fieldPieceId: string; benchPieceId: string };
 
 /** ランダムなアディショナルタイム（1〜3） */
 function randomAT(): number {
@@ -329,6 +330,23 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         selectedPieceId: null,
         actionMode: null,
       };
+    }
+
+    case 'HALFTIME_SUBSTITUTE': {
+      // ハーフタイム交代: フィールド↔ベンチを入れ替え（座標・isBenchを交換）
+      const fp = state.board.pieces.find(p => p.id === action.fieldPieceId);
+      const bp = state.board.pieces.find(p => p.id === action.benchPieceId);
+      if (!fp || !bp) return state;
+      const newPieces = state.board.pieces.map(p => {
+        if (p.id === action.fieldPieceId) {
+          return { ...p, coord: bp.coord, isBench: true, hasBall: false };
+        }
+        if (p.id === action.benchPieceId) {
+          return { ...p, coord: fp.coord, isBench: false, hasBall: fp.hasBall };
+        }
+        return p;
+      });
+      return { ...state, board: { ...state.board, pieces: newPieces } };
     }
 
     case 'APPLY_PRESET': {

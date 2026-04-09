@@ -12,9 +12,11 @@ interface ActionBarProps {
   selectedPiece: PieceData | null;
   actionMode: ActionMode;
   hasOrders: boolean;
+  orderCount: number;
   remainingSubs: number;
   benchPieces: PieceData[];
   onUndo: () => void;
+  onClearAll: () => void;
   onSetMode: (mode: ActionMode) => void;
   onConfirm: () => void;
   onSubstitute: (fieldPieceId: string, benchPieceId: string) => void;
@@ -24,9 +26,11 @@ export default function ActionBar({
   selectedPiece,
   actionMode,
   hasOrders,
+  orderCount,
   remainingSubs,
   benchPieces,
   onUndo,
+  onClearAll,
   onSetMode,
   onConfirm,
   onSubstitute,
@@ -108,8 +112,9 @@ export default function ActionBar({
           gap: 4,
         }}
       >
-        {/* §2-4 戻るボタン */}
-        <ActionButton label="←" onClick={onUndo} disabled={!hasOrders} />
+        {/* 戻す / 全取消 (長押しで全取消) */}
+        <ActionButton label="戻す" onClick={onUndo} disabled={!hasOrders} />
+        <ActionButton label="全取消" onClick={onClearAll} disabled={!hasOrders} danger />
 
         {/* ドリブルモード（ボール保持時のみ） */}
         <ActionButton
@@ -156,12 +161,14 @@ function ActionButton({
   disabled = false,
   active = false,
   primary = false,
+  danger = false,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
   primary?: boolean;
+  danger?: boolean;
 }) {
   return (
     <button
@@ -173,17 +180,19 @@ function ActionButton({
         maxWidth: 80,
         border: 'none',
         borderRadius: 8,
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: 'bold',
         cursor: disabled ? 'default' : 'pointer',
         background: primary
           ? '#44aa44'
+          : danger && !disabled
+          ? 'rgba(220,60,60,0.25)'
           : active
           ? '#4488cc'
           : disabled
           ? 'rgba(255,255,255,0.05)'
           : 'rgba(255,255,255,0.12)',
-        color: disabled ? 'rgba(255,255,255,0.3)' : '#fff',
+        color: disabled ? 'rgba(255,255,255,0.3)' : danger ? '#f88' : '#fff',
         transition: 'background 0.15s',
       }}
     >
