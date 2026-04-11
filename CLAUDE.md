@@ -369,6 +369,49 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 
 ---
 
+## 既知のバグ（2026-04-12 検出、未修正）
+
+### Critical / High
+
+#### エンジン
+1. **ファウルゾーン判定が片側のみ** (`engine/foul.ts`) — `isAttackingThird()` がrow 22-33のみチェック。awayが攻撃方向(row→0)でタックルされてもファウル/FK/PKが発生しない。`isInsidePA()` も同様にrow 28-33のみでawayのPA(row 0-5)が未対応。修正時は攻撃チーム情報をfoul関数に渡す必要あり
+2. **シュートコース修正が未使用** (`engine/shoot.ts`) — `defenderCountInShooterZoc` が渡されるが `calcShootCourseModifier` が呼ばれていない
+3. **ルーズボール隣接判定が矩形8マス** (`engine/turn_processor.ts:194`) — HEX6マスではなく `dc<=1 && dr<=1` で8マス判定。`getNeighbors`/`hexDistance`を使うべき
+4. **スルーパス受け手検索がManhattan距離** (`engine/ball.ts:363`) — hexDistanceではなくoffset座標のManhattan距離を使用
+
+#### AI
+5. **`maxTurn=90`デフォルト値** (`ai/evaluator.ts`, `ai/rule_based.ts`, `ai/com_ai.ts`) — 実際は30-36ターンなので戦略切替(`desperate_attack`/`defend`)に永遠に入らない。30-36に修正
+6. **リード/ビハインドで同一スコア** (`ai/evaluator.ts:273`) — 両方+20で局面評価が得点差を区別できない
+7. **パスカット推定がoffset座標補間** (`ai/legal_moves.ts:300`) — `hexLinePath`を使うべき（CLAUDE.md規約: offset row差ベース禁止）
+8. **ブロック確率がシューターZOCをチェック** (`ai/legal_moves.ts:316`) — エンジンはシュートコース上の守備ZOCを見る。完全に別物
+9. **Gemmaパス命令で`targetPieceId`未設定** (`ai/output_parser.ts`, `ai/rule_based.ts`) — Phase1移動後に受け手特定が失敗する可能性
+10. **PA範囲がエンジンと不一致** (`ai/evaluator.ts:90`) — col 7-14（エンジンはcol 4-17）
+
+#### クライアント
+11. **ゴールリスタートがハーフタイム交代を破棄** (`pages/Battle.tsx`) — `createGoalRestartPieces`が元の`formationData`から再生成。後半の交代選手が消える
+12. **CKミニゲームが常にhomeの駒を使用** (`pages/Battle.tsx:1509`) — `ckAttackTeam`ではなく`state.myTeam`でフィルタ
+13. **`onReady`が毎秒繰り返し発火** (`pages/HalfTime.tsx`) — countdown=0後もsetIntervalが動き続ける。clearIntervalするか発火済フラグが必要
+14. **`onTimeout`が200msごとに繰り返し発火** (`components/ui/Timer.tsx`) — remaining=0後にガードなし
+15. **COM難易度選択スキップの可能性** (`pages/ModeSelect.tsx` + `App.tsx`) — `setGameMode`バッチ更新で`handleModeSelectNavigate`が旧state参照
+
+#### サーバー
+16. **GameSession DOに`/init`ルートなし** (`durable/game_session.ts`) — Matchmaking DOのPOSTが426を返し、オンラインマッチが動かない
+17. **DOアラーム上書き競合** (`durable/game_session.ts`) — ターンタイマーと切断タイマーが互いに上書き（DOは1アラームのみ）
+18. **Webhookパス二重** (`worker.ts` + `api/auth.ts`) — `/webhook/webhook/purchase`になり課金Webhookが404
+19. **チーム更新でコマ所持チェックなし** (`api/team.ts`) — PUT時にgetOwnedPiecesを呼ばず未購入コマで編成可能
+
+### Medium
+
+20. **matchRoutes認証なし公開** (`worker.ts:84`) — `/match/`パスが認証なしでマウント
+21. **リプレイに参加者チェックなし** (`api/replay.ts`) — 任意ユーザーが他人のリプレイ閲覧可能
+22. **`getOwnedPieces`フィルタバグ** (`api/auth.ts:101`) — `items.length<=200`を各要素内でチェック、200超で全コマ消失
+23. **GKバリデーションなし** (`api/team.ts`) — チーム作成時にGK1枚の制約チェックなし
+24. **CKゾーン重複配置可能** (`minigame/CKGame.tsx`) — 同一ゾーンに複数コマ配置できてしまう
+25. **WebSocket onclose設定タイミング** (`hooks/useWebSocket.ts`) — `onopen`内でのみ設定、接続失敗時に再接続が発火しない
+26. **HMAC署名欠落時にバイパス** (`api/auth.ts`) — signatureヘッダなしで検証スキップ
+
+---
+
 ## 設定ファイル
 
 - `package.json`: `"type": "module"`, vitest ^2.1.0, TypeScript ^5.5.0
