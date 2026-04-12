@@ -113,9 +113,9 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合 | ✅ 231 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E | ✅ 281 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
-| durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 | ✅ |
+| durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
 | middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
 | wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
@@ -155,6 +155,13 @@ src/
 | リプレイ安全タイマー修正 | 正常完了時にclearReplayTimers()で安全タイマー解除（二重NEXT_TURN防止） | ✅ |
 | ボール軌跡改善 | ドリブル軌跡をPhase0後に段階表示、Phase3でパス/シュート軌跡を段階追加 | ✅ |
 | COM AI書き直し | フォーメーション維持型（3ライン制御・2手パスルート・プレス守備） | ✅ |
+| バグ修正（全26件） | エンジン(4件)+AI(6件)+クライアント(5件)+サーバー(4件)+Medium(7件) | ✅ `22efcb4` |
+| GameSession DOエンジン統合 | processTurn呼び出し、PieceInfo変換、ゴール検出、ファウル通知 | ✅ |
+| GameSession DOゲームロジック | 初期盤面生成(4-4-2)、ハーフタイム遷移、AT(1-3)、ゴールリスタート、試合終了 | ✅ |
+| ブートストラップ30-36ターン対応 | auto_play.tsをMAX_TURNS=90→30-36に修正、ハーフタイム位置修正 | ✅ |
+| バランス検証（1000試合） | Home 24.0% / Away 26.2% / Draw 49.8%, 2.68点/試合 | ✅ |
+| away側統合テスト | awayファウル(FK/PK)、awayシュート、awayパス配送 | ✅ |
+| オンラインE2Eエンジンテスト | RawOrder変換→processTurn→ボード更新→複数ターン連続の完全フロー | ✅ |
 
 ---
 
@@ -346,7 +353,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全231テスト）
+npm test              # vitest run（全281テスト）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
