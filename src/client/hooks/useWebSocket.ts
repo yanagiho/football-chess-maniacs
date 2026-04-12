@@ -38,6 +38,8 @@ export function useWebSocket(options: UseWebSocketOptions) {
     wsRef.current = ws;
     setStatus('connecting');
 
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
+
     ws.onopen = () => {
       setStatus('connected');
       if (reconnectCountRef.current > 0) {
@@ -46,24 +48,24 @@ export function useWebSocket(options: UseWebSocketOptions) {
       reconnectCountRef.current = 0;
 
       // Ping送信（10秒間隔）
-      const pingInterval = setInterval(() => {
+      pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'PING' }));
         }
       }, 10_000);
+    };
 
-      ws.onclose = () => {
-        clearInterval(pingInterval);
-        setStatus('disconnected');
-        onDisconnect?.();
+    ws.onclose = () => {
+      if (pingInterval) clearInterval(pingInterval);
+      setStatus('disconnected');
+      onDisconnect?.();
 
-        if (autoReconnect && reconnectCountRef.current < 5) {
-          const delay = Math.min(1000 * 2 ** reconnectCountRef.current, 10_000);
-          reconnectCountRef.current++;
-          setStatus('reconnecting');
-          reconnectTimerRef.current = setTimeout(connect, delay);
-        }
-      };
+      if (autoReconnect && reconnectCountRef.current < 5) {
+        const delay = Math.min(1000 * 2 ** reconnectCountRef.current, 10_000);
+        reconnectCountRef.current++;
+        setStatus('reconnecting');
+        reconnectTimerRef.current = setTimeout(connect, delay);
+      }
     };
 
     ws.onerror = () => {

@@ -59,13 +59,14 @@ export async function callPlatformApi<T>(
 
   const body = await res.text();
 
-  // HMAC署名検証（§7-5）
+  // HMAC署名検証（§7-5: 署名は必須）
   const signature = res.headers.get('X-HMAC-Signature');
-  if (signature) {
-    const valid = await verifyHmacSignature(body, signature, env.PLATFORM_HMAC_SECRET);
-    if (!valid) {
-      throw new Error('Platform API response HMAC verification failed');
-    }
+  if (!signature) {
+    throw new Error('Platform API response missing HMAC signature');
+  }
+  const valid = await verifyHmacSignature(body, signature, env.PLATFORM_HMAC_SECRET);
+  if (!valid) {
+    throw new Error('Platform API response HMAC verification failed');
   }
 
   return JSON.parse(body) as T;
@@ -98,8 +99,11 @@ export async function getOwnedPieces(
     );
 
     // ビジネスロジック整合性チェック（§7-5）
+    if (pieces.items.length > 200) {
+      throw new Error('Too many pieces returned from platform API');
+    }
     const validated = pieces.items.filter(
-      (p) => p.cost >= 1 && p.cost <= 3 && pieces.items.length <= 200,
+      (p) => p.cost >= 1 && p.cost <= 3,
     );
 
     // キャッシュ更新
@@ -116,7 +120,7 @@ export async function getOwnedPieces(
 }
 
 // ── Webhookエンドポイント（キャッシュ即時無効化）──
-auth.post('/webhook/purchase', async (c) => {
+auth.post('/purchase', async (c) => {
   const signature = c.req.header('X-HMAC-Signature');
   if (!signature) {
     return c.json({ error: 'Missing signature' }, 401);

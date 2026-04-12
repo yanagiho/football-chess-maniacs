@@ -344,8 +344,8 @@ export function processMovement(
         tackler.hasBall  = true;
         events.push({ type: 'BALL_ACQUIRED', phase: 1, pieceId: tackler.id } as BallAcquiredEvent);
 
-        // ファウル判定
-        const foulResult = resolveFoul({ zone: context.getZone(coord), col: coord.col });
+        // ファウル判定（ドリブラーの攻撃方向でゾーンを判定）
+        const foulResult = resolveFoul({ zone: context.getZone(coord), col: coord.col, attackingTeam: dribbler.team });
         if (foulResult.occurred) {
           tackler.hasBall  = false;
           dribbler.hasBall = true;
@@ -389,7 +389,7 @@ export function processMovement(
 
       // ステップ5: ファウル判定（§7-5）
       const zone = context.getZone(coord);
-      const foulResult = resolveFoul({ zone, col: coord.col });
+      const foulResult = resolveFoul({ zone, col: coord.col, attackingTeam: dribbler.team });
       if (foulResult.occurred) {
         tackler.hasBall  = false;
         dribbler.hasBall = true;

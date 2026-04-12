@@ -20,7 +20,7 @@
 // ============================================================
 
 import { processBall } from './ball';
-import { processMovement } from './movement';
+import { processMovement, hexDistance } from './movement';
 import { processSpecial } from './special';
 import type {
   Board,
@@ -190,11 +190,9 @@ function resolveLooseBall(pieces: Piece[], freeBallHex: HexCoord): LooseBallResu
   const onHex = pieces.filter(p => `${p.coord.col},${p.coord.row}` === fbKey);
 
   if (onHex.length === 0) {
-    // 隣接HEX（距離1）にいるコマを検出
+    // 隣接HEX（HEX距離1）にいるコマを検出
     const adjacent = pieces.filter(p => {
-      const dc = Math.abs(p.coord.col - freeBallHex.col);
-      const dr = Math.abs(p.coord.row - freeBallHex.row);
-      return dc <= 1 && dr <= 1 && (dc + dr > 0);
+      return hexDistance(p.coord, freeBallHex) === 1;
     });
     if (adjacent.length === 0) {
       // 誰も近くにいない → フリーボール継続

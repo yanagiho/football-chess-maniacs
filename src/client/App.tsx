@@ -106,13 +106,14 @@ export default function App() {
   }, []);
 
   // ModeSelect からの遷移: COM時は難易度選択を挟む
-  const handleModeSelectNavigate = useCallback((p: Page) => {
-    if (p === 'teamSelect' && gameMode === 'com') {
+  // mode引数で選択されたモードを直接受け取り、state更新のタイミングに依存しない
+  const handleModeSelectNavigate = useCallback((p: Page, mode?: GameMode) => {
+    if (p === 'teamSelect' && mode === 'com') {
       setPage('difficultySelect');
     } else {
       setPage(p);
     }
-  }, [gameMode]);
+  }, []);
 
   return (
     <SettingsProvider>

@@ -104,7 +104,7 @@ export class ComAi {
   async generateOrders(input: ComAiTurnInput): Promise<ComAiTurnResult> {
     const {
       pieces, myTeam, scoreHome, scoreAway, turn,
-      maxTurn = 90, remainingSubs, benchPieces,
+      maxTurn = 36, remainingSubs, benchPieces,
       maxFieldCost = 16, difficulty, era,
       recentHistory, playerTendency, matchId = '',
     } = input;

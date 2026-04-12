@@ -52,7 +52,7 @@ export interface RuleBasedOutput {
 export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput {
   const {
     pieces, myTeam, scoreHome, scoreAway, turn,
-    maxTurn = 90, remainingSubs, benchPieces, maxFieldCost = 16,
+    maxTurn = 36, remainingSubs, benchPieces, maxFieldCost = 16,
   } = input;
 
   const goalDiff = myTeam === 'home' ? scoreHome - scoreAway : scoreAway - scoreHome;
@@ -573,6 +573,7 @@ export function validateAndFillGemmaOutput(
         target: gemmaOrder.target_hex
           ? { col: gemmaOrder.target_hex[0], row: gemmaOrder.target_hex[1] }
           : undefined,
+        targetPieceId: gemmaOrder.target_piece,
       });
       usedIds.add(gemmaOrder.piece_id);
     }

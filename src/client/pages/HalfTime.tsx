@@ -18,10 +18,15 @@ export default function HalfTime({ scoreHome, scoreAway, onNavigate, onReady }: 
   const [countdown, setCountdown] = useState(HALFTIME_DURATION);
 
   useEffect(() => {
+    let fired = false;
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          onReady();
+          if (!fired) {
+            fired = true;
+            clearInterval(interval);
+            onReady();
+          }
           return 0;
         }
         return prev - 1;

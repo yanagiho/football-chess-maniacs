@@ -327,12 +327,50 @@ function enginePiecesToClient(enginePieces: EnginePiece[], existing: PieceData[]
   }));
 }
 
-/** ゴールリスタート用コマ配置（失点チームがキックオフ） */
+/**
+ * ゴールリスタート用コマ配置（失点チームがキックオフ）
+ * 交代済みコマを保持したまま、初期配置座標にリセットする。
+ * currentPiecesが渡された場合はそのコマ構成を維持し、なければformationDataから生成。
+ */
 function createGoalRestartPieces(
   fd: FormationData | null | undefined,
   kickoffTeam: Team,
+  currentPieces?: PieceData[],
 ): PieceData[] {
-  return createInitialPieces(fd, kickoffTeam);
+  // 現在のコマリストがない場合はフォーメーションから新規生成
+  if (!currentPieces || currentPieces.length === 0) {
+    return createInitialPieces(fd, kickoffTeam);
+  }
+
+  // テンプレート配置を取得（座標マッピング用）
+  const templatePieces = createInitialPieces(fd, kickoffTeam);
+  const templateById = new Map(templatePieces.map(p => [p.id, p]));
+
+  // 現在のコマ構成を維持しつつ、座標を初期位置にリセット
+  const resetPieces = currentPieces.map(cp => {
+    const template = templateById.get(cp.id);
+    if (template) {
+      return { ...cp, coord: template.coord, hasBall: template.hasBall };
+    }
+    // テンプレートにないコマ（交代で入ったコマ）は、交代元のポジション座標を使う
+    // 同チーム・同ポジションのテンプレートから座標を借りる
+    const posTemplate = templatePieces.find(tp =>
+      tp.team === cp.team && tp.position === cp.position && !templateById.has(cp.id),
+    );
+    if (posTemplate) {
+      return { ...cp, coord: posTemplate.coord, hasBall: false };
+    }
+    return { ...cp, hasBall: false };
+  });
+
+  // ボール配置: キックオフチームのFWにボール
+  const fw = resetPieces.find(p => p.team === kickoffTeam && p.position === 'FW' && !p.isBench);
+  if (fw) {
+    for (const p of resetPieces) p.hasBall = false;
+    fw.hasBall = true;
+  }
+
+  return resetPieces;
 }
 
 // ============================================================
@@ -1506,7 +1544,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             const ckAttackTeam: Team = ckShoot.shooterId.startsWith('h') ? 'home' : 'away';
             const isMyAttack = ckAttackTeam === state.myTeam;
             const attackPieces = fieldPieces
-              .filter(p => p.team === state.myTeam && p.position !== 'GK')
+              .filter(p => p.team === ckAttackTeam && p.position !== 'GK')
               .slice(0, 5);
             setMiniGame({ type: 'ck', isAttacker: isMyAttack, pieces: attackPieces, attackTeam: ckAttackTeam });
             setMiniGameCountdown(MINIGAME_CK_COUNTDOWN);
@@ -1527,7 +1565,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             await wait(GOAL_CEREMONY_MS);
             setCeremony(null);
             const kickoff = goalScoredRef.current.scorerTeam === 'home' ? 'away' : 'home';
-            const resetPieces = createGoalRestartPieces(formationData, kickoff);
+            const resetPieces = createGoalRestartPieces(formationData, kickoff, state.board.pieces);
             goalScoredRef.current = { scored: false, scorerTeam: null };
             dispatch({
               type: 'SET_BOARD',
@@ -1659,7 +1697,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
       showOverlay('GOAL!!', { subText: `${newScoreHome} - ${newScoreAway}`, duration: 2500, color: '#FFD700', fontSize: 64, glow: true });
       const kickoff = fouledTeam === 'home' ? 'away' : 'home';
-      const resetPieces = createGoalRestartPieces(formationData, kickoff);
+      const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces);
       setMiniGame(null);
       setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
       dispatch({
@@ -1721,7 +1759,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
       showOverlay('GOAL!!', { subText: `${newScoreHome} - ${newScoreAway}`, duration: 2500, color: '#FFD700', fontSize: 64, glow: true });
       const kickoff = fouledTeam === 'home' ? 'away' : 'home';
-      const resetPieces = createGoalRestartPieces(formationData, kickoff);
+      const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces);
       setMiniGame(null);
       setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
       dispatch({

@@ -144,6 +144,8 @@ export interface ShootSuccessCheckInput {
   /** ゴールまでのHEX数 */
   distanceToGoal: number;
   zoc: ZocAdjacency;
+  /** ① シュートコース修正（シューターZOC内の守備コマ数による修正） */
+  courseMod?: number;
 }
 
 /**
@@ -152,15 +154,16 @@ export interface ShootSuccessCheckInput {
  * 攻撃側ZOC隣接: 1体につき +5
  * 守備側ZOC隣接: 1体につき -10
  * 距離修正: (ゴールまでのHEX数 - 3) × -5
+ * コース修正: シューターZOC内の守備コマ1体につき -15
  */
 export function shootSuccessCheck(input: ShootSuccessCheckInput) {
-  const { shooter, distanceToGoal, zoc } = input;
+  const { shooter, distanceToGoal, zoc, courseMod = 0 } = input;
 
   const base = shooter.cost * 5 + 70;
   const distMod = (distanceToGoal - 3) * -5;
   const zocMod = calcZocModifier(zoc, +5, -10);
 
-  const prob = Math.min(100, Math.max(0, base + distMod + zocMod));
+  const prob = Math.min(100, Math.max(0, base + distMod + zocMod + courseMod));
   return judge(prob);
 }
 
@@ -232,8 +235,11 @@ export function resolveShootChain(input: ShootChainInput): ShootChainResult {
     }
   }
 
+  // ① シュートコース修正（シューターZOC内の守備コマ数）
+  const courseMod = calcShootCourseModifier(defenderCountInShooterZoc);
+
   // ④ シュート成功チェック
-  const successCheck = shootSuccessCheck({ shooter, distanceToGoal, zoc: shootSuccessZoc });
+  const successCheck = shootSuccessCheck({ shooter, distanceToGoal, zoc: shootSuccessZoc, courseMod });
   result.shootSuccessCheck = successCheck;
   result.outcome = successCheck.success ? 'goal' : 'missed';
   return result;

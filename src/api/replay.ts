@@ -23,6 +23,11 @@ replay.get('/:matchId', async (c) => {
     return c.json({ error: 'Match not found' }, 404);
   }
 
+  // 参加者チェック（Bug 21: 任意ユーザーが他人のリプレイを閲覧できないようにする）
+  if (matchRecord.home_user_id !== userId && matchRecord.away_user_id !== userId) {
+    return c.json({ error: 'Not a participant of this match' }, 403);
+  }
+
   // 完了した試合のみリプレイ可能
   if (matchRecord.status !== 'completed') {
     return c.json({ error: 'Match not yet completed' }, 400);
@@ -69,10 +74,20 @@ replay.get('/', async (c) => {
 // ── 特定ターンのデータ取得 ──
 replay.get('/:matchId/turn/:turn', async (c) => {
   const matchId = c.req.param('matchId');
+  const userId = c.get('userId');
   const turn = parseInt(c.req.param('turn'));
 
   if (isNaN(turn) || turn < 1) {
     return c.json({ error: 'Invalid turn number' }, 400);
+  }
+
+  // 参加者チェック
+  const matchRecord = await c.env.DB.prepare(
+    'SELECT home_user_id, away_user_id FROM matches WHERE id = ?',
+  ).bind(matchId).first<{ home_user_id: string; away_user_id: string }>();
+
+  if (!matchRecord || (matchRecord.home_user_id !== userId && matchRecord.away_user_id !== userId)) {
+    return c.json({ error: 'Not a participant of this match' }, 403);
   }
 
   // R2からターン単位のログ取得

@@ -120,6 +120,7 @@ export function parseGemmaOutput(
       target: rawOrder.target_hex
         ? { col: rawOrder.target_hex[0], row: rawOrder.target_hex[1] }
         : undefined,
+      targetPieceId: rawOrder.target_piece,
     };
     validOrders.push(order);
     usedPieceIds.add(rawOrder.piece_id);

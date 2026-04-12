@@ -48,11 +48,16 @@ export class GameSession extends DurableObject<Env['Bindings']> {
   private rateLimiters = new Map<string, WebSocketRateLimiter>();
   private turnInputs = new Map<string, TurnInput>();
 
-  // ── HTTP fetch ハンドラ（WebSocket upgrade） ──
+  // ── HTTP fetch ハンドラ ──
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const upgradeHeader = request.headers.get('Upgrade');
 
+    // /init: Matchmaking DOからゲーム状態を初期化する
+    if (url.pathname.endsWith('/init') && request.method === 'POST') {
+      return this.handleInit(request);
+    }
+
+    const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader?.toLowerCase() !== 'websocket') {
       return new Response('Expected WebSocket upgrade', { status: 426 });
     }
@@ -109,6 +114,44 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // ── ゲーム初期化（Matchmaking DOから呼ばれる） ──
+  private async handleInit(request: Request): Promise<Response> {
+    const body = await request.json() as {
+      matchId: string;
+      homeUserId: string;
+      awayUserId: string;
+    };
+
+    const existingState = await this.getGameState();
+    if (existingState) {
+      return new Response(JSON.stringify({ error: 'Already initialized' }), { status: 409 });
+    }
+
+    const state: GameState = {
+      matchId: body.matchId,
+      homeUserId: body.homeUserId,
+      awayUserId: body.awayUserId,
+      turn: 1,
+      board: null,
+      scoreHome: 0,
+      scoreAway: 0,
+      status: 'playing',
+      turnStartedAt: Date.now(),
+      lastSequences: {},
+      usedNonces: [],
+      remainingSubs: { [body.homeUserId]: 3, [body.awayUserId]: 3 },
+      disconnectedPlayers: {},
+      turnLog: [],
+    };
+
+    await this.ctx.storage.put('gameState', state);
+
+    // ターンタイマー設定
+    await this.ctx.storage.setAlarm(Date.now() + TURN_TIMEOUT_MS);
+
+    return new Response(JSON.stringify({ ok: true, matchId: body.matchId }), { status: 200 });
   }
 
   // ── WebSocket Hibernation ハンドラ ──
@@ -301,8 +344,13 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       graceSeconds: DISCONNECT_GRACE_MS / 1000,
     }), userId);
 
-    // 30秒後の切断タイムアウトアラーム
-    await this.ctx.storage.setAlarm(Date.now() + DISCONNECT_GRACE_MS);
+    // 切断タイムアウトアラーム: 既存アラーム（ターンタイマー）より後なら設定しない
+    // DOは1アラームのみなので、早い方を優先
+    const disconnectAlarmTime = Date.now() + DISCONNECT_GRACE_MS;
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (!existingAlarm || disconnectAlarmTime < existingAlarm) {
+      await this.ctx.storage.setAlarm(disconnectAlarmTime);
+    }
   }
 
   // ── 試合終了 ──

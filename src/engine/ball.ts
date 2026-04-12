@@ -355,12 +355,12 @@ export function processBall(
       const tpDev = resolvePassDeviation(passer.coord, throughPassOrder.target, passer);
       const targetCoord = tpDev.actualTarget;
 
-      // targetHexに最も近い味方コマを受け手として検索
+      // targetHexに最も近い味方コマを受け手として検索（HEX距離）
       let receiver: Piece | null = null;
       let bestDist = Infinity;
       for (const p of pieces) {
         if (p.team !== passer.team || p.id === passer.id) continue;
-        const d = Math.abs(p.coord.col - targetCoord.col) + Math.abs(p.coord.row - targetCoord.row);
+        const d = hexDistance(p.coord, targetCoord);
         if (d < bestDist) { bestDist = d; receiver = p; }
       }
       // 距離2以内なら受け手として成立、それ以外はルーズボール（最寄りが拾う）

@@ -6,7 +6,7 @@ import React from 'react';
 import type { Page, GameMode } from '../types';
 
 interface ModeSelectProps {
-  onNavigate: (page: Page) => void;
+  onNavigate: (page: Page, mode?: GameMode) => void;
   onSelectMode: (mode: GameMode) => void;
 }
 
@@ -19,7 +19,7 @@ const MODES: { id: GameMode; label: string; desc: string }[] = [
 export default function ModeSelect({ onNavigate, onSelectMode }: ModeSelectProps) {
   const handleSelect = (mode: GameMode) => {
     onSelectMode(mode);
-    onNavigate('teamSelect');
+    onNavigate('teamSelect', mode);
   };
 
   return (

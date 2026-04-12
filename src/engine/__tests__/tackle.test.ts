@@ -165,25 +165,31 @@ describe('resolveTackle: 結果構造', () => {
 describe('ファウル判定', () => {
   describe('isAttackingThird', () => {
     it.each([
-      ['アタッキングサード', true],
-      ['ファイナルサード', true],
-      ['ミドルサードA', false],
-      ['ミドルサードD', false],
-      ['ディフェンシブサード', false],
-    ] as const)('%s → %s', (zone, expected) => {
-      expect(isAttackingThird(zone)).toBe(expected);
+      ['アタッキングサード', 'home', true],
+      ['ファイナルサード', 'home', true],
+      ['ミドルサードA', 'home', false],
+      ['ミドルサードD', 'home', false],
+      ['ディフェンシブサード', 'home', false],
+      ['ディフェンシブGサード', 'home', false],
+      ['ディフェンシブサード', 'away', true],
+      ['ディフェンシブGサード', 'away', true],
+      ['ミドルサードA', 'away', false],
+      ['アタッキングサード', 'away', false],
+      ['ファイナルサード', 'away', false],
+    ] as const)('%s (team=%s) → %s', (zone, team, expected) => {
+      expect(isAttackingThird(zone, team)).toBe(expected);
     });
   });
 
   it('アタッキングサード以外ではファウルなし（判定なし）', () => {
-    const result = resolveFoul({ zone: 'ミドルサードA', col: 10 });
+    const result = resolveFoul({ zone: 'ミドルサードA', col: 10, attackingTeam: 'home' });
     expect(result.occurred).toBe(false);
     expect(mockJudge).not.toHaveBeenCalled();
   });
 
   it('アタッキングサードでファウル発生（25%）', () => {
     mockJudge.mockReturnValue(ok(25));
-    const result = resolveFoul({ zone: 'アタッキングサード', col: 10 });
+    const result = resolveFoul({ zone: 'アタッキングサード', col: 10, attackingTeam: 'home' });
     expect(result.occurred).toBe(true);
     expect(result.isPA).toBe(false);
     expect(result.outcome).toBe('fk');
@@ -193,7 +199,7 @@ describe('ファウル判定', () => {
   it('PA内ファウル → PK', () => {
     // PA: ファイナルサード && col 4-17
     mockJudge.mockReturnValue(ok(25));
-    const result = resolveFoul({ zone: 'ファイナルサード', col: 10 });
+    const result = resolveFoul({ zone: 'ファイナルサード', col: 10, attackingTeam: 'home' });
     expect(result.occurred).toBe(true);
     expect(result.isPA).toBe(true);
     expect(result.outcome).toBe('pk');
@@ -201,7 +207,7 @@ describe('ファウル判定', () => {
 
   it('PA外ファイナルサード（colが範囲外） → FK', () => {
     mockJudge.mockReturnValue(ok(25));
-    const result = resolveFoul({ zone: 'ファイナルサード', col: 2 });
+    const result = resolveFoul({ zone: 'ファイナルサード', col: 2, attackingTeam: 'home' });
     expect(result.occurred).toBe(true);
     expect(result.isPA).toBe(false);
     expect(result.outcome).toBe('fk');
@@ -209,7 +215,7 @@ describe('ファウル判定', () => {
 
   it('forceFoul=true（PA内の守備コマ多数） → 必ずPK', () => {
     // judge は呼ばれない
-    const result = resolveFoul({ zone: 'ファイナルサード', col: 10, forceFoul: true });
+    const result = resolveFoul({ zone: 'ファイナルサード', col: 10, attackingTeam: 'home', forceFoul: true });
     expect(result.occurred).toBe(true);
     expect(result.outcome).toBe('pk');
     expect(mockJudge).not.toHaveBeenCalled();
@@ -217,9 +223,32 @@ describe('ファウル判定', () => {
 
   it('25%判定が失敗した場合はファウルなし', () => {
     mockJudge.mockReturnValue(ng(25));
-    const result = resolveFoul({ zone: 'アタッキングサード', col: 10 });
+    const result = resolveFoul({ zone: 'アタッキングサード', col: 10, attackingTeam: 'home' });
     expect(result.occurred).toBe(false);
     expect(result.outcome).toBe('none');
+  });
+
+  // away チームの攻撃方向テスト
+  it('away攻撃: ディフェンシブサードでファウル発生 → FK', () => {
+    mockJudge.mockReturnValue(ok(25));
+    const result = resolveFoul({ zone: 'ディフェンシブサード', col: 10, attackingTeam: 'away' });
+    expect(result.occurred).toBe(true);
+    expect(result.isPA).toBe(false);
+    expect(result.outcome).toBe('fk');
+  });
+
+  it('away攻撃: ディフェンシブGサード + PA内 → PK', () => {
+    mockJudge.mockReturnValue(ok(25));
+    const result = resolveFoul({ zone: 'ディフェンシブGサード', col: 10, attackingTeam: 'away' });
+    expect(result.occurred).toBe(true);
+    expect(result.isPA).toBe(true);
+    expect(result.outcome).toBe('pk');
+  });
+
+  it('away攻撃: ファイナルサードではファウルなし', () => {
+    const result = resolveFoul({ zone: 'ファイナルサード', col: 10, attackingTeam: 'away' });
+    expect(result.occurred).toBe(false);
+    expect(mockJudge).not.toHaveBeenCalled();
   });
 });
 

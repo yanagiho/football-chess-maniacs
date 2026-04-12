@@ -34,12 +34,16 @@ export default function Timer({
       return;
     }
 
+    let timeoutFired = false;
+
     const tick = () => {
       const elapsed = Date.now() - turnStartedAt;
       const left = Math.max(0, durationMs - elapsed);
       setRemaining(left);
 
-      if (left <= 0) {
+      if (left <= 0 && !timeoutFired) {
+        timeoutFired = true;
+        clearInterval(interval);
         onTimeout();
       }
     };

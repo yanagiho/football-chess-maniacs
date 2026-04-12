@@ -81,6 +81,16 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
 app.route('/webhook', authRoutes);
 
 // ── WebSocket エンドポイント（JWT検証はDO内で実行） ──
+// REST API（非WebSocket）パスにはJWT認証を適用
+app.use('/match/*', async (c, next) => {
+  const upgradeHeader = c.req.header('Upgrade');
+  if (upgradeHeader?.toLowerCase() === 'websocket') {
+    // WebSocket upgradeはDO内でJWT検証するのでスキップ
+    return next();
+  }
+  // REST APIパスにはJWT認証を適用
+  return jwtMiddleware()(c, next);
+});
 app.route('/match', matchRoutes);
 
 // ── REST API（JWT認証 + レート制限が必要なルート） ──

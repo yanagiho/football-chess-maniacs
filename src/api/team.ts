@@ -95,6 +95,12 @@ team.post('/', async (c) => {
     return c.json({ error: 'Field cost exceeds 16' }, 400);
   }
 
+  // GK1枚チェック
+  const gkCount = body.fieldPieces.filter(p => p.position === 'GK').length;
+  if (gkCount !== 1) {
+    return c.json({ error: 'Field must have exactly 1 GK' }, 400);
+  }
+
   // 所持コマ検証（プラットフォームAPI経由）
   const { pieces: owned } = await getOwnedPieces(c.env, userId);
   const ownedIds = new Set(owned.map((p) => p.piece_master_id));
@@ -145,6 +151,26 @@ team.put('/:teamId', async (c) => {
     const totalCost = body.fieldPieces.reduce((sum, p) => sum + p.cost, 0);
     if (totalCost > 16) {
       return c.json({ error: 'Field cost exceeds 16' }, 400);
+    }
+    // GK1枚チェック（Bug 23も合わせて修正）
+    const gkCount = body.fieldPieces.filter(p => p.position === 'GK').length;
+    if (gkCount !== 1) {
+      return c.json({ error: 'Field must have exactly 1 GK' }, 400);
+    }
+  }
+
+  // 所持コマ検証（Bug 19: PUT時にも所持チェック）
+  if (body.fieldPieces || body.benchPieces) {
+    const { pieces: owned } = await getOwnedPieces(c.env, userId);
+    const ownedIds = new Set(owned.map(p => p.piece_master_id));
+    const allPieceIds = [
+      ...(body.fieldPieces ?? []),
+      ...(body.benchPieces ?? []),
+    ].map(p => p.piece_id);
+    for (const pid of allPieceIds) {
+      if (!ownedIds.has(pid)) {
+        return c.json({ error: `Piece ${pid} not owned` }, 400);
+      }
     }
   }
 

@@ -55,6 +55,12 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
     if (submitted) return;
     setPlacements((prev) => {
       const next = new Map(prev);
+      // 同一ゾーンに既に別のコマがいたら除去（1ゾーン1枚制約）
+      for (const [existingId, existingZone] of next) {
+        if (existingZone === zone && existingId !== pieceId) {
+          next.delete(existingId);
+        }
+      }
       next.set(pieceId, zone);
       return next;
     });

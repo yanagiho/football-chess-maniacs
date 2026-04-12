@@ -18,6 +18,7 @@ import {
   buildZocMap,
   buildZoc2Map,
   getMovementRange,
+  hexLinePath,
 } from '../engine/movement';
 import { calcProbability } from '../engine/dice';
 import hexMapData from '../data/hex_map.json';
@@ -292,33 +293,39 @@ function estimatePassCutProbability(
   opponentZocMap: Map<string, string>,
   opponentZoc2Map: Map<string, string>,
 ): number {
-  // パスコース上のZOC/ZOC2にいる相手コマ数で簡易推定
-  const dist = hexDistance(passer.coord, receiver.coord);
+  // hexLinePathでパスコースを正確に生成し、ZOC/ZOC2の通過をカウント
+  const passPath = hexLinePath(passer.coord, receiver.coord);
   let zocCrossings = 0;
   let zoc2Crossings = 0;
 
-  // パスライン上の中間HEXをサンプリング
-  const steps = Math.max(1, dist);
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const midCol = Math.round(passer.coord.col + (receiver.coord.col - passer.coord.col) * t);
-    const midRow = Math.round(passer.coord.row + (receiver.coord.row - passer.coord.row) * t);
-    const mk = `${midCol},${midRow}`;
+  for (const hex of passPath) {
+    // 受け手自身のHEXは除外
+    if (hex.col === receiver.coord.col && hex.row === receiver.coord.row) break;
+    const mk = hexKey(hex);
     if (opponentZocMap.has(mk)) zocCrossings++;
-    if (opponentZoc2Map.has(mk)) zoc2Crossings++;
+    else if (opponentZoc2Map.has(mk)) zoc2Crossings++;
   }
 
   // 大まかな推定: ZOC1通過あたり20%、ZOC2通過あたり10%（上限80%）
   return Math.min(80, zocCrossings * 20 + zoc2Crossings * 10);
 }
 
-/** ブロック確率の推定 */
+/** ブロック確率の推定（シュートコース上の守備ZOCをチェック） */
 function estimateBlockProbability(shooter: Piece, opponents: Piece[]): number {
-  const zocHexes = getZocHexes(shooter.coord);
+  const goal = goalCoord(shooter.team);
+  const shootPath = hexLinePath(shooter.coord, goal);
+  // シュートコース上のHEXが守備コマのZOC内にあるかカウント
   let blockerCount = 0;
-  for (const opp of opponents) {
-    if (zocHexes.some((z) => z.col === opp.coord.col && z.row === opp.coord.row)) {
-      blockerCount++;
+  const counted = new Set<string>();
+  for (const hex of shootPath) {
+    for (const opp of opponents) {
+      if (counted.has(opp.id)) continue;
+      const oppZoc = getZocHexes(opp.coord);
+      if (oppZoc.some(z => z.col === hex.col && z.row === hex.row) ||
+          (opp.coord.col === hex.col && opp.coord.row === hex.row)) {
+        blockerCount++;
+        counted.add(opp.id);
+      }
     }
   }
   return Math.min(60, blockerCount * 15);

@@ -89,8 +89,9 @@ function getHexZone(coord: HexCoord): Zone {
 
 function isInsidePA(coord: HexCoord, team: Team): boolean {
   const { col, row } = coord;
-  if (team === 'home') return col >= 7 && col <= 14 && row <= 4;
-  return col >= 7 && col <= 14 && row >= 29;
+  // PA: col 4-17（エンジンfoul.tsと一致）、row 0-5(home守備側) / row 28-33(away守備側)
+  if (team === 'home') return col >= 4 && col <= 17 && row <= 5;
+  return col >= 4 && col <= 17 && row >= 28;
 }
 
 // ================================================================
@@ -129,7 +130,7 @@ export function evaluateBoard(
   scoreHome: number,
   scoreAway: number,
   turn: number,
-  maxTurn: number = 90,
+  maxTurn: number = 36,
 ): EvaluationResult {
   const opponentTeam: Team = myTeam === 'home' ? 'away' : 'home';
 
@@ -270,10 +271,9 @@ function calcSituationalScore(
   let score = 0;
   const remainingTurns = maxTurn - turn;
 
-  // §4-5: リード → 守備ボーナス+20 / ビハインド → 攻撃ボーナス+20
+  // §4-5: リード → 守備ボーナス+20 / ビハインド → 攻撃ペナルティ-20
   if (goalDiff > 0) score += 20;
-  else if (goalDiff < 0) score += 20;
-  // 同点 → 中立（0）
+  else if (goalDiff < 0) score -= 20;
 
   // §4-5: 残り10ターン以下でビハインド → 追加攻撃+20
   if (remainingTurns <= 10 && goalDiff < 0) score += 20;
