@@ -6,8 +6,11 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../worker';
 import { verifyWebSocketToken } from '../middleware/jwt_verify';
-import { validateTurnInput, type TurnInput, type PieceInfo } from '../middleware/validation';
+import { validateTurnInput, type TurnInput, type RawOrder, type PieceInfo } from '../middleware/validation';
 import { WebSocketRateLimiter } from '../middleware/rate_limit';
+import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../engine/turn_processor';
+import type { Board, Order, OrderType, Piece, HexCoord, GameEvent } from '../engine/types';
+import hexMapData from '../data/hex_map.json';
 
 /** ゲーム状態（DO永続ストレージに保存） */
 interface GameState {
@@ -43,6 +46,26 @@ interface WsAttachment {
 const TURN_TIMEOUT_MS = 60_000;       // 1分
 const DISCONNECT_GRACE_MS = 30_000;   // 30秒
 const MAX_NONCE_HISTORY = 200;
+const TURNS_PER_HALF = 15;
+const MAX_AT = 3;
+const MAX_GAME_TURNS = (TURNS_PER_HALF + MAX_AT) * 2; // 36
+
+/** hex_map.json からBoardContextを構築 */
+const boardContext = createBoardContext(
+  hexMapData as Array<{ col: number; row: number; zone: string; lane: string }>,
+);
+
+/** RawOrder → engine Order に変換 */
+function rawOrderToEngine(raw: RawOrder): Order {
+  return {
+    pieceId: raw.piece_id,
+    type: raw.action as OrderType,
+    target: raw.target_hex
+      ? { col: raw.target_hex[0], row: raw.target_hex[1] }
+      : undefined,
+    targetPieceId: raw.target_piece,
+  };
+}
 
 export class GameSession extends DurableObject<Env['Bindings']> {
   private rateLimiters = new Map<string, WebSocketRateLimiter>();
@@ -262,37 +285,74 @@ export class GameSession extends DurableObject<Env['Bindings']> {
   // ── ターン解決 ──
 
   private async resolveTurn(state: GameState): Promise<void> {
-    // TODO: engine/turn_processor.ts の processTurn を呼び出し
-    // ゲームエンジンとの統合は別途実装
+    const currentTurn = state.turn;
 
+    // ── 入力をエンジンOrder形式に変換 ──
+    const homeInput = this.turnInputs.get(state.homeUserId);
+    const awayInput = this.turnInputs.get(state.awayUserId);
+    const homeOrders: Order[] = (homeInput?.orders ?? []).map(rawOrderToEngine);
+    const awayOrders: Order[] = (awayInput?.orders ?? []).map(rawOrderToEngine);
+
+    // ── エンジンでターン実行 ──
+    const board = state.board as Board;
+    const turnResult = processTurn(board, homeOrders, awayOrders, boardContext);
+
+    // ── ゴール判定 + スコア更新 ──
+    const events = turnResult.events;
+    let goalScoredBy: 'home' | 'away' | null = null;
+
+    if (hasGoal(events)) {
+      const shootEvent = events.find(
+        e => e.type === 'SHOOT' && (e as { result: { outcome: string } }).result.outcome === 'goal',
+      ) as { shooterId: string } | undefined;
+      if (shootEvent) {
+        const shooterTeam = shootEvent.shooterId.startsWith('h') ? 'home' : 'away';
+        if (shooterTeam === 'home') state.scoreHome++;
+        else state.scoreAway++;
+        goalScoredBy = shooterTeam;
+      }
+    }
+
+    // ── ボード更新 ──
+    state.board = turnResult.board;
     state.turn++;
     state.turnStartedAt = Date.now();
 
-    // ターンログを記録
+    // ── ターンログ記録 ──
     state.turnLog.push({
-      turn: state.turn - 1,
+      turn: currentTurn,
       inputs: Object.fromEntries(this.turnInputs),
-      // result: turnResult, // TODO
+      events: events,
+      goalScoredBy,
       timestamp: Date.now(),
     });
 
     this.turnInputs.clear();
     await this.ctx.storage.put('gameState', state);
 
-    // 両プレイヤーに結果配信
-    const result = {
+    // ── 両プレイヤーに結果配信 ──
+    const resultMsg = {
       type: 'TURN_RESULT',
       turn: state.turn,
       board: state.board,
       scoreHome: state.scoreHome,
       scoreAway: state.scoreAway,
-      // events: turnResult.events, // TODO
+      events: events,
+      goalScoredBy,
     };
+    this.broadcast(JSON.stringify(resultMsg));
 
-    this.broadcast(JSON.stringify(result));
+    // ── ファウル発生時の通知（FK/PK） ──
+    const foulEvent = getFoulEvent(events);
+    if (foulEvent) {
+      this.broadcast(JSON.stringify({
+        type: 'FOUL_EVENT',
+        foul: foulEvent,
+      }));
+    }
 
-    // 試合終了チェック（最大90ターン）
-    if (state.turn > 90) {
+    // ── 試合終了チェック ──
+    if (state.turn > MAX_GAME_TURNS) {
       await this.endMatch(state, 'completed');
     } else {
       // ターンタイマー設定（1分）

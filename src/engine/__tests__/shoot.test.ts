@@ -319,6 +319,33 @@ describe('shootSuccessCheck', () => {
       expect(mockJudge).toHaveBeenCalledWith(expected);
     },
   );
+
+  it('courseMod（コース修正）が適用される', () => {
+    // cost2, dist=3, ZOC無, courseMod=-30: 80 + (-30) = 50
+    const expected = 50;
+    mockJudge.mockReturnValue(ok(expected));
+    const shooter = makePiece({ position: 'FW', cost: 2 as Cost });
+    shootSuccessCheck({
+      shooter,
+      distanceToGoal: 3,
+      zoc: { attackCount: 0, defenseCount: 0 },
+      courseMod: -30,
+    });
+    expect(mockJudge).toHaveBeenCalledWith(expected);
+  });
+
+  it('courseMod=-45でもクランプ0%を下回らない', () => {
+    // cost1, dist=8: 75+(8-3)*-5 = 50, courseMod=-60: 50-60 = -10 → clamp 0
+    mockJudge.mockReturnValue(ok(0));
+    const shooter = makePiece({ position: 'FW', cost: 1 as Cost });
+    shootSuccessCheck({
+      shooter,
+      distanceToGoal: 8,
+      zoc: { attackCount: 0, defenseCount: 0 },
+      courseMod: -60,
+    });
+    expect(mockJudge).toHaveBeenCalledWith(0);
+  });
 });
 
 // ============================================================
@@ -397,5 +424,17 @@ describe('resolveShootChain', () => {
     expect(result.outcome).toBe('goal');
     expect(result.savingCheck).toBeUndefined();
     expect(mockJudge).toHaveBeenCalledTimes(1);
+  });
+
+  it('defenderCountInShooterZocがコース修正として④に適用される', () => {
+    // defenderCountInShooterZoc=2 → courseMod = 2 × -15 = -30
+    // cost2 dist=3 ZOC無: base=80, 80+(-30) = 50
+    mockJudge
+      .mockReturnValueOnce(ng(35))  // ③ saving → 失敗
+      .mockReturnValueOnce(ok(50)); // ④ shootSuccess → 50% で判定
+    const result = resolveShootChain({ ...BASE, defenderCountInShooterZoc: 2 });
+    expect(result.outcome).toBe('goal');
+    // judge の2回目の引数が50であることを確認
+    expect(mockJudge).toHaveBeenNthCalledWith(2, 50);
   });
 });

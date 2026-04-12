@@ -221,7 +221,8 @@ src/
 - **② ブロック**: `findBlockerOnPath(shootPath)` — shootPath上のHEXが守備コマのZOC内にあるか（最初の1体のみ）
 - **③ GKセーブ**: `isOnShootCourse(gk, shootPath)` — **GK自身のHEXまたはGKのZOC(隣接6HEX)がshootPathと交差する場合のみ**セーブ判定。コース外GKはnull扱い
 - **③ 距離修正**: `(distanceToGk - 2) × 5` — 遠距離ほどGKに反応時間があるためセーブ容易（至近=最難、遠距離=容易）
-- **④ シュート成功**: `shooter.cost × 5 + 70 + 距離修正 + ZOC修正` — ゴール距離が遠いほど成功率低下
+- **① コース修正**: `calcShootCourseModifier(defenderCountInShooterZoc)` — シューターZOC内の守備コマ1体につき-15%
+- **④ シュート成功**: `shooter.cost × 5 + 70 + 距離修正 + ZOC修正 + コース修正` — ゴール距離が遠いほど成功率低下
 - **6ゾーンはエンジンに存在しない** — ミニゲームUIのみの概念
 
 ### FK/PK/CKミニゲーム
@@ -262,8 +263,8 @@ src/
 ### ブートストラップ（§3-1）
 - `npm run bootstrap`: ルールベースAI同士で10,000試合を自動実行
 - 出力: `training_data/` にJSONL形式（1試合180レコード ≈ 合計180万レコード）
-- 性能: 53ms/試合（直列12.5時間、`--offset` で複数プロセス並列可）
-- バランス検証済: Home 24.8% / Away 24.0% / Draw 51.2%, 平均3.52点/試合（※ランク帯システム導入前のデータ。再検証が必要）
+- 性能: 38ms/試合（直列6.3時間、`--offset` で複数プロセス並列可）
+- バランス検証済（2026-04-12 再検証）: Home 20% / Away 40% / Draw 40%, 平均3.40点/試合（10試合サンプル。大規模検証は別途実施）
 
 ### ターン構成
 - **1ターン = 60秒**
@@ -369,46 +370,48 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 
 ---
 
-## 既知のバグ（2026-04-12 検出、未修正）
+## 既知のバグ（2026-04-12 検出 → 2026-04-12 全修正済み）
+
+全26件を `22efcb4` で修正。以下は修正内容の記録。
 
 ### Critical / High
 
 #### エンジン
-1. **ファウルゾーン判定が片側のみ** (`engine/foul.ts`) — `isAttackingThird()` がrow 22-33のみチェック。awayが攻撃方向(row→0)でタックルされてもファウル/FK/PKが発生しない。`isInsidePA()` も同様にrow 28-33のみでawayのPA(row 0-5)が未対応。修正時は攻撃チーム情報をfoul関数に渡す必要あり
-2. **シュートコース修正が未使用** (`engine/shoot.ts`) — `defenderCountInShooterZoc` が渡されるが `calcShootCourseModifier` が呼ばれていない
-3. **ルーズボール隣接判定が矩形8マス** (`engine/turn_processor.ts:194`) — HEX6マスではなく `dc<=1 && dr<=1` で8マス判定。`getNeighbors`/`hexDistance`を使うべき
-4. **スルーパス受け手検索がManhattan距離** (`engine/ball.ts:363`) — hexDistanceではなくoffset座標のManhattan距離を使用
+1. ~~ファウルゾーン判定が片側のみ~~ — ✅ `isAttackingThird`/`isInsidePA`に`attackingTeam`引数を追加、away攻撃方向に対応
+2. ~~シュートコース修正が未使用~~ — ✅ `resolveShootChain`内で`calcShootCourseModifier`を呼び出し、④シュート成功チェックに`courseMod`を適用
+3. ~~ルーズボール隣接判定が矩形8マス~~ — ✅ `hexDistance === 1`（HEX6マス）に修正
+4. ~~スルーパス受け手検索がManhattan距離~~ — ✅ `hexDistance`に修正
 
 #### AI
-5. **`maxTurn=90`デフォルト値** (`ai/evaluator.ts`, `ai/rule_based.ts`, `ai/com_ai.ts`) — 実際は30-36ターンなので戦略切替(`desperate_attack`/`defend`)に永遠に入らない。30-36に修正
-6. **リード/ビハインドで同一スコア** (`ai/evaluator.ts:273`) — 両方+20で局面評価が得点差を区別できない
-7. **パスカット推定がoffset座標補間** (`ai/legal_moves.ts:300`) — `hexLinePath`を使うべき（CLAUDE.md規約: offset row差ベース禁止）
-8. **ブロック確率がシューターZOCをチェック** (`ai/legal_moves.ts:316`) — エンジンはシュートコース上の守備ZOCを見る。完全に別物
-9. **Gemmaパス命令で`targetPieceId`未設定** (`ai/output_parser.ts`, `ai/rule_based.ts`) — Phase1移動後に受け手特定が失敗する可能性
-10. **PA範囲がエンジンと不一致** (`ai/evaluator.ts:90`) — col 7-14（エンジンはcol 4-17）
+5. ~~`maxTurn=90`デフォルト値~~ — ✅ evaluator/rule_based/com_aiのデフォルトを36に修正
+6. ~~リード/ビハインドで同一スコア~~ — ✅ ビハインド時を-20に変更（リード+20と区別）
+7. ~~パスカット推定がoffset座標補間~~ — ✅ `hexLinePath`でパスコースを正確に生成
+8. ~~ブロック確率がシューターZOCをチェック~~ — ✅ シュートコース上の守備ZOCをチェックする方式に修正
+9. ~~Gemmaパス命令で`targetPieceId`未設定~~ — ✅ output_parser/rule_basedの両方で`targetPieceId`を設定
+10. ~~PA範囲がエンジンと不一致~~ — ✅ col 4-17, row 0-5/28-33に修正
 
 #### クライアント
-11. **ゴールリスタートがハーフタイム交代を破棄** (`pages/Battle.tsx`) — `createGoalRestartPieces`が元の`formationData`から再生成。後半の交代選手が消える
-12. **CKミニゲームが常にhomeの駒を使用** (`pages/Battle.tsx:1509`) — `ckAttackTeam`ではなく`state.myTeam`でフィルタ
-13. **`onReady`が毎秒繰り返し発火** (`pages/HalfTime.tsx`) — countdown=0後もsetIntervalが動き続ける。clearIntervalするか発火済フラグが必要
-14. **`onTimeout`が200msごとに繰り返し発火** (`components/ui/Timer.tsx`) — remaining=0後にガードなし
-15. **COM難易度選択スキップの可能性** (`pages/ModeSelect.tsx` + `App.tsx`) — `setGameMode`バッチ更新で`handleModeSelectNavigate`が旧state参照
+11. ~~ゴールリスタートがハーフタイム交代を破棄~~ — ✅ `createGoalRestartPieces`が現在のコマ構成を保持して座標のみリセット
+12. ~~CKミニゲームが常にhomeの駒を使用~~ — ✅ `ckAttackTeam`でフィルタするよう修正
+13. ~~`onReady`が毎秒繰り返し発火~~ — ✅ firedフラグ+clearIntervalで1回のみ発火
+14. ~~`onTimeout`が200msごとに繰り返し発火~~ — ✅ timeoutFiredフラグ+clearIntervalで1回のみ発火
+15. ~~COM難易度選択スキップの可能性~~ — ✅ ModeSelectからモード引数を直接渡し、stale state依存を排除
 
 #### サーバー
-16. **GameSession DOに`/init`ルートなし** (`durable/game_session.ts`) — Matchmaking DOのPOSTが426を返し、オンラインマッチが動かない
-17. **DOアラーム上書き競合** (`durable/game_session.ts`) — ターンタイマーと切断タイマーが互いに上書き（DOは1アラームのみ）
-18. **Webhookパス二重** (`worker.ts` + `api/auth.ts`) — `/webhook/webhook/purchase`になり課金Webhookが404
-19. **チーム更新でコマ所持チェックなし** (`api/team.ts`) — PUT時にgetOwnedPiecesを呼ばず未購入コマで編成可能
+16. ~~GameSession DOに`/init`ルートなし~~ — ✅ `/init` POSTルートを追加（ゲーム状態初期化）
+17. ~~DOアラーム上書き競合~~ — ✅ 既存アラームと比較して早い方を優先する方式に修正
+18. ~~Webhookパス二重~~ — ✅ auth.tsのパスを`/webhook/purchase`→`/purchase`に修正
+19. ~~チーム更新でコマ所持チェックなし~~ — ✅ PUT時にgetOwnedPiecesで検証を追加
 
 ### Medium
 
-20. **matchRoutes認証なし公開** (`worker.ts:84`) — `/match/`パスが認証なしでマウント
-21. **リプレイに参加者チェックなし** (`api/replay.ts`) — 任意ユーザーが他人のリプレイ閲覧可能
-22. **`getOwnedPieces`フィルタバグ** (`api/auth.ts:101`) — `items.length<=200`を各要素内でチェック、200超で全コマ消失
-23. **GKバリデーションなし** (`api/team.ts`) — チーム作成時にGK1枚の制約チェックなし
-24. **CKゾーン重複配置可能** (`minigame/CKGame.tsx`) — 同一ゾーンに複数コマ配置できてしまう
-25. **WebSocket onclose設定タイミング** (`hooks/useWebSocket.ts`) — `onopen`内でのみ設定、接続失敗時に再接続が発火しない
-26. **HMAC署名欠落時にバイパス** (`api/auth.ts`) — signatureヘッダなしで検証スキップ
+20. ~~matchRoutes認証なし公開~~ — ✅ `/match/*`の非WebSocketパスにJWT認証ミドルウェアを追加
+21. ~~リプレイに参加者チェックなし~~ — ✅ replay.tsの全エンドポイントに参加者チェック追加
+22. ~~`getOwnedPieces`フィルタバグ~~ — ✅ 200件チェックをfilter外に移動、超過時はエラースロー
+23. ~~GKバリデーションなし~~ — ✅ POST/PUT時にGK1枚制約チェックを追加
+24. ~~CKゾーン重複配置可能~~ — ✅ 同一ゾーンの既存コマを自動除去
+25. ~~WebSocket onclose設定タイミング~~ — ✅ `onclose`を`onopen`外に移動、接続失敗時も再接続発火
+26. ~~HMAC署名欠落時にバイパス~~ — ✅ 署名なしの場合はエラースローに変更
 
 ---
 

@@ -1,7 +1,7 @@
 // ============================================================
 // auto_play.ts — ルールベースAI同士の自動対戦（§3-1 Phase 1）
 //
-// 1試合90ターン×50ms/ターン ≈ 4.5秒/試合。
+// 1試合30-36ターン（前後半15+AT各1-3） ≈ 2秒/試合。
 // ゲームエンジン (processTurn) + ルールベースAI (generateRuleBasedOrders)
 // を組み合わせて完全な試合を自動実行する。
 // ============================================================
@@ -140,7 +140,10 @@ export type TurnCallback = (record: TurnRecord, summary: MatchSummary) => void;
 // 自動対戦メイン
 // ================================================================
 
-const MAX_TURNS = 90;
+/** 前半15ターン + AT最大3 + 後半15ターン + AT最大3 = 最大36ターン */
+const TURNS_PER_HALF = 15;
+const MAX_AT = 3;
+const MAX_TURNS = (TURNS_PER_HALF + MAX_AT) * 2; // 36
 const MAX_SUBS = 3;
 const MAX_FIELD_COST = 16;
 
@@ -165,9 +168,16 @@ export function playMatch(matchId: string, onTurn?: TurnCallback, firstKickoff: 
   // ボール所有権追跡（消失時のリカバリ用）
   let lastBallTeam: Team = firstKickoff;
 
-  for (let turn = 1; turn <= MAX_TURNS; turn++) {
+  // 前半AT（1-3ターン、ランダム）
+  const firstHalfAT = Math.floor(Math.random() * MAX_AT) + 1;
+  const halfTimeTurn = TURNS_PER_HALF + firstHalfAT + 1; // 後半開始ターン
+  // 後半AT
+  const secondHalfAT = Math.floor(Math.random() * MAX_AT) + 1;
+  const totalTurns = TURNS_PER_HALF + firstHalfAT + TURNS_PER_HALF + secondHalfAT;
+
+  for (let turn = 1; turn <= totalTurns; turn++) {
     // ── ハーフタイム: 初期配置リセット + 後半キックオフ ──
-    if (turn === 46) {
+    if (turn === halfTimeTurn) {
       pieces = createInitialPieces();
       giveBallTo(pieces, secondKickoff, 'FW');
       board = { pieces, snapshot: [] };
@@ -183,7 +193,7 @@ export function playMatch(matchId: string, onTurn?: TurnCallback, firstKickoff: 
       scoreHome,
       scoreAway,
       turn,
-      maxTurn: MAX_TURNS,
+      maxTurn: totalTurns,
       remainingSubs: MAX_SUBS,
       benchPieces: [],
       maxFieldCost: MAX_FIELD_COST,
@@ -196,7 +206,7 @@ export function playMatch(matchId: string, onTurn?: TurnCallback, firstKickoff: 
       scoreHome,
       scoreAway,
       turn,
-      maxTurn: MAX_TURNS,
+      maxTurn: totalTurns,
       remainingSubs: MAX_SUBS,
       benchPieces: [],
       maxFieldCost: MAX_FIELD_COST,
@@ -277,7 +287,7 @@ export function playMatch(matchId: string, onTurn?: TurnCallback, firstKickoff: 
     matchId,
     scoreHome,
     scoreAway,
-    totalTurns: MAX_TURNS,
+    totalTurns: totalTurns,
     winner: scoreHome > scoreAway ? 'home' : scoreAway > scoreHome ? 'away' : 'draw',
     durationMs: Date.now() - start,
   };
