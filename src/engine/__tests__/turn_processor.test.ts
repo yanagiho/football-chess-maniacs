@@ -507,3 +507,113 @@ describe('GKシュートコース判定', () => {
     expect(shootEvt[0].result.savingCheck).toBeDefined();
   });
 });
+
+// ============================================================
+// away側の統合テスト（ファウル・シュート・パス）
+// ============================================================
+describe('away側の統合テスト', () => {
+  it('away攻撃時: ディフェンシブサードでタックル → ファウル発生', () => {
+    // awayのドリブラーがrow 8付近（ディフェンシブサード、away攻撃方向）でタックルされる
+    const awayDribbler = makePiece({
+      id: 'a_fw', team: 'away', position: 'FW', cost: 2.5,
+      coord: { col: 10, row: 8 }, hasBall: true,
+    });
+    const homeTackler = makePiece({
+      id: 'h_df', team: 'home', position: 'DF', cost: 1,
+      coord: { col: 10, row: 6 },
+    });
+
+    // awayはrow 6方向にドリブル → homeのZOCで停止 → タックル成功 → ファウル判定
+    mockJudge
+      .mockReturnValueOnce(ok(60))   // タックル成功
+      .mockReturnValueOnce(ok(25));  // ファウル発生
+
+    const { events } = processTurn(
+      makeBoard([awayDribbler, homeTackler]),
+      [],
+      [{ pieceId: 'a_fw', type: 'dribble', target: { col: 10, row: 6 } }],
+      makeContext({ getZone: () => 'ディフェンシブサード' }),
+    );
+
+    const foulEvts = eventsOfType<FoulEvent>(events, 'FOUL');
+    expect(foulEvts.length).toBe(1);
+    expect(foulEvts[0].result.outcome).toBe('fk');
+  });
+
+  it('away攻撃時: ディフェンシブGサード PA内タックル → PK', () => {
+    const awayDribbler = makePiece({
+      id: 'a_fw', team: 'away', position: 'FW', cost: 2.5,
+      coord: { col: 10, row: 3 }, hasBall: true,
+    });
+    const homeTackler = makePiece({
+      id: 'h_df', team: 'home', position: 'DF', cost: 1,
+      coord: { col: 10, row: 1 },
+    });
+
+    mockJudge
+      .mockReturnValueOnce(ok(60))  // タックル成功
+      .mockReturnValueOnce(ok(25)); // ファウル発生
+
+    const { events } = processTurn(
+      makeBoard([awayDribbler, homeTackler]),
+      [],
+      [{ pieceId: 'a_fw', type: 'dribble', target: { col: 10, row: 1 } }],
+      makeContext({ getZone: () => 'ディフェンシブGサード' }),
+    );
+
+    const foulEvts = eventsOfType<FoulEvent>(events, 'FOUL');
+    expect(foulEvts.length).toBe(1);
+    expect(foulEvts[0].result.outcome).toBe('pk');
+    expect(foulEvts[0].result.isPA).toBe(true);
+  });
+
+  it('awayのシュート → ゴール（row 0方向、GKなし）', () => {
+    // GKなしでシュート → savingCheck省略 → shootSuccessCheckのみ
+    const awayShooter = makePiece({
+      id: 'a_fw', team: 'away', position: 'FW', cost: 2.5,
+      coord: { col: 10, row: 5 }, hasBall: true,
+    });
+
+    mockJudge
+      .mockReturnValueOnce(ok(80)); // ④ shootSuccess → ゴール
+
+    const { events } = processTurn(
+      makeBoard([awayShooter]),
+      [],
+      [{ pieceId: 'a_fw', type: 'shoot', target: { col: 10, row: 0 } }],
+      makeContext({ getZone: () => 'ディフェンシブGサード' }),
+    );
+
+    const shootEvts = eventsOfType<ShootEvent>(events, 'SHOOT');
+    expect(shootEvts.length).toBe(1);
+    expect(shootEvts[0].result.outcome).toBe('goal');
+  });
+
+  it('awayのパス配送が正常に動作する', () => {
+    const passer = makePiece({
+      id: 'a_mf', team: 'away', position: 'MF', cost: 1.5,
+      coord: { col: 10, row: 20 }, hasBall: true,
+    });
+    const receiver = makePiece({
+      id: 'a_fw', team: 'away', position: 'FW', cost: 2.5,
+      coord: { col: 10, row: 15 },
+    });
+
+    // パスカットなし
+    mockJudge.mockReturnValue(ng(0));
+
+    const { events, board } = processTurn(
+      makeBoard([passer, receiver]),
+      [],
+      [{ pieceId: 'a_mf', type: 'pass', target: { col: 10, row: 15 }, targetPieceId: 'a_fw' }],
+      makeContext(),
+    );
+
+    const passEvts = eventsOfType<PassDeliveredEvent>(events, 'PASS_DELIVERED');
+    expect(passEvts.length).toBe(1);
+    expect(passEvts[0].receiverId).toBe('a_fw');
+    // 受け手がボールを持っている
+    expect(board.pieces.find(p => p.id === 'a_fw')!.hasBall).toBe(true);
+    expect(board.pieces.find(p => p.id === 'a_mf')!.hasBall).toBe(false);
+  });
+});

@@ -10,7 +10,7 @@ import { validateTurnInput, type TurnInput, type RawOrder, type PieceInfo } from
 import { WebSocketRateLimiter } from '../middleware/rate_limit';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../engine/turn_processor';
 import { getMovementRange } from '../engine/movement';
-import type { Board, Order, OrderType, Piece, HexCoord, GameEvent, Zone, Lane } from '../engine/types';
+import type { Board, Order, OrderType, Piece, HexCoord, GameEvent, Zone, Lane, Team, Position, Cost } from '../engine/types';
 import hexMapData from '../data/hex_map.json';
 
 /** ゲーム状態（DO永続ストレージに保存） */
@@ -20,10 +20,10 @@ interface GameState {
   awayUserId: string;
   turn: number;
   /** ボード状態（engine/types.ts のBoard互換） */
-  board: unknown;
+  board: Board | null;
   scoreHome: number;
   scoreAway: number;
-  status: 'waiting' | 'playing' | 'finished';
+  status: 'waiting' | 'playing' | 'halftime' | 'finished';
   /** ターンタイマー開始時刻 */
   turnStartedAt: number | null;
   /** 各プレイヤーの最終sequence */
@@ -36,6 +36,16 @@ interface GameState {
   disconnectedPlayers: Record<string, number>;
   /** ターンログ（R2永続化キュー経由で書き込み） */
   turnLog: unknown[];
+  /** 前後半管理 */
+  half: 1 | 2;
+  firstHalfAT: number;
+  secondHalfAT: number;
+  /** 前半終了ターン（前半15ターン + AT） */
+  halfTimeTurn: number;
+  /** 試合終了ターン */
+  totalTurns: number;
+  /** 現在のキックオフチーム */
+  kickoffTeam: 'home' | 'away';
 }
 
 /** WebSocketにアタッチするメタデータ */
@@ -84,6 +94,52 @@ function rawOrderToEngine(raw: RawOrder): Order {
       : undefined,
     targetPieceId: raw.target_piece,
   };
+}
+
+// ================================================================
+// 初期配置生成（auto_play.ts と同一の4-4-2フォーメーション）
+// ================================================================
+
+const INITIAL_FORMATION: Array<{ pos: Position; cost: Cost; col: number; row: number }> = [
+  { pos: 'GK', cost: 1,   col: 10, row: 1 },
+  { pos: 'DF', cost: 1,   col: 7,  row: 5 },
+  { pos: 'DF', cost: 1.5, col: 13, row: 5 },
+  { pos: 'SB', cost: 1,   col: 4,  row: 6 },
+  { pos: 'SB', cost: 1.5, col: 16, row: 6 },
+  { pos: 'VO', cost: 2,   col: 10, row: 9 },
+  { pos: 'MF', cost: 1,   col: 7,  row: 12 },
+  { pos: 'MF', cost: 1.5, col: 13, row: 12 },
+  { pos: 'OM', cost: 2,   col: 10, row: 15 },
+  { pos: 'WG', cost: 1.5, col: 4,  row: 17 },
+  { pos: 'FW', cost: 2.5, col: 10, row: 19 },
+];
+
+/** 初期コマ配置を生成し、指定チームのFWにボールを付与 */
+function createInitialBoard(kickoffTeam: Team): Board {
+  const pieces: Piece[] = [];
+  for (let i = 0; i < INITIAL_FORMATION.length; i++) {
+    const f = INITIAL_FORMATION[i];
+    pieces.push({
+      id: `h${String(i + 1).padStart(2, '0')}`,
+      team: 'home',
+      position: f.pos,
+      cost: f.cost,
+      coord: { col: f.col, row: f.row },
+      hasBall: false,
+    });
+    pieces.push({
+      id: `a${String(i + 1).padStart(2, '0')}`,
+      team: 'away',
+      position: f.pos,
+      cost: f.cost,
+      coord: { col: f.col, row: 33 - f.row },
+      hasBall: false,
+    });
+  }
+  // キックオフチームのFWにボール
+  const fw = pieces.find(p => p.team === kickoffTeam && p.position === 'FW');
+  if (fw) fw.hasBall = true;
+  return { pieces, snapshot: [] };
 }
 
 export class GameSession extends DurableObject<Env['Bindings']> {
@@ -171,12 +227,20 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       return new Response(JSON.stringify({ error: 'Already initialized' }), { status: 409 });
     }
 
+    // キックオフ: 50/50ランダム
+    const kickoffTeam: Team = Math.random() < 0.5 ? 'home' : 'away';
+    // AT: 前後半各1-3ターン
+    const firstHalfAT = Math.floor(Math.random() * MAX_AT) + 1;
+    const secondHalfAT = Math.floor(Math.random() * MAX_AT) + 1;
+    const halfTimeTurn = TURNS_PER_HALF + firstHalfAT;
+    const totalTurns = halfTimeTurn + TURNS_PER_HALF + secondHalfAT;
+
     const state: GameState = {
       matchId: body.matchId,
       homeUserId: body.homeUserId,
       awayUserId: body.awayUserId,
       turn: 1,
-      board: null,
+      board: createInitialBoard(kickoffTeam),
       scoreHome: 0,
       scoreAway: 0,
       status: 'playing',
@@ -186,6 +250,12 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       remainingSubs: { [body.homeUserId]: 3, [body.awayUserId]: 3 },
       disconnectedPlayers: {},
       turnLog: [],
+      half: 1,
+      firstHalfAT,
+      secondHalfAT,
+      halfTimeTurn,
+      totalTurns,
+      kickoffTeam,
     };
 
     await this.ctx.storage.put('gameState', state);
@@ -258,8 +328,7 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     // §7-3 入力バリデーション
-    const board = state.board as Board;
-    const pieces: PieceInfo[] = board ? boardToPieceInfos(board) : [];
+    const pieces: PieceInfo[] = state.board ? boardToPieceInfos(state.board) : [];
     const lastSeqMap = new Map(Object.entries(state.lastSequences).map(([k, v]) => [k, v]));
     const usedNonces = new Set(state.usedNonces);
 
@@ -314,8 +383,12 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     const awayOrders: Order[] = (awayInput?.orders ?? []).map(rawOrderToEngine);
 
     // ── エンジンでターン実行 ──
-    const board = state.board as Board;
-    const turnResult = processTurn(board, homeOrders, awayOrders, boardContext);
+    if (!state.board) {
+      // ボードが未初期化の場合はスキップ（通常起こらない）
+      this.turnInputs.clear();
+      return;
+    }
+    const turnResult = processTurn(state.board, homeOrders, awayOrders, boardContext);
 
     // ── ゴール判定 + スコア更新 ──
     const events = turnResult.events;
@@ -326,7 +399,7 @@ export class GameSession extends DurableObject<Env['Bindings']> {
         e => e.type === 'SHOOT' && (e as { result: { outcome: string } }).result.outcome === 'goal',
       ) as { shooterId: string } | undefined;
       if (shootEvent) {
-        const shooterTeam = shootEvent.shooterId.startsWith('h') ? 'home' : 'away';
+        const shooterTeam: Team = shootEvent.shooterId.startsWith('h') ? 'home' : 'away';
         if (shooterTeam === 'home') state.scoreHome++;
         else state.scoreAway++;
         goalScoredBy = shooterTeam;
@@ -338,6 +411,12 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     state.turn++;
     state.turnStartedAt = Date.now();
 
+    // ── ゴール後リスタート: 初期配置に戻して失点チームがキックオフ ──
+    if (goalScoredBy) {
+      const kickoffTeam: Team = goalScoredBy === 'home' ? 'away' : 'home';
+      state.board = createInitialBoard(kickoffTeam);
+    }
+
     // ── ターンログ記録 ──
     state.turnLog.push({
       turn: currentTurn,
@@ -348,7 +427,6 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     });
 
     this.turnInputs.clear();
-    await this.ctx.storage.put('gameState', state);
 
     // ── 両プレイヤーに結果配信 ──
     const resultMsg = {
@@ -359,6 +437,10 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       scoreAway: state.scoreAway,
       events: events,
       goalScoredBy,
+      half: state.half,
+      isAdditionalTime: state.half === 1
+        ? currentTurn > TURNS_PER_HALF
+        : currentTurn > state.halfTimeTurn + TURNS_PER_HALF,
     };
     this.broadcast(JSON.stringify(resultMsg));
 
@@ -371,10 +453,29 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       }));
     }
 
+    // ── ハーフタイム判定: 前半終了 ──
+    if (state.half === 1 && state.turn > state.halfTimeTurn) {
+      state.half = 2;
+      state.status = 'halftime';
+      // 後半キックオフは前半と逆チーム
+      const secondHalfKickoff: Team = state.kickoffTeam === 'home' ? 'away' : 'home';
+      state.board = createInitialBoard(secondHalfKickoff);
+      state.status = 'playing';
+
+      this.broadcast(JSON.stringify({
+        type: 'HALFTIME',
+        scoreHome: state.scoreHome,
+        scoreAway: state.scoreAway,
+        secondHalfKickoff,
+      }));
+    }
+
     // ── 試合終了チェック ──
-    if (state.turn > MAX_GAME_TURNS) {
+    if (state.turn > state.totalTurns) {
+      await this.ctx.storage.put('gameState', state);
       await this.endMatch(state, 'completed');
     } else {
+      await this.ctx.storage.put('gameState', state);
       // ターンタイマー設定（1分）
       await this.ctx.storage.setAlarm(Date.now() + TURN_TIMEOUT_MS);
     }
