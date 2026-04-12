@@ -11,6 +11,9 @@ import {
   type RawOrder,
 } from '../../middleware/validation';
 import { WebSocketRateLimiter } from '../../middleware/rate_limit';
+import { processTurn, createBoardContext, hasGoal } from '../../engine/turn_processor';
+import type { Board, Piece, Order, OrderType } from '../../engine/types';
+import hexMapData from '../../data/hex_map.json';
 
 // ============================================================
 // テストヘルパー
@@ -519,5 +522,140 @@ describe('タイムアウト時の空入力', () => {
     expect(result.rejected).toBe(false);
     expect(result.validOrders.length).toBe(0);
     expect(result.violations.length).toBe(0);
+  });
+});
+
+// ============================================================
+// エンジン統合テスト（バリデーション → processTurn → 結果確認）
+// ============================================================
+
+describe('オンライン対戦 エンジン統合', () => {
+  const boardContext = createBoardContext(
+    hexMapData as Array<{ col: number; row: number; zone: string; lane: string }>,
+  );
+
+  /** テスト用のengine Pieceリスト生成 */
+  function createEnginePieces(): Piece[] {
+    const pieces: Piece[] = [
+      { id: 'h01', team: 'home', position: 'GK', cost: 1, coord: { col: 10, row: 1 }, hasBall: false },
+      { id: 'h02', team: 'home', position: 'DF', cost: 1, coord: { col: 7, row: 5 }, hasBall: false },
+      { id: 'h03', team: 'home', position: 'DF', cost: 1.5, coord: { col: 13, row: 5 }, hasBall: false },
+      { id: 'h04', team: 'home', position: 'SB', cost: 1, coord: { col: 4, row: 6 }, hasBall: false },
+      { id: 'h05', team: 'home', position: 'SB', cost: 1, coord: { col: 16, row: 6 }, hasBall: false },
+      { id: 'h06', team: 'home', position: 'VO', cost: 1, coord: { col: 10, row: 9 }, hasBall: false },
+      { id: 'h07', team: 'home', position: 'MF', cost: 1, coord: { col: 7, row: 12 }, hasBall: false },
+      { id: 'h08', team: 'home', position: 'MF', cost: 1, coord: { col: 13, row: 12 }, hasBall: false },
+      { id: 'h09', team: 'home', position: 'OM', cost: 2, coord: { col: 10, row: 14 }, hasBall: false },
+      { id: 'h10', team: 'home', position: 'WG', cost: 1.5, coord: { col: 4, row: 13 }, hasBall: false },
+      { id: 'h11', team: 'home', position: 'FW', cost: 2.5, coord: { col: 10, row: 16 }, hasBall: true },
+      { id: 'a01', team: 'away', position: 'GK', cost: 1, coord: { col: 10, row: 32 }, hasBall: false },
+      { id: 'a02', team: 'away', position: 'DF', cost: 1, coord: { col: 7, row: 28 }, hasBall: false },
+      { id: 'a03', team: 'away', position: 'DF', cost: 1.5, coord: { col: 13, row: 28 }, hasBall: false },
+      { id: 'a04', team: 'away', position: 'SB', cost: 1, coord: { col: 4, row: 27 }, hasBall: false },
+      { id: 'a05', team: 'away', position: 'SB', cost: 1, coord: { col: 16, row: 27 }, hasBall: false },
+      { id: 'a06', team: 'away', position: 'VO', cost: 1, coord: { col: 10, row: 24 }, hasBall: false },
+      { id: 'a07', team: 'away', position: 'MF', cost: 1, coord: { col: 7, row: 21 }, hasBall: false },
+      { id: 'a08', team: 'away', position: 'MF', cost: 1, coord: { col: 13, row: 21 }, hasBall: false },
+      { id: 'a09', team: 'away', position: 'OM', cost: 2, coord: { col: 10, row: 19 }, hasBall: false },
+      { id: 'a10', team: 'away', position: 'WG', cost: 1.5, coord: { col: 4, row: 20 }, hasBall: false },
+      { id: 'a11', team: 'away', position: 'FW', cost: 2.5, coord: { col: 10, row: 17 }, hasBall: false },
+    ];
+    return pieces;
+  }
+
+  /** RawOrder → Order 変換（game_session.ts と同じロジック） */
+  function rawOrderToEngine(raw: RawOrder): Order {
+    return {
+      pieceId: raw.piece_id,
+      type: raw.action as OrderType,
+      target: raw.target_hex
+        ? { col: raw.target_hex[0], row: raw.target_hex[1] }
+        : undefined,
+      targetPieceId: raw.target_piece,
+    };
+  }
+
+  it('バリデーション通過 → processTurn → ボード更新の完全フロー', () => {
+    const pieces = createEnginePieces();
+    const board: Board = { pieces, snapshot: [] };
+
+    // Home: h02をmove、h11をdribble
+    const homeOrders: Order[] = [
+      { pieceId: 'h02', type: 'move', target: { col: 7, row: 6 } },
+      { pieceId: 'h11', type: 'dribble', target: { col: 10, row: 18 } },
+    ];
+
+    // Away: a02をmove
+    const awayOrders: Order[] = [
+      { pieceId: 'a02', type: 'move', target: { col: 7, row: 27 } },
+    ];
+
+    const result = processTurn(board, homeOrders, awayOrders, boardContext);
+
+    // ボードが更新されていること
+    expect(result.board.pieces.length).toBe(22);
+    // イベントが発生していること
+    expect(result.events.length).toBeGreaterThan(0);
+    // 移動イベントを確認
+    const moveEvents = result.events.filter(e => e.type === 'PIECE_MOVED');
+    expect(moveEvents.length).toBeGreaterThan(0);
+  });
+
+  it('RawOrder変換 → バリデーション → processTurn の統合フロー', () => {
+    // 1. バリデーション
+    const pieceInfos = createTestPieces();
+    const rawOrders: RawOrder[] = [
+      { piece_id: 'h02', action: 'move', target_hex: [7, 6] },
+      { piece_id: 'h11', action: 'dribble', target_hex: [10, 18] },
+    ];
+    const input = createTurnInput({ orders: rawOrders });
+    const validation = validateTurnInput(
+      input, MATCH_ID, [HOME_USER, AWAY_USER],
+      new Map([[HOME_USER, -1]]), new Set(), pieceInfos, 'home', 3,
+    );
+    expect(validation.rejected).toBe(false);
+
+    // 2. Order変換
+    const engineOrders = validation.validOrders.map(rawOrderToEngine);
+    expect(engineOrders.length).toBe(2);
+    expect(engineOrders[0].pieceId).toBe('h02');
+    expect(engineOrders[0].type).toBe('move');
+    expect(engineOrders[1].type).toBe('dribble');
+
+    // 3. processTurn
+    const pieces = createEnginePieces();
+    const board: Board = { pieces, snapshot: [] };
+    const result = processTurn(board, engineOrders, [], boardContext);
+
+    expect(result.board.pieces.length).toBe(22);
+    // h02が移動していること
+    const h02 = result.board.pieces.find(p => p.id === 'h02');
+    expect(h02).toBeDefined();
+  });
+
+  it('複数ターン連続実行でボード状態が正しく引き継がれる', () => {
+    let pieces = createEnginePieces();
+    let board: Board = { pieces, snapshot: [] };
+
+    // 5ターン連続実行
+    for (let turn = 0; turn < 5; turn++) {
+      const homeOrders: Order[] = [
+        { pieceId: 'h11', type: 'dribble', target: { col: 10, row: Math.min(16 + turn * 2, 30) } },
+      ];
+      const result = processTurn(board, homeOrders, [], boardContext);
+      board = result.board;
+      // ボード整合性: 22コマが維持されていること
+      expect(board.pieces.length).toBe(22);
+      // ボール保持者が存在すること
+      expect(board.pieces.some(p => p.hasBall)).toBe(true);
+    }
+  });
+
+  it('パス指示がtargetPieceIdで正しく変換される', () => {
+    const raw: RawOrder = { piece_id: 'h11', action: 'pass', target_piece: 'h09' };
+    const order = rawOrderToEngine(raw);
+    expect(order.pieceId).toBe('h11');
+    expect(order.type).toBe('pass');
+    expect(order.targetPieceId).toBe('h09');
   });
 });

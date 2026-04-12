@@ -9,7 +9,8 @@ import { verifyWebSocketToken } from '../middleware/jwt_verify';
 import { validateTurnInput, type TurnInput, type RawOrder, type PieceInfo } from '../middleware/validation';
 import { WebSocketRateLimiter } from '../middleware/rate_limit';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../engine/turn_processor';
-import type { Board, Order, OrderType, Piece, HexCoord, GameEvent } from '../engine/types';
+import { getMovementRange } from '../engine/movement';
+import type { Board, Order, OrderType, Piece, HexCoord, GameEvent, Zone, Lane } from '../engine/types';
 import hexMapData from '../data/hex_map.json';
 
 /** ゲーム状態（DO永続ストレージに保存） */
@@ -54,6 +55,24 @@ const MAX_GAME_TURNS = (TURNS_PER_HALF + MAX_AT) * 2; // 36
 const boardContext = createBoardContext(
   hexMapData as Array<{ col: number; row: number; zone: string; lane: string }>,
 );
+
+/** Board.pieces → PieceInfo[] に変換（バリデーション用） */
+function boardToPieceInfos(board: Board): PieceInfo[] {
+  return board.pieces.map(p => ({
+    id: p.id,
+    team: p.team,
+    position: p.position,
+    cost: p.cost,
+    coord: p.coord,
+    hasBall: p.hasBall,
+    moveRange: getMovementRange(
+      p, false,
+      boardContext.getZone(p.coord),
+      boardContext.getLane(p.coord),
+    ),
+    isBench: false, // DOのボードにベンチコマは含まれない
+  }));
+}
 
 /** RawOrder → engine Order に変換 */
 function rawOrderToEngine(raw: RawOrder): Order {
@@ -239,7 +258,8 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     // §7-3 入力バリデーション
-    const pieces: PieceInfo[] = []; // TODO: boardからPieceInfoに変換
+    const board = state.board as Board;
+    const pieces: PieceInfo[] = board ? boardToPieceInfos(board) : [];
     const lastSeqMap = new Map(Object.entries(state.lastSequences).map(([k, v]) => [k, v]));
     const usedNonces = new Set(state.usedNonces);
 
