@@ -162,6 +162,10 @@ src/
 | バランス検証（1000試合） | Home 24.0% / Away 26.2% / Draw 49.8%, 2.68点/試合 | ✅ |
 | away側統合テスト | awayファウル(FK/PK)、awayシュート、awayパス配送 | ✅ |
 | オンラインE2Eエンジンテスト | RawOrder変換→processTurn→ボード更新→複数ターン連続の完全フロー | ✅ |
+| AI難易度システム | rule_based.tsにdifficulty対応（beginner/regular/maniac）、App→Battle→AI伝播 | ✅ |
+| ミニゲームCOM AI | FK/PK GKゾーン選択を学習型AIに変更（プレイヤー傾向分析+難易度別精度） | ✅ |
+| ミニゲーム結果フィードバック | FK/PK: キッカーvsGKゾーン対比表示、CK: 3ゾーン勝敗詳細表示 | ✅ |
+| CenterOverlay改行対応 | whiteSpace:pre-lineでsubTextの\n改行をサポート | ✅ |
 
 ---
 
@@ -233,8 +237,10 @@ src/
 - **6ゾーンはエンジンに存在しない** — ミニゲームUIのみの概念
 
 ### FK/PK/CKミニゲーム
-- **FK**: 6ゾーン選択+直接/ロブ。COM側はランダムゾーン。同ゾーン=GKセーブ（キッカーコスト依存でパワー突破可能）
+- **FK**: 6ゾーン選択+直接/ロブ。同ゾーン=GKセーブ（キッカーコスト依存でパワー突破可能）
 - **PK**: 6ゾーン選択。FKと同様のゾーン対決。PK成功率はFKより高め
+- **COM GK AI**: プレイヤーの過去ゾーン選択を`comGkHistory`に蓄積し、頻出ゾーンに重みをかけて抽選。難易度でsharpness（読み精度）が変化（beginner=0.3/regular=1.0/maniac=1.5）。最初の2回は中央寄りバイアス
+- **結果フィードバック**: FK/PK結果時にキッカーvsGKのゾーン対比を表示（「GK読み的中!」/「GKは逆方向!」）。CK結果時に3ゾーンの攻守コスト対決詳細を表示
 - **CK**: 3枚選択→ニア/中央/ファーに1枚ずつ配置。各ゾーンで攻守コスト対決。2ゾーン以上勝利で攻撃側ボール獲得
 - **共通**: タイムアウト時は未選択をランダム補完して自動送信。ミニゲーム遷移時にreplaySafetyTimerをクリア
 - **FK/PK isAttacker/isKicker**: ファウルされた側(`tacklerId`から逆算)が攻撃側
@@ -262,7 +268,12 @@ src/
   - DF/SBは自陣ゴール前で横一列のラインを形成（均等配置スコアリング）
   - MF/VO/OMは自陣方向に1-2HEX後退、横に広がる
   - FW/WGはセンターライン付近に留まりカウンターに備える
-- **2手パスルート**: A→B→C の中継パスを事前計算。直接パスが通らない時に横の味方を経由（B→C距離8HEX以内）
+- **2手パスルート**: A→B→C の中継パスを事前計算。直接パスが通らない時に横の味方を経由（B→C距離はdifficultyで変化）
+- **難易度パラメータ（diffConfig）**: `RuleBasedInput.difficulty` で動作を分岐
+  - **beginner**: シュート距離5HEX、プレス1体、25%でstay、上位3手からランダム選択、中継パス距離6HEX
+  - **regular**: シュート距離7HEX、プレス2体、最善手選択、中継パス距離8HEX（デフォルト）
+  - **maniac**: シュート距離9HEX、プレス3体、ZOC考慮パスブロック、中継パス距離12HEX、横パス優先（テンポ維持）
+- App.tsx → Battle.tsx（`comDifficulty` prop）→ `generateRuleBasedOrders({ difficulty })` の経路で伝播
 - **移動先重複防止**: `usedTargets` セットで2体が同じHEXに移動指示しない
 - **selectBallHolderOrderはクロージャ内関数**（generateRuleBasedOrders内部でヘルパーを共有）
 - COM対戦ではBattle.tsxの`handleConfirm`内で`generateRuleBasedOrders`を呼び出し、プレイヤーの命令と同時にprocessTurnで処理
@@ -297,7 +308,7 @@ src/
 - Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
 - **COM AIターン処理の流れ**:
   1. `handleConfirm` → プレイヤー命令を `clientOrderToEngine` でエンジン形式に変換
-  2. `generateRuleBasedOrders` でaway命令生成（エンジンOrder互換）
+  2. `generateRuleBasedOrders({ difficulty: comDifficulty })` でaway命令生成（エンジンOrder互換）
   3. `EngineBoard` 構築（フィールドコマのみ）
   4. **`processTurn(board, homeOrders, awayOrders, boardContext)` 実行** — Phase0〜3で全判定
   5. `hasGoal()` でゴール判定 → スコア加算

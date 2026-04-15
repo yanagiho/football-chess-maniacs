@@ -163,6 +163,7 @@ export default function App() {
             myTeam={myTeam}
             formationData={formationData}
             onMatchEnd={handleMatchEnd}
+            comDifficulty={comDifficulty}
           />
         )}
         {page === 'halfTime' && (

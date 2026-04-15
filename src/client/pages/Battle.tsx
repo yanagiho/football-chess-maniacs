@@ -46,6 +46,7 @@ interface BattleProps {
   myTeam?: Team;
   formationData?: FormationData | null;
   onMatchEnd?: (data: MatchEndData) => void;
+  comDifficulty?: 'beginner' | 'regular' | 'maniac';
 }
 
 /** イベントログからスタッツを集計 */
@@ -510,7 +511,7 @@ function getMatchTimeLabel(turn: number, at1: number, at2: number): { label: str
   return { label: `${FULLTIME_MINUTE}+${secondHalfTurn - HALF_TURNS * 2}`, isAT: true };
 }
 
-export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd }: BattleProps) {
+export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd, comDifficulty = 'regular' }: BattleProps) {
   const device = useDeviceType();
   const { settings } = useSettings();
   const animSpeed = settings.animationSpeed || 1;
@@ -1260,6 +1261,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           remainingSubs: MAX_SUBSTITUTIONS,
           benchPieces: [],
           maxFieldCost: MAX_FIELD_COST,
+          difficulty: comDifficulty,
         });
         const awayOrders: EngineOrder[] = comResult.orders;
         console.log(`[Battle] COM AI: strategy=${comResult.strategy}, orders=${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
@@ -1631,7 +1633,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (isMobile && navigator.vibrate) {
       navigator.vibrate([50, 30, 50]);
     }
-  }, [isCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers]);
+  }, [isCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, comDifficulty]);
 
   const handleTimeout = useCallback(() => {
     handleConfirm();
@@ -1662,27 +1664,53 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return () => clearTimeout(t);
   }, [miniGame, miniGameCountdown]);
 
+  // ── COM GKのゾーン選択AI（ランダムではなく傾向バイアス付き） ──
+  const comGkHistory = useRef<number[]>([]);
+  const ZONE_LABELS_6 = ['左上', '中上', '右上', '左下', '中下', '右下'];
+
+  /** COMのGKゾーン選択: プレイヤーの過去選択を学習し、頻出ゾーンに寄せる */
+  const pickComGkZone = useCallback((): number => {
+    const history = comGkHistory.current;
+    if (history.length < 2) {
+      // 最初の2回は中央寄りバイアス（上下の中央を50%で選ぶ）
+      if (Math.random() < 0.5) return Math.random() < 0.5 ? 1 : 4; // 中上 or 中下
+      return Math.floor(Math.random() * 6);
+    }
+    // 過去のプレイヤー選択から頻度を計算
+    const freq = [0, 0, 0, 0, 0, 0];
+    for (const z of history) freq[z]++;
+    // 頻出ゾーンに重み付け（頻度+1をベースに抽選）
+    const weights = freq.map(f => f + 1);
+    // 難易度による精度: beginnerは重み均等化、maniacはより鋭い
+    const sharpness = comDifficulty === 'beginner' ? 0.3 : comDifficulty === 'maniac' ? 1.5 : 1.0;
+    const adjusted = weights.map(w => Math.pow(w, sharpness));
+    const total = adjusted.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < 6; i++) {
+      r -= adjusted[i];
+      if (r <= 0) return i;
+    }
+    return 5;
+  }, [comDifficulty]);
+
   // ── A7: FK/PKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
   const handleFKComplete = useCallback((data: import('../components/minigame/FKGame').FKInput) => {
     if (!miniGame || miniGame.type !== 'fk') return;
     const { kickerPiece, gkPiece, fouledTeam } = miniGame;
     const defenseTeam: Team = fouledTeam === 'home' ? 'away' : 'home';
 
-    // COM守備のゾーン選択（ランダム）
-    const comZone = Math.floor(Math.random() * 6);
+    // COM守備のゾーン選択（学習型AI）
+    const comZone = pickComGkZone();
+    comGkHistory.current.push(data.zone); // プレイヤーの選択を記録
     const attackerZone = data.zone;
-    // GKがゾーンを当てたらセーブ、外したらゴール方向に飛ぶ（キッカーコスト依存で成功率）
     const gkGuessedRight = attackerZone === comZone;
 
     let kickSuccess: boolean;
     if (gkGuessedRight) {
-      // GKが正しい方向 → キッカーコスト×15% でもゴール（パワーで抜ける）
       kickSuccess = Math.random() < kickerPiece.cost * 0.15;
     } else {
-      // GKが外した → キッカーコスト×20+30 % でゴール（枠に入るか）
       kickSuccess = Math.random() < Math.min(0.95, kickerPiece.cost * 0.20 + 0.30);
     }
-    // ロブはGK正解時にセーブ率低下
     if (data.kickType === 'lob' && gkGuessedRight) {
       kickSuccess = kickSuccess || Math.random() < 0.25;
     }
@@ -1692,10 +1720,17 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     let newScoreHome = state.scoreHome;
     let newScoreAway = state.scoreAway;
 
+    // 結果フィードバック: キッカーvsGKのゾーン対比を表示
+    const kickLabel = ZONE_LABELS_6[attackerZone];
+    const gkLabel = ZONE_LABELS_6[comZone];
+    const matchup = gkGuessedRight ? 'GK読み的中!' : 'GKは逆方向!';
+
     if (kickSuccess) {
-      // FK直接ゴール → スコア加算 + ゴールリスタート
       if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
-      showOverlay('GOAL!!', { subText: `${newScoreHome} - ${newScoreAway}`, duration: 2500, color: '#FFD700', fontSize: 64, glow: true });
+      showOverlay('GOAL!!', {
+        subText: `${kickLabel} → ${gkGuessedRight ? 'パワーで突破!' : '枠内ゴール!'}\nキッカー:${kickLabel} vs GK:${gkLabel}\n${newScoreHome} - ${newScoreAway}`,
+        duration: 2500, color: '#FFD700', fontSize: 64, glow: true,
+      });
       const kickoff = fouledTeam === 'home' ? 'away' : 'home';
       const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces);
       setMiniGame(null);
@@ -1712,10 +1747,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       return;
     }
 
-    // FK失敗 → GKがボール獲得
+    // FK失敗
     const gk = currentPieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
     newHolderId = gk?.id ?? currentPieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
-    showOverlay('GREAT SAVE!', { subText: `GK ★${gkPiece.cost}`, duration: 1200, color: '#4ade80', fontSize: 48 });
+    showOverlay(gkGuessedRight ? 'GREAT SAVE!' : 'MISSED!', {
+      subText: `${matchup}\nキッカー:${kickLabel} vs GK:${gkLabel}`,
+      duration: 1500, color: '#4ade80', fontSize: 48,
+    });
 
     const ballState = setBallHolder(currentPieces, newHolderId);
     setMiniGame(null);
@@ -1729,24 +1767,23 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone]);
 
   const handlePKComplete = useCallback((zone: number) => {
     if (!miniGame || miniGame.type !== 'pk') return;
     const { kickerPiece, gkPiece, fouledTeam } = miniGame;
     const defenseTeam: Team = fouledTeam === 'home' ? 'away' : 'home';
 
-    // COM側のゾーン選択（ランダム）
-    const comZone = Math.floor(Math.random() * 6);
+    // COM側のゾーン選択（学習型AI）
+    const comZone = pickComGkZone();
+    comGkHistory.current.push(zone); // プレイヤーの選択を記録
     const kickerZone = zone;
     const gkGuessedRight = kickerZone === comZone;
 
     let kickSuccess: boolean;
     if (gkGuessedRight) {
-      // GKが正しい方向 → キッカーコスト×10% でゴール
       kickSuccess = Math.random() < kickerPiece.cost * 0.10;
     } else {
-      // GKが外した → キッカーコスト×15+40 % でゴール（PK成功率高め）
       kickSuccess = Math.random() < Math.min(0.95, kickerPiece.cost * 0.15 + 0.40);
     }
 
@@ -1754,10 +1791,16 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     let newScoreHome = state.scoreHome;
     let newScoreAway = state.scoreAway;
 
+    const kickLabel = ZONE_LABELS_6[kickerZone];
+    const gkLabel = ZONE_LABELS_6[comZone];
+    const matchup = gkGuessedRight ? 'GK読み的中!' : 'GKは逆方向!';
+
     if (kickSuccess) {
-      // PKゴール
       if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
-      showOverlay('GOAL!!', { subText: `${newScoreHome} - ${newScoreAway}`, duration: 2500, color: '#FFD700', fontSize: 64, glow: true });
+      showOverlay('GOAL!!', {
+        subText: `${kickLabel} → ${gkGuessedRight ? 'パワーで突破!' : '枠内ゴール!'}\nキッカー:${kickLabel} vs GK:${gkLabel}\n${newScoreHome} - ${newScoreAway}`,
+        duration: 2500, color: '#FFD700', fontSize: 64, glow: true,
+      });
       const kickoff = fouledTeam === 'home' ? 'away' : 'home';
       const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces);
       setMiniGame(null);
@@ -1777,7 +1820,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     // PK失敗 → GKがボール獲得
     const gk = currentPieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
     const newHolderId = gk?.id ?? currentPieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
-    showOverlay('GREAT SAVE!', { subText: `GK ★${gkPiece.cost}`, duration: 1200, color: '#4ade80', fontSize: 48 });
+    showOverlay(gkGuessedRight ? 'GREAT SAVE!' : 'MISSED!', {
+      subText: `${matchup}\nキッカー:${kickLabel} vs GK:${gkLabel}`,
+      duration: 1500, color: '#4ade80', fontSize: 48,
+    });
 
     const ballState = setBallHolder(currentPieces, newHolderId);
     setMiniGame(null);
@@ -1791,7 +1837,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone]);
 
   // ── A7: CKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
   const handleCKComplete = useCallback((data: import('../components/minigame/CKGame').CKInput) => {
@@ -1818,6 +1864,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
     // ゾーン対決: 各ゾーンで攻撃コマ vs 守備コマのコスト比較
     let attackWins = 0;
+    const CK_ZONE_LABELS = { near: 'ニア', center: '中央', far: 'ファー' } as const;
+    const zoneResults: string[] = [];
     for (const zone of ['near', 'center', 'far'] as const) {
       const atkPlacement = data.placements.find(p => p.zone === zone);
       const defPlacement = defPlacements.find(p => p.zone === zone);
@@ -1828,12 +1876,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         ? (defSelected.find(p => p.id === defPlacement.pieceId)?.cost ?? 1)
         : 0;
 
+      let won = false;
       if (atkCost > defCost) {
         attackWins++;
+        won = true;
       } else if (atkCost === defCost) {
-        // 同コスト → 50%で攻撃勝利
-        if (Math.random() < 0.5) attackWins++;
+        if (Math.random() < 0.5) { attackWins++; won = true; }
       }
+      const mark = won ? 'O' : 'X';
+      zoneResults.push(`${CK_ZONE_LABELS[zone]}: ★${atkCost} vs ★${defCost} → ${mark}`);
     }
 
     // 2ゾーン以上勝てば攻撃側がボール獲得、それ以外は守備側GKがボール獲得
@@ -1853,6 +1904,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       newHolderId = gk?.id ?? currentPieces.find(p => p.team === ballTeam && !p.isBench)?.id ?? null;
     }
 
+    // 結果フィードバック
+    const resultTitle = attackerWon ? 'ヘディングチャンス!' : 'クリア成功!';
+    const resultColor = attackerWon ? '#ffd700' : '#4ade80';
+    showOverlay(resultTitle, {
+      subText: `${zoneResults.join('\n')}\n${attackWins}/3ゾーン勝利`,
+      duration: 2000, color: resultColor, fontSize: 40,
+    });
+
     // ボール状態を更新
     const ballState = setBallHolder(currentPieces, newHolderId);
     dispatch({
@@ -1867,7 +1926,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     setMiniGameCountdown(MINIGAME_CK_COUNTDOWN);
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers]);
+  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers, showOverlay, pickComGkZone]);
 
   // PC: 右クリックコンテキストメニュー（§3-2）
   const handleContextMenu = useCallback(

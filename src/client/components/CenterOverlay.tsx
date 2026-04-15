@@ -89,7 +89,7 @@ export default function CenterOverlay({ queue, onComplete }: CenterOverlayProps)
         {current.subText && (
           <div style={{
             fontSize: Math.round(fontSize * 0.6), color: '#ccc',
-            marginTop: 8, fontWeight: 600,
+            marginTop: 8, fontWeight: 600, whiteSpace: 'pre-line',
           }}>
             {current.subText}
           </div>

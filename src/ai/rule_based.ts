@@ -17,6 +17,7 @@ import {
   type PieceLegalMoves,
   type LegalAction,
 } from './legal_moves';
+import type { Difficulty } from './prompt_builder';
 
 // ================================================================
 // 定数
@@ -41,6 +42,8 @@ export interface RuleBasedInput {
   remainingSubs: number;
   benchPieces: Piece[];
   maxFieldCost?: number;
+  /** COM難易度（デフォルト: regular） */
+  difficulty?: Difficulty;
 }
 
 export interface RuleBasedOutput {
@@ -53,11 +56,33 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
   const {
     pieces, myTeam, scoreHome, scoreAway, turn,
     maxTurn = 36, remainingSubs, benchPieces, maxFieldCost = 16,
+    difficulty = 'regular',
   } = input;
 
   const goalDiff = myTeam === 'home' ? scoreHome - scoreAway : scoreAway - scoreHome;
   const evaluation = evaluateBoard(pieces, myTeam, scoreHome, scoreAway, turn, maxTurn);
   const strategy = recommendStrategy(goalDiff, turn, maxTurn);
+
+  // ── 難易度パラメータ ──
+  // beginner: 判断にランダム性を導入、一部コマに命令を出さない、プレス弱化
+  // regular:  現状の標準動作
+  // maniac:   シュート条件厳密化、ZOC考慮パス、プレス強化、2手パス距離緩和
+  const diffConfig = {
+    /** シュート可能距離 */
+    shootRange: difficulty === 'beginner' ? 5 : difficulty === 'maniac' ? 9 : 7,
+    /** プレス役の最大数 */
+    maxPressers: difficulty === 'beginner' ? 1 : difficulty === 'maniac' ? 3 : 2,
+    /** 命令を出さない（stay扱い）コマの確率（0-1） */
+    skipRate: difficulty === 'beginner' ? 0.25 : 0,
+    /** パスにZOC遮断チェックを使うか */
+    useZocPassBlock: difficulty === 'maniac',
+    /** 2手パスルートの最大距離(B→C) */
+    relayMaxDist: difficulty === 'beginner' ? 6 : difficulty === 'maniac' ? 12 : 8,
+    /** 最善手を選ぶか（false: 上位3つからランダム） */
+    pickBest: difficulty !== 'beginner',
+    /** 横パスでのテンポ維持（maniac: ドリブルより横パスを先に試す） */
+    preferLateralPass: difficulty === 'maniac',
+  };
 
   // 合法手生成
   const ctx: LegalMovesContext = { pieces, myTeam, remainingSubs, maxFieldCost, benchPieces };
@@ -85,7 +110,7 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
   const orders: Order[] = [];
   const legalMap = new Map(allLegalMoves.map(pm => [pm.pieceId, pm]));
 
-  console.log(`[COM AI] === Turn ${turn} | ${isAttacking ? 'ATTACK' : 'DEFENSE'} mode | team=${myTeam} ===`);
+  console.log(`[COM AI] === Turn ${turn} | ${isAttacking ? 'ATTACK' : 'DEFENSE'} mode | team=${myTeam} | difficulty=${difficulty} ===`);
 
   // ================================================================
   // ヘルパー関数
@@ -192,7 +217,7 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       .filter(p => ['FW', 'WG', 'OM'].includes(p.position) && !p.hasBall)
       .map(p => ({ piece: p, dist: hexDistance(p.coord, enemyBallHolder.coord) }))
       .sort((a, b) => a.dist - b.dist)
-      .slice(0, 2);
+      .slice(0, diffConfig.maxPressers);
     for (const t of pressCandidates) pressIds.add(t.piece.id);
   }
 
@@ -206,9 +231,25 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
     .filter(p => !p.hasBall)
     .sort((a, b) => posOrder.indexOf(a.position) - posOrder.indexOf(b.position));
 
+  /** 難易度に応じて最善手 or 上位3つからランダム選択 */
+  const pickByDifficulty = <T extends { score: number }>(sorted: T[]): T | undefined => {
+    if (sorted.length === 0) return undefined;
+    if (diffConfig.pickBest) return sorted[0];
+    // beginner: 上位3つからランダム
+    const topN = sorted.slice(0, Math.min(3, sorted.length));
+    return topN[Math.floor(Math.random() * topN.length)];
+  };
+
   for (const piece of sortedPieces) {
     const pm = legalMap.get(piece.id);
     if (!pm) continue;
+
+    // ── beginner: 一部のコマに命令を出さない(stay) ──
+    if (diffConfig.skipRate > 0 && piece.position !== 'GK' && Math.random() < diffConfig.skipRate) {
+      addOrder({ pieceId: piece.id, type: 'stay' });
+      console.log(`[COM AI]   ${piece.position}★${piece.cost} → SKIP (beginner random)`);
+      continue;
+    }
 
     // ── GK: 常にゴール中央付近に留まる ──
     if (piece.position === 'GK') {
@@ -269,9 +310,10 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         };
       }).sort((a, b) => b.score - a.score);
 
-      if (scored.length > 0) {
-        addOrder({ pieceId: piece.id, type: 'move', target: scored[0].action.targetHex });
-        console.log(`[COM AI]   ${piece.position}★${piece.cost} → ATK move(${scored[0].action.targetHex!.col},${scored[0].action.targetHex!.row})`);
+      const picked = pickByDifficulty(scored);
+      if (picked) {
+        addOrder({ pieceId: piece.id, type: 'move', target: picked.action.targetHex });
+        console.log(`[COM AI]   ${piece.position}★${piece.cost} → ATK move(${picked.action.targetHex!.col},${picked.action.targetHex!.row})`);
       } else {
         addOrder({ pieceId: piece.id, type: 'stay' });
         console.log(`[COM AI]   ${piece.position}★${piece.cost} → ATK stay (no valid moves in range)`);
@@ -300,9 +342,10 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         return { action: m, score: rowDist * 3 + minAllyDist * 2 };
       }).sort((a, b) => b.score - a.score);
 
-      if (scored.length > 0) {
-        addOrder({ pieceId: piece.id, type: 'move', target: scored[0].action.targetHex });
-        console.log(`[COM AI]   ${piece.position}★${piece.cost} → DEF line(${scored[0].action.targetHex!.col},${scored[0].action.targetHex!.row})`);
+      const picked = pickByDifficulty(scored);
+      if (picked) {
+        addOrder({ pieceId: piece.id, type: 'move', target: picked.action.targetHex });
+        console.log(`[COM AI]   ${piece.position}★${piece.cost} → DEF line(${picked.action.targetHex!.col},${picked.action.targetHex!.row})`);
       } else {
         addOrder({ pieceId: piece.id, type: 'stay' });
         console.log(`[COM AI]   ${piece.position}★${piece.cost} → DEF stay`);
@@ -329,9 +372,10 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         return { action: m, score: rowCloseness * 3 + spread * 0.5 + notClumped };
       }).sort((a, b) => b.score - a.score);
 
-      if (scored.length > 0) {
-        addOrder({ pieceId: piece.id, type: 'move', target: scored[0].action.targetHex });
-        console.log(`[COM AI]   ${piece.position}★${piece.cost} → DEF retreat(${scored[0].action.targetHex!.col},${scored[0].action.targetHex!.row})`);
+      const picked = pickByDifficulty(scored);
+      if (picked) {
+        addOrder({ pieceId: piece.id, type: 'move', target: picked.action.targetHex });
+        console.log(`[COM AI]   ${piece.position}★${piece.cost} → DEF retreat(${picked.action.targetHex!.col},${picked.action.targetHex!.row})`);
       } else {
         addOrder({ pieceId: piece.id, type: 'stay' });
         console.log(`[COM AI]   ${piece.position}★${piece.cost} → DEF stay`);
@@ -379,19 +423,21 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
     const distToGoal = hexDistance(currentHex, { col: 10, row: goalRow });
 
     // ── 1. シュート可能ならシュート ──
-    if (shoots.length > 0 && distToGoal <= 7) {
+    if (shoots.length > 0 && distToGoal <= diffConfig.shootRange) {
       console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: SHOOT (dist=${distToGoal})`);
       return { pieceId, type: 'shoot', target: { col: 10, row: goalRow } };
     }
 
     // ── 2. 前方の味方に直接パスが通るならパス ──
+    // maniac: ZOC遮断チェックでパスカットリスクを考慮
+    const passBlockCheck = diffConfig.useZocPassBlock ? isPassBlockedByZoc : isPassBlockedByBody;
     const forwardPassCandidates = passes
       .map(p => {
         const receiver = myPieces.find(pc => pc.id === p.targetPieceId);
         if (!receiver) return null;
         const fwdScore = forwardness(currentHex, receiver.coord);
         if (fwdScore <= 0) return null; // 前方でない
-        const blocked = isPassBlockedByBody(currentHex, receiver.coord);
+        const blocked = passBlockCheck(currentHex, receiver.coord);
         const dist = hexDistance(currentHex, receiver.coord);
         return { action: p, receiver, fwdScore, blocked, dist };
       })
@@ -399,7 +445,9 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       .sort((a, b) => b.fwdScore - a.fwdScore || a.dist - b.dist);
 
     if (forwardPassCandidates.length > 0) {
-      const best = forwardPassCandidates[0];
+      // beginner: 上位3つからランダム選択
+      const idx = diffConfig.pickBest ? 0 : Math.floor(Math.random() * Math.min(3, forwardPassCandidates.length));
+      const best = forwardPassCandidates[idx];
       console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: FORWARD PASS → ${best.receiver.position}★${best.receiver.cost} (fwd=${best.fwdScore}, dist=${best.dist})`);
       return {
         pieceId, type: 'pass',
@@ -424,8 +472,8 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
           if (isPassBlockedByBody(currentHex, relayB.coord)) return null;
           // B→Cが通るか（敵本体チェック）
           if (isPassBlockedByBody(relayB.coord, targetC.coord)) return null;
-          // B→Cの距離が遠すぎないか（8HEX以内）
-          if (hexDistance(relayB.coord, targetC.coord) > 8) return null;
+          // B→Cの距離が遠すぎないか
+          if (hexDistance(relayB.coord, targetC.coord) > diffConfig.relayMaxDist) return null;
           return { action: p, relayB, targetC };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -441,8 +489,9 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       }
     }
 
-    // ── 4. 前方にドリブル（ライン範囲内、敵ZOC外を優先） ──
-    {
+    // ── 4/5. ドリブル or 横パス（maniacは横パスを先に試す） ──
+
+    const tryDribble = (): Order | null => {
       const range = getLineRange(pm.position, true);
       const dribbles = legalActions
         .filter(a => a.action === 'dribble' && a.targetHex)
@@ -458,7 +507,6 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         })
         .filter(d => d.fwdScore > 0)
         .sort((a, b) => {
-          // ZOC外を優先、同じなら前方優先
           if (a.inZoc !== b.inZoc) return a.inZoc ? 1 : -1;
           return b.fwdScore - a.fwdScore;
         });
@@ -468,28 +516,44 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: DRIBBLE forward(${best.action.targetHex!.col},${best.action.targetHex!.row})${best.inZoc ? ' [ZOC]' : ''}`);
         return { pieceId, type: 'dribble', target: best.action.targetHex };
       }
-    }
+      return null;
+    };
 
-    // ── 5. 横パス（距離が近い味方を優先） ──
-    const lateralPasses = passes
-      .map(p => {
-        const receiver = myPieces.find(pc => pc.id === p.targetPieceId);
-        if (!receiver) return null;
-        if (isPassBlockedByBody(currentHex, receiver.coord)) return null;
-        const dist = hexDistance(currentHex, receiver.coord);
-        return { action: p, receiver, dist };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-      .sort((a, b) => a.dist - b.dist);
+    const tryLateralPass = (): Order | null => {
+      const lateralPasses = passes
+        .map(p => {
+          const receiver = myPieces.find(pc => pc.id === p.targetPieceId);
+          if (!receiver) return null;
+          if (passBlockCheck(currentHex, receiver.coord)) return null;
+          const dist = hexDistance(currentHex, receiver.coord);
+          return { action: p, receiver, dist };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .sort((a, b) => a.dist - b.dist);
 
-    if (lateralPasses.length > 0) {
-      const best = lateralPasses[0];
-      console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: LATERAL PASS → ${best.receiver.position}★${best.receiver.cost} (dist=${best.dist})`);
-      return {
-        pieceId, type: 'pass',
-        target: best.receiver.coord,
-        targetPieceId: best.receiver.id,
-      };
+      if (lateralPasses.length > 0) {
+        const best = lateralPasses[0];
+        console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: LATERAL PASS → ${best.receiver.position}★${best.receiver.cost} (dist=${best.dist})`);
+        return {
+          pieceId, type: 'pass',
+          target: best.receiver.coord,
+          targetPieceId: best.receiver.id,
+        };
+      }
+      return null;
+    };
+
+    // maniac: 横パスを先に試してテンポ維持、regular/beginner: ドリブル優先
+    if (diffConfig.preferLateralPass) {
+      const lateral = tryLateralPass();
+      if (lateral) return lateral;
+      const dribble = tryDribble();
+      if (dribble) return dribble;
+    } else {
+      const dribble = tryDribble();
+      if (dribble) return dribble;
+      const lateral = tryLateralPass();
+      if (lateral) return lateral;
     }
 
     // ── 6. 待機（最終手段） ──
