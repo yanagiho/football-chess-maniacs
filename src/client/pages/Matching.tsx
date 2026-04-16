@@ -77,7 +77,7 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
 
   // ── オンライン対戦: WS接続開始 ──
   useEffect(() => {
-    if (gameMode === 'com') return;
+    if (gameMode === 'com' || gameMode === 'comVsCom') return;
     if (!authToken) {
       setErrorMsg('ログインが必要です');
       setStatus('error');
@@ -93,10 +93,10 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
   // それ以外はクライアントサイドCOM（従来の即時マッチ）
   // refガードなし: React StrictModeの再マウントでもtimerが正常に動くようにする
   useEffect(() => {
-    if (gameMode !== 'com') return;
+    if (gameMode !== 'com' && gameMode !== 'comVsCom') return;
 
     const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
-    const useGemma = viteEnv.VITE_USE_GEMMA === 'true';
+    const useGemma = viteEnv.VITE_USE_GEMMA === 'true' && gameMode !== 'comVsCom';
 
     if (useGemma) {
       // サーバーサイドCOM: GameSession DO を作成して接続
@@ -146,7 +146,7 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
 
   // ── オンライン対戦: 経過時間カウント ──
   useEffect(() => {
-    if (gameMode === 'com') return;
+    if (gameMode === 'com' || gameMode === 'comVsCom') return;
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
@@ -155,20 +155,20 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
 
   // §4-2 30秒超でCOM提案（オンライン対戦のみ — サーバー側COM_SUGGESTEDのフォールバック）
   useEffect(() => {
-    if (gameMode === 'com') return;
+    if (gameMode === 'com' || gameMode === 'comVsCom') return;
     if (elapsed >= 30 && status === 'searching') {
       setStatus('com_suggested');
     }
   }, [elapsed, status, gameMode]);
 
-  // ── COM対戦時は専用のUI ──
-  if (gameMode === 'com') {
+  // ── COM対戦 / COM観戦時は専用のUI ──
+  if (gameMode === 'com' || gameMode === 'comVsCom') {
     return (
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         justifyContent: 'center', height: '100%', gap: 24,
       }}>
-        <h2 style={{ fontSize: 22, fontWeight: 'bold' }}>COM対戦</h2>
+        <h2 style={{ fontSize: 22, fontWeight: 'bold' }}>{gameMode === 'comVsCom' ? 'COM観戦' : 'COM対戦'}</h2>
         <div style={{
           width: 60, height: 60, borderRadius: '50%',
           border: '4px solid rgba(255,255,255,0.1)', borderTopColor: '#44aa44',

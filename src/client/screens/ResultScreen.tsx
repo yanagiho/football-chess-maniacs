@@ -14,7 +14,7 @@ interface ResultScreenProps {
   reason: 'completed' | 'disconnect';
   stats: MatchStats;
   mvp: MvpInfo | null;
-  gameMode: 'ranked' | 'casual' | 'com';
+  gameMode: 'ranked' | 'casual' | 'com' | 'comVsCom';
   onNavigate: (page: Page) => void;
 }
 
@@ -128,6 +128,9 @@ export default function ResultScreen({
         <ResultButton label="リプレイを見る" onClick={() => onNavigate('replayViewer')} />
         {gameMode === 'com' && (
           <ResultButton label="もう一度" primary onClick={() => onNavigate('formation')} />
+        )}
+        {gameMode === 'comVsCom' && (
+          <ResultButton label="もう一度" primary onClick={() => onNavigate('matching')} />
         )}
         <ResultButton label="ホームに戻る" onClick={() => onNavigate('title')} />
       </div>

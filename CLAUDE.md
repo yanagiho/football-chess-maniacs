@@ -176,6 +176,7 @@ src/
 | output_parser shoot target補完 | zone のみ出力時に合法手の targetHex でゴール座標を補完 | ✅ |
 | generateComOrders 外側タイムアウト | 5秒 Promise.race ガード（Workers AIハング時のDOブロック防止） | ✅ |
 | fallback 空orders対応 | validCount=0 で全面フォールバック（partial_fillにならない） | ✅ |
+| COM観戦モード（COM vs COM） | モード選択→即マッチング→両チームAI自動操作→演出付き自動進行→結果画面 | ✅ |
 
 ---
 
@@ -337,6 +338,16 @@ src/
 
 - **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない。タイマー系のuseEffectではrefガードを使わないこと
 
+#### COM観戦モード（COM vs COM）
+- `GameMode = 'comVsCom'`。モード選択画面に「COM観戦」ボタン
+- **フロー**: ModeSelect → チーム選択・編成・難易度をスキップ → Matching（即マッチ）→ Battle（両チーム自動操作）→ Result
+- **Battle.tsx**: `isComVsCom`フラグで制御。INPUTフェーズ開始500ms後に`handleConfirmRef.current()`で自動確定
+- **home側AI**: `generateRuleBasedOrders({ myTeam: 'home', ... })`で命令生成（away側と同じ`enginePieces`を共有）
+- **away側AI**: 通常のCOM対戦と同じルールベースAI
+- **ハーフタイム**: 交代パネルを即スキップ（`isComVsCom`時は`setHalftimeReady(true)`を即実行）
+- **Gemma無効**: comVsComでは`VITE_USE_GEMMA`設定に関わらず常にクライアントサイドCOM
+- **結果画面**: 「もう一度」ボタンは`matching`画面に直接遷移（編成をスキップ）
+
 ### ボール操作UI
 - **ボール非保持者タップ → 移動先HEXタップ → 移動命令**
 - **ボール保持者タップ → HEXタップで自動判定**:
@@ -406,6 +417,14 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 6. ゴール時: 「GOAL!」演出 → 初期配置リスタート → 失点チームキックオフ
 7. 前半15ターン+AT → 「HALF TIME」演出 → 「SECOND HALF」→ 後半15ターン+AT → 「FULL TIME」→ 結果画面
 8. Consoleログ: `[Battle] COM init` → `[Battle] processTurn: N events` → `[Battle] GOAL! home scores` 等
+
+### COM観戦（COM vs COM）の動作確認
+1. `npm run dev` でフロントエンド起動
+2. モード選択 → **COM観戦** → 即座にマッチング → バトル画面
+3. 両チームAIが自動操作。各ターン: Turn演出 → INPUT(500ms) → 自動確定 → 演出再生 → 次ターン
+4. ハーフタイム: 交代パネル即スキップ → 後半自動開始
+5. FULL TIME → 「結果を見る」ボタンクリック → 結果画面 → 「もう一度」で再マッチ
+6. Consoleログ: `[Battle] COM vs COM home AI: strategy=...` + `[Battle] COM AI: strategy=...`
 
 ---
 

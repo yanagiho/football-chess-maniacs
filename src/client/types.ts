@@ -121,7 +121,7 @@ export interface FormationData {
 export const MAX_ROW = 33;
 
 /** ゲームモード */
-export type GameMode = 'ranked' | 'casual' | 'com';
+export type GameMode = 'ranked' | 'casual' | 'com' | 'comVsCom';
 
 /** COM難易度 */
 export type ComDifficulty = 'beginner' | 'regular' | 'maniac';

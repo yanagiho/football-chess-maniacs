@@ -114,7 +114,11 @@ export default function App() {
   // ModeSelect からの遷移: COM時は難易度選択を挟む
   // mode引数で選択されたモードを直接受け取り、state更新のタイミングに依存しない
   const handleModeSelectNavigate = useCallback((p: Page, mode?: GameMode) => {
-    if (p === 'teamSelect' && mode === 'com') {
+    if (p === 'teamSelect' && mode === 'comVsCom') {
+      // COM観戦: チーム選択・編成・難易度をスキップして直接マッチングへ
+      setFormationData(null);
+      setPage('matching');
+    } else if (p === 'teamSelect' && mode === 'com') {
       setPage('difficultySelect');
     } else {
       setPage(p);

@@ -536,7 +536,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // サーバーサイドCOM: matchIdが gemma_com_ で始まる場合はDO経由（WebSocket接続）
   // クライアントサイドCOM: matchIdが com_ で始まる場合は従来のローカル処理
   const isServerCom = !!matchId?.startsWith('gemma_com_');
-  const isCom = !isServerCom && (gameMode === 'com' || matchId?.startsWith('com_'));
+  const isCom = !isServerCom && (gameMode === 'com' || gameMode === 'comVsCom' || matchId?.startsWith('com_'));
+  const isComVsCom = gameMode === 'comVsCom';
 
   // ── Gemma AI（サーバー経由）設定 ──
   // 環境変数 VITE_USE_GEMMA=true でGemma AIを有効化
@@ -760,13 +761,18 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // ハーフタイム交代パネルのカウントダウン
   useEffect(() => {
     if (ceremony !== 'halftime_sub') return;
+    // COM観戦: 交代パネルを即スキップ
+    if (isComVsCom) {
+      setHalftimeReady(true);
+      return;
+    }
     if (halftimeCountdown <= 0) {
       setHalftimeReady(true);
       return;
     }
     const t = setTimeout(() => setHalftimeCountdown(prev => prev - 1), 1000);
     return () => clearTimeout(t);
-  }, [ceremony, halftimeCountdown]);
+  }, [ceremony, halftimeCountdown, isComVsCom]);
 
   // 「後半開始」ボタン or カウントダウン完了 → SECOND HALF演出 → 後半開始
   useEffect(() => {
@@ -922,6 +928,18 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       }
     }
   }, [state.turnPhase, state.status, state.board.pieces, state.board.freeBallHex, state.myTeam, dispatch]);
+
+  // ── COM観戦: 自動確定（INPUTフェーズ開始後に自動でhandleConfirm） ──
+  const handleConfirmRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    if (!isComVsCom) return;
+    if (state.turnPhase !== 'INPUT' || state.status !== 'playing') return;
+    // 少し待ってから自動確定（Turn演出の後）
+    const timer = setTimeout(() => {
+      handleConfirmRef.current?.();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [isComVsCom, state.turnPhase, state.status]);
 
   // EXECUTION → EVENT → TURN_END は handleConfirm のsetTimeoutチェーンで管理（既存）
   // EXECUTION 安全弁: 8秒（既存の replaySafetyRef）
@@ -1299,12 +1317,28 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           ...p,
           hasBall: snapshotBallMap.get(p.id) ?? p.hasBall,
         }));
-        const homeOrders: EngineOrder[] = [...state.orders.values()]
-          .map(o => clientOrderToEngine(o, fieldPieces));
-
-        // 2. COM AI命令を生成（Gemma AI → フォールバック: ルールベース）
+        // エンジン形式に変換（home AI生成 + away AI生成で共有）
         const enginePieces = fieldPieces.map(toEnginePiece);
         const maxTurn = HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2;
+
+        let homeOrders: EngineOrder[];
+
+        if (isComVsCom) {
+          // COM観戦: home側もAIが命令を生成
+          const homeResult = generateRuleBasedOrders({
+            pieces: enginePieces, myTeam: 'home',
+            scoreHome: state.scoreHome, scoreAway: state.scoreAway,
+            turn: state.turn, maxTurn,
+            remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
+          });
+          homeOrders = homeResult.orders;
+          console.log(`[Battle] COM vs COM home AI: strategy=${homeResult.strategy}, orders=${homeOrders.length}`);
+        } else {
+          homeOrders = [...state.orders.values()]
+            .map(o => clientOrderToEngine(o, fieldPieces));
+        }
+
+        // 2. COM AI命令を生成（Gemma AI → フォールバック: ルールベース）
         let awayOrders: EngineOrder[];
 
         if (useGemmaRef.current) {
@@ -1708,6 +1742,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       navigator.vibrate([50, 30, 50]);
     }
   }, [isCom, isComVsCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, fetchGemmaOrders, comDifficulty]);
+
+  // COM観戦用: handleConfirmの最新参照を保持
+  handleConfirmRef.current = handleConfirm;
 
   const handleTimeout = useCallback(() => {
     handleConfirm();

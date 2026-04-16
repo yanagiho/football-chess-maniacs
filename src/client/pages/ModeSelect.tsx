@@ -14,6 +14,7 @@ const MODES: { id: GameMode; label: string; desc: string }[] = [
   { id: 'ranked', label: 'ランクマッチ', desc: 'レーティングに基づく真剣勝負' },
   { id: 'casual', label: 'カジュアル', desc: 'レーティング変動なしのフリー対戦' },
   { id: 'com', label: 'COM対戦', desc: 'AIと練習試合' },
+  { id: 'comVsCom', label: 'COM観戦', desc: 'AI同士の試合を観戦' },
 ];
 
 export default function ModeSelect({ onNavigate, onSelectMode }: ModeSelectProps) {
