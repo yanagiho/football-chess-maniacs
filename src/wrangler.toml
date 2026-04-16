@@ -41,10 +41,15 @@ queue = "fcms-match-results"
 max_batch_size = 10
 max_batch_timeout = 30
 
+# ── Workers AI ──
+[ai]
+binding = "AI"
+
 # ── Environment Variables ──
 [vars]
 CORS_ORIGIN = "https://manics.example.com"
 PLATFORM_API_BASE = "https://api.football-century.example.com"
+AI_MODEL_ID = "@cf/google/gemma-3-12b-it"
 
 # ── Secrets (set via `wrangler secret put`) ──
 # PLATFORM_JWKS_URL

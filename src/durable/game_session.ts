@@ -10,6 +10,10 @@ import { validateTurnInput, type TurnInput, type RawOrder, type PieceInfo } from
 import { WebSocketRateLimiter } from '../middleware/rate_limit';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../engine/turn_processor';
 import { getMovementRange } from '../engine/movement';
+import { ComAi } from '../ai/com_ai';
+import { generateRuleBasedOrders } from '../ai/rule_based';
+import { wrapAiBinding } from '../ai/gemma_client';
+import type { Difficulty, Era } from '../ai/prompt_builder';
 import type { Board, Order, OrderType, Piece, HexCoord, GameEvent, Zone, Lane, Team, Position, Cost } from '../engine/types';
 import hexMapData from '../data/hex_map.json';
 
@@ -46,6 +50,14 @@ interface GameState {
   totalTurns: number;
   /** 現在のキックオフチーム */
   kickoffTeam: 'home' | 'away';
+  /** COM対戦モード（falseならオンライン対戦） */
+  isComMatch?: boolean;
+  /** COM難易度 */
+  comDifficulty?: Difficulty;
+  /** COM時代 */
+  comEra?: Era;
+  /** COMセッショントークン（WebSocket認証用、推測不能なランダム値） */
+  comSessionToken?: string;
 }
 
 /** WebSocketにアタッチするメタデータ */
@@ -160,32 +172,48 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       return new Response('Expected WebSocket upgrade', { status: 426 });
     }
 
-    // §7-2: upgradeハンドラでJWT検証 → 未認証接続は一切存在しない
-    const token = url.searchParams.get('token');
-    if (!token) {
-      return new Response('Missing token', { status: 401 });
-    }
+    // COM対戦セッション: JWT不要（userIdはクエリパラメータから取得）
+    const existingState = await this.getGameState();
+    const isComSession = existingState?.isComMatch === true;
 
     let userId: string;
-    try {
-      const state = await this.getGameState();
-      const players = state ? [state.homeUserId, state.awayUserId] : undefined;
-      const result = await verifyWebSocketToken(
-        token,
-        this.env.PLATFORM_JWKS_URL,
-        players,
-      );
-      userId = result.userId;
-    } catch (e) {
-      // 検証失敗 → upgradeを拒否（HTTP 401）
-      return new Response(`Authentication failed: ${(e as Error).message}`, { status: 401 });
+    if (isComSession) {
+      // COM対戦: セッショントークンで認証（推測不能なランダム値）
+      const token = url.searchParams.get('token');
+      if (!token) {
+        return new Response('Missing token for COM session', { status: 401 });
+      }
+      // comSessionToken と一致するか検証
+      if (!existingState?.comSessionToken || token !== existingState.comSessionToken) {
+        return new Response('Invalid COM session token', { status: 403 });
+      }
+      userId = existingState.homeUserId;
+    } else {
+      // §7-2: upgradeハンドラでJWT検証 → 未認証接続は一切存在しない
+      const token = url.searchParams.get('token');
+      if (!token) {
+        return new Response('Missing token', { status: 401 });
+      }
+
+      try {
+        const players = existingState ? [existingState.homeUserId, existingState.awayUserId] : undefined;
+        const result = await verifyWebSocketToken(
+          token,
+          this.env.PLATFORM_JWKS_URL,
+          players,
+        );
+        userId = result.userId;
+      } catch (e) {
+        // 検証失敗 → upgradeを拒否（HTTP 401）
+        return new Response(`Authentication failed: ${(e as Error).message}`, { status: 401 });
+      }
     }
 
     // WebSocket Hibernation API でペアを作成
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
-    const state = await this.getGameState();
+    const state = existingState;
     const team = state?.homeUserId === userId ? 'home' : 'away';
 
     // サーバー側WebSocketにメタデータをアタッチ
@@ -220,6 +248,10 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       matchId: string;
       homeUserId: string;
       awayUserId: string;
+      isComMatch?: boolean;
+      comSessionToken?: string;
+      comDifficulty?: Difficulty;
+      comEra?: Era;
     };
 
     const existingState = await this.getGameState();
@@ -256,6 +288,10 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       halfTimeTurn,
       totalTurns,
       kickoffTeam,
+      isComMatch: body.isComMatch ?? false,
+      comDifficulty: body.comDifficulty ?? 'regular',
+      comEra: body.comEra ?? '現代',
+      comSessionToken: body.comSessionToken,
     };
 
     await this.ctx.storage.put('gameState', state);
@@ -363,8 +399,9 @@ export class GameSession extends DurableObject<Env['Bindings']> {
 
     ws.send(JSON.stringify({ type: 'INPUT_ACCEPTED', turn: state.turn }));
 
-    // 両者入力済みか確認
-    if (this.turnInputs.size >= 2) {
+    // 両者入力済みか確認（COM対戦は1人でOK）
+    const requiredInputs = state.isComMatch ? 1 : 2;
+    if (this.turnInputs.size >= requiredInputs) {
       await this.resolveTurn(state);
     } else {
       await this.ctx.storage.put('gameState', state);
@@ -380,7 +417,14 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     const homeInput = this.turnInputs.get(state.homeUserId);
     const awayInput = this.turnInputs.get(state.awayUserId);
     const homeOrders: Order[] = (homeInput?.orders ?? []).map(rawOrderToEngine);
-    const awayOrders: Order[] = (awayInput?.orders ?? []).map(rawOrderToEngine);
+    let awayOrders: Order[];
+
+    if (state.isComMatch && !awayInput) {
+      // COM対戦: Gemma AI → フォールバック時はルールベースAI
+      awayOrders = await this.generateComOrders(state);
+    } else {
+      awayOrders = (awayInput?.orders ?? []).map(rawOrderToEngine);
+    }
 
     // ── エンジンでターン実行 ──
     if (!state.board) {
@@ -498,12 +542,14 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     // ターンタイムアウト：未入力プレイヤーは「全コマ指示なし」
-    if (this.turnInputs.size < 2) {
+    const requiredInputs = state.isComMatch ? 1 : 2;
+    if (this.turnInputs.size < requiredInputs) {
       // 未入力側の入力をデフォルト（静止）で補完
       if (!this.turnInputs.has(state.homeUserId)) {
         this.turnInputs.set(state.homeUserId, createEmptyTurnInput(state.matchId, state.turn, state.homeUserId));
       }
-      if (!this.turnInputs.has(state.awayUserId)) {
+      // COM対戦時はaway入力を補完しない（resolveTurnでAI生成する）
+      if (!state.isComMatch && !this.turnInputs.has(state.awayUserId)) {
         this.turnInputs.set(state.awayUserId, createEmptyTurnInput(state.matchId, state.turn, state.awayUserId));
       }
       await this.resolveTurn(state);
@@ -565,6 +611,85 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       turnLog: state.turnLog,
       finishedAt: new Date().toISOString(),
     });
+  }
+
+  // ── COM AI命令生成 ──
+
+  /** COM AI全体のタイムアウト（Workers AIがハングした場合のガード） */
+  private static readonly COM_AI_TIMEOUT_MS = 5000;
+
+  private async generateComOrders(state: GameState): Promise<Order[]> {
+    if (!state.board) return [];
+
+    const pieces = state.board.pieces;
+    const difficulty = state.comDifficulty ?? 'regular';
+    const era = state.comEra ?? '現代';
+
+    const rbInput = {
+      pieces,
+      myTeam: 'away' as const,
+      scoreHome: state.scoreHome,
+      scoreAway: state.scoreAway,
+      turn: state.turn,
+      maxTurn: state.totalTurns,
+      remainingSubs: state.remainingSubs[state.awayUserId] ?? 3,
+      benchPieces: [] as Piece[],
+      maxFieldCost: 16,
+    };
+
+    // Gemma AIを試行（外側タイムアウト付き）
+    try {
+      const aiPromise = (async () => {
+        const ai = new ComAi({
+          ai: wrapAiBinding(this.env.AI),
+          modelId: this.env.AI_MODEL_ID,
+          timeoutMs: 2000,
+        });
+
+        return ai.generateOrders({
+          ...rbInput,
+          difficulty,
+          era,
+          matchId: state.matchId,
+        });
+      })();
+
+      // 外側タイムアウト: ComAi内部の2秒 + マージン
+      const result = await Promise.race([
+        aiPromise,
+        new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), GameSession.COM_AI_TIMEOUT_MS),
+        ),
+      ]);
+
+      if (!result) {
+        // 外側タイムアウト発火 → ルールベースフォールバック
+        console.warn(`[GameSession] COM AI outer timeout (${GameSession.COM_AI_TIMEOUT_MS}ms), falling back to rule-based`);
+        return generateRuleBasedOrders(rbInput).orders;
+      }
+
+      // エラーログをR2に保存
+      if (result.errorLog) {
+        try {
+          const logKey = `ai-errors/${state.matchId}/${state.turn}.json`;
+          await this.env.R2.put(logKey, JSON.stringify(result.errorLog));
+        } catch {
+          // R2保存失敗は無視
+        }
+      }
+
+      console.log(
+        `[GameSession] COM AI turn ${state.turn}: usedGemma=${result.usedGemma}, ` +
+        `latency=${result.gemmaLatencyMs}ms, fallback=${result.fallbackReason}, ` +
+        `gemmaOrders=${result.gemmaOrderCount}, rbFill=${result.ruleBasedFillCount}`,
+      );
+
+      return result.orders;
+    } catch (e) {
+      // Gemma完全障害 → ルールベースフォールバック
+      console.error(`[GameSession] COM AI error, falling back to rule-based:`, e);
+      return generateRuleBasedOrders(rbInput).orders;
+    }
   }
 
   // ── ヘルパー ──

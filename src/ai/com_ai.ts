@@ -158,7 +158,7 @@ export class ComAi {
       const decision = decideFallbackFromError(gemmaResult.error);
       const fallback = applyFallback([], ruleBasedResult.orders, decision);
 
-      const errorLog = buildErrorLog(matchId, turn, decision.reason!, {
+      const errorLog = buildErrorLog(matchId, turn, decision.reason, {
         gemmaLatencyMs: gemmaResult.error.type === 'timeout' ? gemmaResult.error.latencyMs : undefined,
       });
 
@@ -180,11 +180,11 @@ export class ComAi {
     const parseResult = parseGemmaOutput(gemmaResult.result.raw, legalMoves);
     const parseDecision = decideFallbackFromParse(parseResult, legalMoves.length);
 
-    if (parseDecision.fullFallback) {
+    if (parseDecision.fullFallback && parseDecision.reason) {
       // §9-4: 全面フォールバック（パースエラー or 過半数不正）
       const fallback = applyFallback([], ruleBasedResult.orders, parseDecision);
 
-      const errorLog = buildErrorLog(matchId, turn, parseDecision.reason!, {
+      const errorLog = buildErrorLog(matchId, turn, parseDecision.reason, {
         gemmaLatencyMs: gemmaResult.result.latencyMs,
         gemmaRawOutput: gemmaResult.result.raw.slice(0, 500),
         parseStats: parseResult.stats,
@@ -207,8 +207,8 @@ export class ComAi {
     // 部分フォールバック or フォールバック不要
     const fallback = applyFallback(parseResult.validOrders, ruleBasedResult.orders, parseDecision);
 
-    const errorLog = parseDecision.needsFallback
-      ? buildErrorLog(matchId, turn, parseDecision.reason!, {
+    const errorLog = (parseDecision.needsFallback && parseDecision.reason)
+      ? buildErrorLog(matchId, turn, parseDecision.reason, {
           gemmaLatencyMs: gemmaResult.result.latencyMs,
           parseStats: parseResult.stats,
         })

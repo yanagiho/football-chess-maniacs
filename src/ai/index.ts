@@ -19,7 +19,7 @@ export { buildPrompt } from './prompt_builder';
 export type { Difficulty, Era, PromptContext, TurnHistoryEntry } from './prompt_builder';
 
 // Gemmaクライアント（§9-1）
-export { callGemma } from './gemma_client';
+export { callGemma, wrapAiBinding } from './gemma_client';
 export type { AiBinding, GemmaClientConfig, GemmaResult, GemmaError } from './gemma_client';
 
 // 出力パーサー（§9-3）
@@ -28,7 +28,7 @@ export type { ParseResult, ParseStats, RawGemmaOrder } from './output_parser';
 
 // フォールバック（§9-4）
 export { decideFallbackFromError, decideFallbackFromParse, applyFallback, buildErrorLog } from './fallback';
-export type { FallbackReason, FallbackDecision, FallbackResult, AiErrorLog } from './fallback';
+export type { FallbackReason, FallbackDecision, FallbackDecisionWithReason, FallbackResult, AiErrorLog } from './fallback';
 
 // 統合COM AI（§1-1）
 export { ComAi, createComAi } from './com_ai';

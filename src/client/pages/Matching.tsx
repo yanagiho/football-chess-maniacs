@@ -5,18 +5,19 @@
 // ============================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { Page, GameMode, Team, MatchmakingWsMessage } from '../types';
+import type { Page, GameMode, Team, MatchmakingWsMessage, ComDifficulty } from '../types';
 import { getWsBaseUrl } from '../types';
 import { useWebSocket } from '../hooks/useWebSocket';
 
 interface MatchingProps {
   onNavigate: (page: Page) => void;
-  onMatchFound: (matchId: string, team?: Team) => void;
+  onMatchFound: (matchId: string, team?: Team, serverComToken?: string) => void;
   gameMode: GameMode;
   authToken: string;
+  comDifficulty?: ComDifficulty;
 }
 
-export default function Matching({ onNavigate, onMatchFound, gameMode, authToken }: MatchingProps) {
+export default function Matching({ onNavigate, onMatchFound, gameMode, authToken, comDifficulty = 'regular' }: MatchingProps) {
   const [elapsed, setElapsed] = useState(0);
   const [status, setStatus] = useState<'searching' | 'found' | 'com_suggested' | 'error'>('searching');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -88,18 +89,60 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
   }, [gameMode, authToken, wsConnect, wsDisconnect]);
 
   // ── COM対戦: 即座にマッチング成立 ──
+  // VITE_USE_GEMMA=true の場合はサーバーサイドCOM（GameSession DO経由）
+  // それ以外はクライアントサイドCOM（従来の即時マッチ）
   // refガードなし: React StrictModeの再マウントでもtimerが正常に動くようにする
   useEffect(() => {
     if (gameMode !== 'com') return;
 
-    const timer = setTimeout(() => {
-      const comMatchId = `com_${Date.now()}`;
-      setStatus('found');
-      onMatchFound(comMatchId);
-    }, 1000);
+    const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+    const useGemma = viteEnv.VITE_USE_GEMMA === 'true';
 
-    return () => clearTimeout(timer);
-  }, [gameMode, onMatchFound]);
+    if (useGemma) {
+      // サーバーサイドCOM: GameSession DO を作成して接続
+      let cancelled = false;
+      const baseUrl = viteEnv.VITE_API_BASE ?? '';
+
+      (async () => {
+        try {
+          const res = await fetch(`${baseUrl}/match/com`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              comDifficulty,
+              comEra: '現代',
+            }),
+          });
+          if (!res.ok) throw new Error(`Server returned ${res.status}`);
+          const data = await res.json() as { matchId: string; userId: string; team: 'home' | 'away'; token: string };
+          if (cancelled) return;
+          // サーバーが返したmatchIdを使用（gemma_com_で始まる）
+          // Battle.tsxはこのprefixでサーバーサイドCOMと判別する
+          // tokenはセッション認証用（推測不能なランダム値、WebSocket接続時に使用）
+          setStatus('found');
+          onMatchFound(data.matchId, data.team, data.token);
+        } catch (e) {
+          console.warn('[Matching] Server-side COM creation failed, falling back to client-side:', e);
+          if (cancelled) return;
+          // フォールバック: クライアントサイドCOM
+          const comMatchId = `com_${Date.now()}`;
+          setStatus('found');
+          onMatchFound(comMatchId);
+        }
+      })();
+
+      return () => { cancelled = true; };
+    } else {
+      // クライアントサイドCOM（従来）: 1秒後に即マッチ
+      const timer = setTimeout(() => {
+        const comMatchId = `com_${Date.now()}`;
+        setStatus('found');
+        onMatchFound(comMatchId);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [gameMode, onMatchFound, comDifficulty]);
 
   // ── オンライン対戦: 経過時間カウント ──
   useEffect(() => {

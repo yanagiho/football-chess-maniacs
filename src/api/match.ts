@@ -86,6 +86,50 @@ match.get('/', async (c) => {
   return c.json({ matches: result.results });
 });
 
+// ── COM対戦セッション作成（サーバーサイドAI用） ──
+// VITE_USE_GEMMA=true 時に Matching.tsx から呼ばれる
+// GameSession DO を作成し /init を COM パラメータ付きで呼び出す
+match.post('/com', async (c) => {
+  let body: { comDifficulty?: string; comEra?: string };
+  try {
+    body = await c.req.json() as { comDifficulty?: string; comEra?: string };
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const randomSuffix = crypto.randomUUID().slice(0, 12);
+  const matchId = `gemma_com_${Date.now()}_${randomSuffix}`;
+  const userId = `com_player_${randomSuffix}`;
+  // セッショントークン: WebSocket認証に使用（推測不能なランダム値）
+  const sessionToken = crypto.randomUUID();
+
+  // GameSession DO を作成
+  const doId = c.env.GAME_SESSION.idFromName(matchId);
+  const stub = c.env.GAME_SESSION.get(doId);
+
+  // /init を呼び出して COM パラメータを設定
+  const initRes = await stub.fetch(new Request('https://do/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      matchId,
+      homeUserId: userId,
+      awayUserId: 'com_ai',
+      isComMatch: true,
+      comSessionToken: sessionToken,
+      comDifficulty: body.comDifficulty ?? 'regular',
+      comEra: body.comEra ?? '現代',
+    }),
+  }));
+
+  if (!initRes.ok) {
+    const errBody = await initRes.text();
+    return c.json({ error: 'Failed to initialize COM session', detail: errBody }, 500);
+  }
+
+  return c.json({ matchId, userId, team: 'home' as const, token: sessionToken });
+});
+
 // ── ゲームセッションWebSocket接続 ──
 match.get('/:matchId/ws', async (c) => {
   const upgradeHeader = c.req.header('Upgrade');

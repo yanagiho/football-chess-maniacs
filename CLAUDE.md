@@ -50,7 +50,8 @@ src/
 ├── api/
 │   ├── auth.ts               # プラットフォーム認証・Webhook
 │   ├── team.ts               # チーム編成CRUD（D1）
-│   ├── match.ts              # マッチング・セッション接続
+│   ├── match.ts              # マッチング・セッション接続・COM対戦DO作成
+│   ├── ai.ts                 # AI APIエンドポイント（/api/ai/test, /api/ai/turn）
 │   └── replay.ts             # リプレイ取得（R2）
 ├── middleware/
 │   ├── jwt_verify.ts         # JWT検証（JWKS）
@@ -66,7 +67,7 @@ src/
     │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com → onSelectMode）
     │   ├── TeamSelect.tsx     # チーム選択
     │   ├── Formation.tsx      # 編成画面v2（→onFormationConfirmでApp.tsxへデータ引継ぎ）
-    │   ├── Matching.tsx       # マッチング待機（COM: 1秒即遷移 / Online: WS接続+キュー参加）
+    │   ├── Matching.tsx       # マッチング待機（COM: クライアント即遷移 or サーバーDO作成 / Online: WS接続+キュー参加）
     │   ├── Battle.tsx         # 対戦画面（processTurn接続済・演出・ゴールリスタート・flipY）
     │   ├── HalfTime.tsx       # ハーフタイム
     │   ├── Result.tsx         # 結果画面
@@ -113,7 +114,7 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E | ✅ 281 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール | ✅ 350 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -166,6 +167,15 @@ src/
 | ミニゲームCOM AI | FK/PK GKゾーン選択を学習型AIに変更（プレイヤー傾向分析+難易度別精度） | ✅ |
 | ミニゲーム結果フィードバック | FK/PK: キッカーvsGKゾーン対比表示、CK: 3ゾーン勝敗詳細表示 | ✅ |
 | CenterOverlay改行対応 | whiteSpace:pre-lineでsubTextの\n改行をサポート | ✅ |
+| Workers AI統合 | wrangler.toml AI binding + AI_MODEL_ID env var + wrapAiBinding adapter | ✅ |
+| AI APIエンドポイント | POST /api/ai/test (デバッグ) + POST /api/ai/turn (COM対戦) | ✅ |
+| AIモジュールユニットテスト | output_parser(20) + fallback(15) + prompt_builder(24) + com_ai(11) = 69テスト | ✅ |
+| Gemmaプロンプトトークン計測 | 初期盤面4,854chars / 実合法手7,500-7,800chars（Gemma 12B 8192トークン上限内） | ✅ |
+| サーバーサイドCOM対戦フロー | POST /match/com → GameSession DO /init → WS接続 → COM AI生成（Gemma+フォールバック） | ✅ |
+| COM対戦セッション認証 | comSessionToken(crypto.randomUUID) でWS認証、レート制限付き | ✅ |
+| output_parser shoot target補完 | zone のみ出力時に合法手の targetHex でゴール座標を補完 | ✅ |
+| generateComOrders 外側タイムアウト | 5秒 Promise.race ガード（Workers AIハング時のDOブロック防止） | ✅ |
+| fallback 空orders対応 | validCount=0 で全面フォールバック（partial_fillにならない） | ✅ |
 
 ---
 
@@ -302,19 +312,29 @@ src/
 - **Turn X**: 通常ターン切替のフラッシュ（1.2秒）
 - **実行**: ターン確定後→「実行」バナー表示（2.5秒）→次ターン。resolving中はタイマー停止+確定ボタン無効。8秒安全タイムアウト
 
-### COM対戦フロー
-- モード選択で`com`を選択 → App.tsxの`gameMode` stateに保存
-- Matching.tsxでCOM時は1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
-- Battle.tsxでCOM時は`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化（サーバー不要）
+### COM対戦フロー（2パス構成）
+
+#### パス1: クライアントサイドCOM（デフォルト）
+- matchIdが `com_` で始まる。サーバー不要、全処理がブラウザ内で完結
+- Matching.tsxで1秒後に`onMatchFound(comMatchId)`で即座にBattle画面へ遷移
+- Battle.tsxで`INIT_MATCH` dispatchでゲーム状態をクライアント側で初期化
+- `VITE_USE_GEMMA=true` の場合は `POST /api/ai/turn` でGemma AIを呼び出し、失敗時はルールベースにフォールバック
 - **COM AIターン処理の流れ**:
   1. `handleConfirm` → プレイヤー命令を `clientOrderToEngine` でエンジン形式に変換
-  2. `generateRuleBasedOrders({ difficulty: comDifficulty })` でaway命令生成（エンジンOrder互換）
-  3. `EngineBoard` 構築（フィールドコマのみ）
+  2. Gemma有効時: `fetchGemmaOrders()` → 失敗時 `generateRuleBasedOrders({ difficulty: comDifficulty })` にフォールバック
+  3. Gemma無効時: `generateRuleBasedOrders({ difficulty: comDifficulty })` でaway命令生成
   4. **`processTurn(board, homeOrders, awayOrders, boardContext)` 実行** — Phase0〜3で全判定
   5. `hasGoal()` でゴール判定 → スコア加算
-  6. `enginePiecesToClient()` でクライアント形式に戻す
-  7. `APPLY_ENGINE_RESULT` dispatch → resolving状態
-  8. 2.5秒後: ゴール時は`GOAL!`演出(2秒) → `createGoalRestartPieces` で初期配置リスタート → `NEXT_TURN`、ゴールなしは直接 `NEXT_TURN`
+  6. `APPLY_ENGINE_RESULT` dispatch → resolving状態
+
+#### パス2: サーバーサイドCOM（`VITE_USE_GEMMA=true` 時）
+- matchIdが `gemma_com_` で始まる。GameSession DOが全処理を管理
+- **フロー**: Matching.tsx → `POST /match/com` → GameSession DO `/init`（isComMatch=true）→ WS接続 → `TURN_INPUT` 送信 → DO内で `generateComOrders`（Gemma AI + ルールベースフォールバック）→ `TURN_RESULT` 配信
+- **認証**: `crypto.randomUUID()` でセッショントークン生成、`comSessionToken` でWS認証（推測不能）
+- **トークン伝搬**: `/match/com` → `{token}` → `onMatchFound(matchId, team, token)` → `App.tsx comAuthToken` → `Battle.tsx authToken` → WS `?token=`
+- **外側タイムアウト**: `generateComOrders` に5秒の `Promise.race` ガード（Workers AIハング時のDOブロック防止）
+- サーバー接続失敗時はクライアントサイドCOMにフォールバック
+
 - **React.StrictModeの注意**: useEffectにrefガードを入れるとStrictModeで2回目のmount時にeffectが実行されない。タイマー系のuseEffectではrefガードを使わないこと
 
 ### ボール操作UI
@@ -356,6 +376,7 @@ src/
 ### オンライン対戦（クライアント側実装済、E2Eテスト未実施）
 - **Matching.tsx**: ranked/casual時に `/match/ws` へWebSocket接続、`JOIN_QUEUE` 送信、`MATCH_FOUND` で遷移
 - **Battle.tsx**: `/match/:matchId/ws` へWebSocket接続、`TURN_INPUT` 送信、`TURN_RESULT`/`INPUT_ACCEPTED`/`RECONNECT` 等を処理
+- **サーバーサイドCOM**: `POST /match/com` → GameSession DO作成 → WS接続（`gemma_com_` prefix で判別）
 - サーバー側は全て実装済み（Matchmaking DO / GameSession DO / API）
 - `wrangler dev --local` + `npm run dev` の並列起動でオンライン対戦テスト可能
 
@@ -364,7 +385,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全281テスト）
+npm test              # vitest run（全350テスト）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
@@ -439,3 +460,5 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 - `tsconfig.json`: target ES2022, module ESNext, moduleResolution bundler, jsx react-jsx, strict
 - `vitest.config.ts`: globals: false, environment: node
 - `vite.config.ts`: root=src/client, React plugin, 出力=dist/
+- `wrangler.toml`: `[ai] binding = "AI"`, `AI_MODEL_ID = "@cf/google/gemma-3-12b-it"`
+- `VITE_USE_GEMMA=true`: クライアント側のGemma AI呼び出しを有効化（.env.localで設定）

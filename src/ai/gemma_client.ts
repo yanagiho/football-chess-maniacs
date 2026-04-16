@@ -10,9 +10,16 @@ import type { PromptMessages } from './prompt_builder';
 // 型定義
 // ================================================================
 
-/** Workers AI バインディング（Cloudflare env.AI） */
+/** Workers AI バインディング（Cloudflare env.AI 互換） */
 export interface AiBinding {
   run(model: string, input: { messages: Array<{ role: string; content: string }> }): Promise<AiResponse>;
+}
+
+/** Cloudflare env.AI → AiBinding ラッパー */
+export function wrapAiBinding(ai: { run(model: string, inputs: unknown): Promise<unknown> }): AiBinding {
+  return {
+    run: (model, input) => ai.run(model, input) as Promise<AiResponse>,
+  };
 }
 
 export interface AiResponse {

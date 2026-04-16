@@ -30,8 +30,14 @@ export interface FallbackDecision {
   needsFallback: boolean;
   /** 全面フォールバック（ルールベースで全11枚置換）か */
   fullFallback: boolean;
-  /** 理由 */
+  /** 理由（needsFallback=true 時は必ず非null） */
   reason: FallbackReason | null;
+}
+
+/** needsFallback=true のときの FallbackDecision（reason が非null保証） */
+export interface FallbackDecisionWithReason extends FallbackDecision {
+  needsFallback: true;
+  reason: FallbackReason;
 }
 
 export interface FallbackResult {
@@ -50,9 +56,9 @@ export interface FallbackResult {
 // ================================================================
 
 /**
- * §9-4 Gemmaエラーからフォールバック判定
+ * §9-4 Gemmaエラーからフォールバック判定（常に全面フォールバック）
  */
-export function decideFallbackFromError(error: GemmaError): FallbackDecision {
+export function decideFallbackFromError(error: GemmaError): FallbackDecisionWithReason {
   switch (error.type) {
     case 'timeout':
       return { needsFallback: true, fullFallback: true, reason: 'timeout' };
@@ -78,6 +84,11 @@ export function decideFallbackFromParse(parseResult: ParseResult, totalPieces: n
     if (illegalRate > 0.5) {
       return { needsFallback: true, fullFallback: true, reason: 'majority_illegal' };
     }
+  }
+
+  // 有効order 0件（空のorders配列など）→ 全面フォールバック
+  if (parseResult.stats.validCount === 0 && totalPieces > 0) {
+    return { needsFallback: true, fullFallback: true, reason: 'majority_illegal' };
   }
 
   // 一部コマの指示が欠けている → 部分フォールバック

@@ -533,7 +533,58 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   /** 全ターンの累積イベントログ（スタッツ集計用） */
   const cumulativeEventsRef = useRef<GameEvent[]>([]);
 
-  const isCom = gameMode === 'com' || matchId?.startsWith('com_');
+  // サーバーサイドCOM: matchIdが gemma_com_ で始まる場合はDO経由（WebSocket接続）
+  // クライアントサイドCOM: matchIdが com_ で始まる場合は従来のローカル処理
+  const isServerCom = !!matchId?.startsWith('gemma_com_');
+  const isCom = !isServerCom && (gameMode === 'com' || matchId?.startsWith('com_'));
+
+  // ── Gemma AI（サーバー経由）設定 ──
+  // 環境変数 VITE_USE_GEMMA=true でGemma AIを有効化
+  // クライアントサイドCOM時のみ使用（サーバーサイドCOMはDO内でAI実行）
+  // フォールバック: サーバー接続失敗時はローカルのルールベースAIを使用
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+  const useGemmaRef = useRef(viteEnv.VITE_USE_GEMMA === 'true');
+
+  /** サーバーのGemma AI APIを呼び出してaway命令を取得 */
+  const fetchGemmaOrders = useCallback(async (
+    pieces: EnginePiece[],
+    scoreHome: number,
+    scoreAway: number,
+    turn: number,
+    maxTurn: number,
+  ): Promise<EngineOrder[] | null> => {
+    try {
+      const baseUrl = viteEnv.VITE_API_BASE ?? '';
+      const res = await fetch(`${baseUrl}/api/ai/turn`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pieces,
+          myTeam: 'away',
+          scoreHome,
+          scoreAway,
+          turn,
+          maxTurn,
+          difficulty: comDifficulty,
+          era: '現代',
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as {
+        orders: Array<{ pieceId: string; type: string; target?: { col: number; row: number }; targetPieceId?: string }>;
+        usedGemma: boolean;
+        gemmaLatencyMs: number | null;
+        fallbackReason: string | null;
+      };
+      console.log(
+        `[Battle] Gemma AI: usedGemma=${data.usedGemma}, latency=${data.gemmaLatencyMs}ms, fallback=${data.fallbackReason}`,
+      );
+      return data.orders as EngineOrder[];
+    } catch (e) {
+      console.warn('[Battle] Gemma AI fetch failed, using rule-based fallback:', e);
+      return null;
+    }
+  }, [comDifficulty]);
 
   // ── ハーフタイム交代管理 ──
   const [halftimeSubsUsed, setHalftimeSubsUsed] = useState(0);
@@ -631,7 +682,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     token: authToken ?? '',
     onMessage: handleOnlineMessage,
     onDisconnect: () => {
-      if (!isCom) {
+      if (!isCom || isServerCom) {
         setDisconnectBanner('サーバーとの接続が切断されました。再接続中...');
       }
     },
@@ -642,10 +693,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     autoReconnect: true,
   });
 
-  // ── オンライン対戦: WS接続 + ゲーム初期化 ──
+  // ── オンライン対戦 / サーバーサイドCOM: WS接続 + ゲーム初期化 ──
   useEffect(() => {
-    if (isCom) return;
-    if (!matchId || !authToken) return;
+    if (isCom && !isServerCom) return;
+    if (!matchId) return;
+    // オンライン対戦はauthToken必須、サーバーサイドCOMはauthTokenなしでも接続可能
+    if (!isServerCom && !authToken) return;
 
     wsConnect();
 
@@ -659,7 +712,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
 
     return () => wsDisconnect();
-  }, [isCom, matchId, authToken, wsConnect, wsDisconnect, dispatch, propMyTeam]);
+  }, [isCom, isServerCom, matchId, authToken, wsConnect, wsDisconnect, dispatch, propMyTeam]);
 
   // ── COM対戦: ゲーム状態を即座に初期化 ──
   // ── 1st Halfキックオフチーム（ランダム決定、2nd Halfは逆） ──
@@ -1226,7 +1279,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     flyingBallResolveRef.current = null;
   }, []);
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
     if (state.status !== 'playing' || state.turnPhase !== 'INPUT') return;
 
     // フェーズをWAITINGに移行
@@ -1249,22 +1302,43 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         const homeOrders: EngineOrder[] = [...state.orders.values()]
           .map(o => clientOrderToEngine(o, fieldPieces));
 
-        // 2. COM AI命令を生成（エンジン互換形式）
+        // 2. COM AI命令を生成（Gemma AI → フォールバック: ルールベース）
         const enginePieces = fieldPieces.map(toEnginePiece);
-        const comResult = generateRuleBasedOrders({
-          pieces: enginePieces,
-          myTeam: 'away',
-          scoreHome: state.scoreHome,
-          scoreAway: state.scoreAway,
-          turn: state.turn,
-          maxTurn: HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2,
-          remainingSubs: MAX_SUBSTITUTIONS,
-          benchPieces: [],
-          maxFieldCost: MAX_FIELD_COST,
-          difficulty: comDifficulty,
-        });
-        const awayOrders: EngineOrder[] = comResult.orders;
-        console.log(`[Battle] COM AI: strategy=${comResult.strategy}, orders=${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
+        const maxTurn = HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2;
+        let awayOrders: EngineOrder[];
+
+        if (useGemmaRef.current) {
+          // サーバー経由でGemma AIを呼び出し
+          const gemmaOrders = await fetchGemmaOrders(
+            enginePieces, state.scoreHome, state.scoreAway, state.turn, maxTurn,
+          );
+          if (gemmaOrders) {
+            awayOrders = gemmaOrders;
+            console.log(`[Battle] Gemma AI orders: ${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
+          } else {
+            // Gemmaフォールバック → ルールベース
+            const comResult = generateRuleBasedOrders({
+              pieces: enginePieces, myTeam: 'away',
+              scoreHome: state.scoreHome, scoreAway: state.scoreAway,
+              turn: state.turn, maxTurn,
+              remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
+              difficulty: comDifficulty,
+            });
+            awayOrders = comResult.orders;
+            console.log(`[Battle] Gemma fallback → rule-based: strategy=${comResult.strategy}, orders=${awayOrders.length}`);
+          }
+        } else {
+          // ローカルルールベースAI（デフォルト）
+          const comResult = generateRuleBasedOrders({
+            pieces: enginePieces, myTeam: 'away',
+            scoreHome: state.scoreHome, scoreAway: state.scoreAway,
+            turn: state.turn, maxTurn,
+            remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
+            difficulty: comDifficulty,
+          });
+          awayOrders = comResult.orders;
+          console.log(`[Battle] COM AI: strategy=${comResult.strategy}, orders=${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
+        }
 
         // 3. エンジン Board 構築
         const board: EngineBoard = { pieces: enginePieces, snapshot: [], freeBallHex: state.board.freeBallHex ?? null };
@@ -1633,7 +1707,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (isMobile && navigator.vibrate) {
       navigator.vibrate([50, 30, 50]);
     }
-  }, [isCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, comDifficulty]);
+  }, [isCom, isComVsCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, fetchGemmaOrders, comDifficulty]);
 
   const handleTimeout = useCallback(() => {
     handleConfirm();

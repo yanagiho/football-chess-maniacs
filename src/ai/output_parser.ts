@@ -114,13 +114,19 @@ export function parseGemmaOutput(
     }
 
     // 検証通過
+    // target: Gemmaの target_hex を優先し、なければマッチした合法手の targetHex を使用
+    // （shoot は zone のみで target_hex がない場合があるため、合法手の goalCoord で補完）
+    const target = rawOrder.target_hex
+      ? { col: rawOrder.target_hex[0], row: rawOrder.target_hex[1] }
+      : matchedAction.targetHex
+        ? { col: matchedAction.targetHex.col, row: matchedAction.targetHex.row }
+        : undefined;
+
     const order: Order = {
       pieceId: rawOrder.piece_id,
       type: rawOrder.action as OrderType,
-      target: rawOrder.target_hex
-        ? { col: rawOrder.target_hex[0], row: rawOrder.target_hex[1] }
-        : undefined,
-      targetPieceId: rawOrder.target_piece,
+      target,
+      targetPieceId: rawOrder.target_piece ?? matchedAction.targetPieceId,
     };
     validOrders.push(order);
     usedPieceIds.add(rawOrder.piece_id);

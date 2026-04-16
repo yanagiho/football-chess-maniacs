@@ -10,6 +10,7 @@ import authRoutes from './api/auth';
 import teamRoutes from './api/team';
 import matchRoutes from './api/match';
 import replayRoutes from './api/replay';
+import aiRoutes from './api/ai';
 import piecesRoutes from './server/pieces';
 import { jwtMiddleware } from './middleware/jwt_verify';
 import { rateLimitMiddleware, RATE_LIMITS } from './middleware/rate_limit';
@@ -32,9 +33,12 @@ export interface Env {
     R2: R2Bucket;
     // Queues
     MATCH_RESULT_QUEUE: Queue;
+    // Workers AI
+    AI: Ai;
     // Vars
     CORS_ORIGIN: string;
     PLATFORM_API_BASE: string;
+    AI_MODEL_ID: string;
     // Secrets
     PLATFORM_JWKS_URL: string;
     PLATFORM_SERVICE_API_KEY: string;
@@ -88,6 +92,11 @@ app.use('/match/*', async (c, next) => {
     // WebSocket upgradeはDO内でJWT検証するのでスキップ
     return next();
   }
+  // COM対戦セッション作成は認証不要（ログインなしでCOM対戦可能）
+  // レート制限のみ適用（DO大量生成の防止）
+  if (c.req.path === '/match/com' && c.req.method === 'POST') {
+    return rateLimitMiddleware(RATE_LIMITS.restApi)(c, next);
+  }
   // REST APIパスにはJWT認証を適用
   return jwtMiddleware()(c, next);
 });
@@ -104,6 +113,14 @@ api.route('/replays', replayRoutes);
 api.route('/pieces', piecesRoutes);
 
 app.route('/api', api);
+
+// ── AI エンドポイント（認証なし: COM対戦 + テスト用） ──
+// JWT認証の外に配置。COM対戦はログイン不要で動作する必要がある。
+// レート制限のみ適用。
+const aiApp = new Hono<Env>();
+aiApp.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
+aiApp.route('/', aiRoutes);
+app.route('/api/ai', aiApp);
 
 // ── Queues Consumer（試合結果の非同期永続化 §5-2） ──
 

@@ -84,9 +84,15 @@ export default function App() {
     setPage('matching');
   }, []);
 
-  const handleMatchFound = useCallback((id: string, team?: Team) => {
+  // サーバーサイドCOM用のトークン（POST /match/com が返すuserId）
+  const [comAuthToken, setComAuthToken] = useState<string | null>(null);
+
+  const handleMatchFound = useCallback((id: string, team?: Team, serverComToken?: string) => {
     setMatchId(id);
     setMyTeam(team ?? 'home');
+    if (serverComToken) {
+      setComAuthToken(serverComToken);
+    }
     setPage('battle');
   }, []);
 
@@ -152,6 +158,7 @@ export default function App() {
             onMatchFound={handleMatchFound}
             gameMode={gameMode}
             authToken={authToken}
+            comDifficulty={comDifficulty}
           />
         )}
         {page === 'battle' && (
@@ -159,7 +166,7 @@ export default function App() {
             onNavigate={navigate}
             matchId={matchId ?? undefined}
             gameMode={gameMode}
-            authToken={authToken}
+            authToken={comAuthToken ?? authToken}
             myTeam={myTeam}
             formationData={formationData}
             onMatchEnd={handleMatchEnd}
