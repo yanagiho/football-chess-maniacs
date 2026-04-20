@@ -108,7 +108,6 @@ api.use('*', jwtMiddleware());
 api.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
 
 api.route('/teams', teamRoutes);
-api.route('/matches', matchRoutes);
 api.route('/replays', replayRoutes);
 api.route('/pieces', piecesRoutes);
 

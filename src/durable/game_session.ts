@@ -333,9 +333,24 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     const msg = parsed as { type: string; [key: string]: unknown };
 
     switch (msg.type) {
-      case 'TURN_INPUT':
-        await this.handleTurnInput(ws, attachment, msg as unknown as TurnInput);
+      case 'TURN_INPUT': {
+        const turnMsg = msg as Record<string, unknown>;
+        if (
+          typeof turnMsg.match_id !== 'string' ||
+          typeof turnMsg.turn !== 'number' ||
+          typeof turnMsg.player_id !== 'string' ||
+          typeof turnMsg.sequence !== 'number' ||
+          typeof turnMsg.nonce !== 'string' ||
+          typeof turnMsg.timestamp !== 'number' ||
+          typeof turnMsg.client_hash !== 'string' ||
+          !Array.isArray(turnMsg.orders)
+        ) {
+          ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid TURN_INPUT format' }));
+          return;
+        }
+        await this.handleTurnInput(ws, attachment, turnMsg as unknown as TurnInput);
         break;
+      }
       case 'PING':
         ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
         break;

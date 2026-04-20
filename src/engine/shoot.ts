@@ -46,7 +46,7 @@ const SAVING_SHOOTER_MOD: Partial<Record<string, number>> = {
  * ① シュートコマのZOC内にいる守備コマ1体につき -15%
  */
 export function calcShootCourseModifier(defenderCountInShooterZoc: number): number {
-  return (defenderCountInShooterZoc * -15) || 0;
+  return defenderCountInShooterZoc === 0 ? 0 : defenderCountInShooterZoc * -15;
 }
 
 // ────────────────────────────────────────────────────────────

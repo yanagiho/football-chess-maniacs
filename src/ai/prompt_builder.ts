@@ -224,7 +224,7 @@ function buildBoardStateJson(ctx: PromptContext): string {
       position: p.position,
       cost: p.cost,
       hex: [p.coord.col, p.coord.row],
-      has_ball: p.hasBall || undefined,
+      ...(p.hasBall ? { has_ball: true } : {}),
     })),
   };
   return JSON.stringify(state, null, 0);

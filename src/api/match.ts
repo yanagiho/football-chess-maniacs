@@ -74,8 +74,8 @@ match.get('/:matchId', async (c) => {
 // ── マッチ履歴取得 ──
 match.get('/', async (c) => {
   const userId = c.get('userId');
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 100);
-  const offset = parseInt(c.req.query('offset') ?? '0');
+  const limit = Math.max(1, Math.min(parseInt(c.req.query('limit') ?? '20') || 20, 100));
+  const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0') || 0);
 
   const result = await c.env.DB.prepare(
     'SELECT id, home_user_id, away_user_id, status, score_home, score_away, created_at FROM matches WHERE home_user_id = ? OR away_user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',

@@ -37,13 +37,19 @@ team.get('/', async (c) => {
     .all<TeamComposition>();
 
   return c.json({
-    teams: result.results.map((t) => ({
-      id: t.id,
-      name: t.name,
-      fieldPieces: JSON.parse(t.field_pieces),
-      benchPieces: JSON.parse(t.bench_pieces),
-      updatedAt: t.updated_at,
-    })),
+    teams: result.results.map((t) => {
+      try {
+        return {
+          id: t.id,
+          name: t.name,
+          fieldPieces: JSON.parse(t.field_pieces),
+          benchPieces: JSON.parse(t.bench_pieces),
+          updatedAt: t.updated_at,
+        };
+      } catch {
+        return { id: t.id, name: t.name, fieldPieces: [], benchPieces: [], updatedAt: t.updated_at };
+      }
+    }),
   });
 });
 
@@ -62,13 +68,17 @@ team.get('/:teamId', async (c) => {
     return c.json({ error: 'Team not found' }, 404);
   }
 
-  return c.json({
-    id: result.id,
-    name: result.name,
-    fieldPieces: JSON.parse(result.field_pieces),
-    benchPieces: JSON.parse(result.bench_pieces),
-    updatedAt: result.updated_at,
-  });
+  try {
+    return c.json({
+      id: result.id,
+      name: result.name,
+      fieldPieces: JSON.parse(result.field_pieces),
+      benchPieces: JSON.parse(result.bench_pieces),
+      updatedAt: result.updated_at,
+    });
+  } catch {
+    return c.json({ error: 'Corrupted team data' }, 500);
+  }
 });
 
 // ── チーム作成 ──

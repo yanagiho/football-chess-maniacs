@@ -225,6 +225,9 @@ function resolveLooseBall(pieces: Piece[], freeBallHex: HexCoord): LooseBallResu
 
 /** コスト最高のコマを選出（同コストなら乱数） */
 function pickByHighestCost(candidates: Piece[]): Piece {
+  if (candidates.length === 0) {
+    throw new Error('[pickByHighestCost] candidates array is empty');
+  }
   const maxCost = Math.max(...candidates.map(p => p.cost));
   const topCandidates = candidates.filter(p => p.cost === maxCost);
   return topCandidates[Math.floor(Math.random() * topCandidates.length)];

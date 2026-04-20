@@ -54,8 +54,8 @@ export interface Cut1Input {
 /**
  * パスカット1
  * Ω = 15（守備側成功確率）
- * 攻撃側ZOC隣接: 1体につき +5
- * 守備側ZOC隣接: 1体につき -10
+ * 攻撃側ZOC隣接: 1体につき -5（敵が多いとカットしづらい）
+ * 守備側ZOC隣接: 1体につき +10（味方が多いとカットしやすい）
  */
 export function passCut1(input: Cut1Input) {
   const { interceptor, passer, zoc } = input;
@@ -65,9 +65,7 @@ export function passCut1(input: Cut1Input) {
     (CUT1_DEF_MOD[interceptor.position] ?? 0) +
     (CUT1_PASSER_MOD[passer.position] ?? 0);
 
-  // 注意: §7-3では「攻撃側ZOC隣接 +5」「守備側ZOC隣接 -10」
-  // これは守備成功確率への修正のため、攻撃側が多いと守備有利
-  const zocMod = calcZocModifier(zoc, +5, -10);
+  const zocMod = calcZocModifier(zoc, -5, +10);
 
   const prob = calcProbability(interceptor.cost, passer.cost, omega, posMod, zocMod);
   return { ...judge(prob), interceptor };
@@ -91,8 +89,8 @@ export interface Cut2Input {
 /**
  * パスカット2（トラップ妨害）
  * Ω = 10（守備側成功確率）
- * 攻撃側ZOC隣接: 1体につき +5
- * 守備側ZOC隣接: 1体につき -20
+ * 攻撃側ZOC隣接: 1体につき -5（敵が多いとカットしづらい）
+ * 守備側ZOC隣接: 1体につき +20（味方が多いとカットしやすい）
  * ※ トリガーとなった守備コマ1体目はZOC隣接に含めない
  */
 export function passCut2(input: Cut2Input) {
@@ -103,7 +101,7 @@ export function passCut2(input: Cut2Input) {
     (CUT2_DEF_MOD[interceptor.position] ?? 0) +
     (CUT2_RECEIVER_MOD[receiver.position] ?? 0);
 
-  const zocMod = calcZocModifier(zoc, +5, -20);
+  const zocMod = calcZocModifier(zoc, -5, +20);
 
   const prob = calcProbability(interceptor.cost, receiver.cost, omega, posMod, zocMod);
   return { ...judge(prob), interceptor };

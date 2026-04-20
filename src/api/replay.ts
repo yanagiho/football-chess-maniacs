@@ -54,8 +54,8 @@ replay.get('/:matchId', async (c) => {
 // ── リプレイ一覧（ユーザーの試合履歴からリプレイ可能なもの） ──
 replay.get('/', async (c) => {
   const userId = c.get('userId');
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 100);
-  const offset = parseInt(c.req.query('offset') ?? '0');
+  const limit = Math.max(1, Math.min(parseInt(c.req.query('limit') ?? '20') || 20, 100));
+  const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0') || 0);
 
   const result = await c.env.DB.prepare(
     `SELECT id, home_user_id, away_user_id, score_home, score_away, created_at
@@ -99,7 +99,11 @@ replay.get('/:matchId/turn/:turn', async (c) => {
   }
 
   const data = await object.text();
-  return c.json(JSON.parse(data));
+  try {
+    return c.json(JSON.parse(data));
+  } catch {
+    return c.json({ error: 'Corrupted turn data' }, 500);
+  }
 });
 
 export default replay;

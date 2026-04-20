@@ -64,7 +64,7 @@ src/
     ├── types.ts              # クライアント型定義（GameMode, FormationData, WsMessage, MAX_ROW等）
     ├── pages/
     │   ├── Title.tsx          # タイトル画面
-    │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com → onSelectMode）
+    │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com/comVsCom → onSelectMode）
     │   ├── TeamSelect.tsx     # チーム選択
     │   ├── Formation.tsx      # 編成画面v2（→onFormationConfirmでApp.tsxへデータ引継ぎ）
     │   ├── Matching.tsx       # マッチング待機（COM: クライアント即遷移 or サーバーDO作成 / Online: WS接続+キュー参加）
@@ -177,6 +177,7 @@ src/
 | generateComOrders 外側タイムアウト | 5秒 Promise.race ガード（Workers AIハング時のDOブロック防止） | ✅ |
 | fallback 空orders対応 | validCount=0 で全面フォールバック（partial_fillにならない） | ✅ |
 | COM観戦モード（COM vs COM） | モード選択→即マッチング→両チームAI自動操作→演出付き自動進行→結果画面 | ✅ |
+| コードレビュー修正（2026-04-20） | エンジン4件+AI3件+クライアント4件+サーバー6件 = 計17件修正（下記「2026-04-20修正」参照） | ✅ |
 
 ---
 
@@ -216,6 +217,16 @@ src/
   - 異ランク帯（1vs2, 1vs3, 1.5vs2, 2vs3 等）→ ±1
   - 同ランク帯の0.5差（1vs1.5, 2vs2.5）→ ±2（最大）
 - **設計意図**: 0.5の課金が同ランク帯ミラーマッチで最大効果。異ランク帯差は一律1でポジション修正等で覆せる
+
+### ZOC隣接修正（全判定共通ルール）
+- **全判定で統一**: 味方（守備側）が多い → 有利（+）、敵（攻撃側）が多い → 不利（-）
+- `getZocAdjacency(coord, attackTeam, pieces)` で算出。`attackCount`=攻撃チーム数、`defenseCount`=守備チーム数
+- **タックル**: 攻撃側-10 / 守備側+5（Ω=18）
+- **パスカット1**: 攻撃側-5 / 守備側+10（Ω=15）
+- **パスカット2**: 攻撃側-5 / 守備側+20（Ω=10）
+- **シュートブロック**: 攻撃側-5 / 守備側+10
+- **GKセーブ**: 攻撃側-5 / 守備側+10
+- **シュート成功**: 攻撃側+5 / 守備側-10（シューター視点のため逆）
 
 ### フェーズ処理（processTurn）
 - **フェーズ0**: スナップショット取得（移動前位置を記録）
@@ -340,11 +351,14 @@ src/
 
 #### COM観戦モード（COM vs COM）
 - `GameMode = 'comVsCom'`。モード選択画面に「COM観戦」ボタン
-- **フロー**: ModeSelect → チーム選択・編成・難易度をスキップ → Matching（即マッチ）→ Battle（両チーム自動操作）→ Result
-- **Battle.tsx**: `isComVsCom`フラグで制御。INPUTフェーズ開始500ms後に`handleConfirmRef.current()`で自動確定
-- **home側AI**: `generateRuleBasedOrders({ myTeam: 'home', ... })`で命令生成（away側と同じ`enginePieces`を共有）
-- **away側AI**: 通常のCOM対戦と同じルールベースAI
-- **ハーフタイム**: 交代パネルを即スキップ（`isComVsCom`時は`setHalftimeReady(true)`を即実行）
+- `isComVsCom = gameMode === 'comVsCom'`、`isCom` も true になる
+- **フロー**: ModeSelect → 難易度選択 → Matching（即マッチ）→ Battle（両チーム自動操作）→ Result
+- **自動ターン進行**: INPUTフェーズに入ると300ms後に `handleConfirm()` を自動呼び出し
+- **両チームAI**: home側も `generateRuleBasedOrders({ myTeam: 'home' })` で命令生成
+- **ミニゲーム自動解決**: FK/PK/CK発生時、UIを表示せず即座にランダムゾーン対決で解決
+- **オーバーレイ蓄積防止**: Turn X 表示をスキップ、TURN_START遅延を500msに短縮
+- **ハーフタイム自動スキップ**: 交代パネルを即スキップ（`setHalftimeReady(true)` を即実行）
+- **comGkHistory保護**: COM vs COM 時はランダム選択を学習履歴に記録しない
 - **Gemma無効**: comVsComでは`VITE_USE_GEMMA`設定に関わらず常にクライアントサイドCOM
 - **結果画面**: 「もう一度」ボタンは`matching`画面に直接遷移（編成をスキップ）
 
@@ -470,6 +484,35 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 24. ~~CKゾーン重複配置可能~~ — ✅ 同一ゾーンの既存コマを自動除去
 25. ~~WebSocket onclose設定タイミング~~ — ✅ `onclose`を`onopen`外に移動、接続失敗時も再接続発火
 26. ~~HMAC署名欠落時にバイパス~~ — ✅ 署名なしの場合はエラースローに変更
+
+---
+
+## コードレビュー修正（2026-04-20 全17件）
+
+### エンジン（4件）
+27. ~~`pickByHighestCost()` に空配列チェックなし~~ — ✅ `candidates.length === 0` で例外スロー
+28. ~~`calcShootCourseModifier` の `|| 0` が冗長~~ — ✅ `=== 0 ? 0 :` で明示化（-0問題解消）
+29. ~~パスカット1/2のZOC隣接修正符号がタックルと逆~~ — ✅ 攻撃側-5/守備側+10(cut1), -5/+20(cut2)に統一
+30. ~~シュートチェーンのブロック/セーブZOC隣接で`defenseTeam`を渡していた~~ — ✅ `attackTeam`に修正（攻守カウント逆転バグ）
+
+### AI（3件）
+31. ~~`data_extract.ts` の `remaining_turns: 90 - turn.turn`~~ — ✅ `summary.totalTurns - turn.turn` に修正
+32. ~~`prompt_builder.ts` の `has_ball: p.hasBall || undefined`~~ — ✅ 条件スプレッドに修正
+33. ~~`validateAndFillGemmaOutput` + `GemmaOrder` が未使用~~ — ✅ デッドコード削除
+
+### クライアント（4件）
+34. ~~`HexBoard` に `isMobile={true}` がハードコード~~ — ✅ `isMobile={isMobile}` に修正
+35. ~~`kickerPiece`/`gkPiece` の非null assertion~~ — ✅ `?? fieldPieces[0]` フォールバック追加
+36. ~~COM vs COM でミニゲームUIが表示され自動進行停止~~ — ✅ FK/PK/CK即座自動解決実装
+37. ~~COM vs COM でオーバーレイが蓄積~~ — ✅ Turn X オーバーレイをスキップ
+
+### サーバー（6件）
+38. ~~`hexToBytes()` が不正hex文字を0に変換~~ — ✅ 正規表現バリデーション追加
+39. ~~`JSON.parse()` に try-catch なし（team.ts, replay.ts）~~ — ✅ エラーハンドリング追加
+40. ~~`parseInt` に下限チェックなし（match.ts, replay.ts）~~ — ✅ `Math.max(0, ...)` 追加
+41. ~~TURN_INPUT 型検証で `sequence`/`nonce`/`timestamp`/`client_hash` 未検証~~ — ✅ 全8フィールド検証追加
+42. ~~`matchRoutes` が `/match` と `/api/matches` に二重マウント~~ — ✅ `/api/matches` を削除
+43. ~~JWKS 並行フェッチ~~ — ✅ Promise再利用で防止
 
 ---
 

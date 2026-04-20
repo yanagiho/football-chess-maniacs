@@ -9,6 +9,7 @@ import type { Env } from '../worker';
 /** JWKSから取得した公開鍵のキャッシュ */
 let cachedKeys: Map<string, CryptoKey> = new Map();
 let cacheExpiry = 0;
+let fetchingPromise: Promise<Map<string, CryptoKey>> | null = null;
 
 interface JwtHeader {
   alg: string;
@@ -41,28 +42,39 @@ async function fetchJwks(jwksUrl: string): Promise<Map<string, CryptoKey>> {
     return cachedKeys;
   }
 
-  const res = await fetch(jwksUrl);
-  if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
+  // 並行フェッチを防止: 既に取得中ならそのPromiseを再利用
+  if (fetchingPromise) return fetchingPromise;
 
-  const { keys } = (await res.json()) as { keys: (JsonWebKey & { kid?: string })[] };
-  const keyMap = new Map<string, CryptoKey>();
+  fetchingPromise = (async () => {
+    try {
+      const res = await fetch(jwksUrl);
+      if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
 
-  for (const jwk of keys) {
-    if (jwk.kty === 'RSA' && jwk.kid) {
-      const cryptoKey = await crypto.subtle.importKey(
-        'jwk',
-        jwk,
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['verify'],
-      );
-      keyMap.set(jwk.kid, cryptoKey);
+      const { keys } = (await res.json()) as { keys: (JsonWebKey & { kid?: string })[] };
+      const keyMap = new Map<string, CryptoKey>();
+
+      for (const jwk of keys) {
+        if (jwk.kty === 'RSA' && jwk.kid) {
+          const cryptoKey = await crypto.subtle.importKey(
+            'jwk',
+            jwk,
+            { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+            false,
+            ['verify'],
+          );
+          keyMap.set(jwk.kid, cryptoKey);
+        }
+      }
+
+      cachedKeys = keyMap;
+      cacheExpiry = Date.now() + 5 * 60 * 1000; // 5分キャッシュ
+      return keyMap;
+    } finally {
+      fetchingPromise = null;
     }
-  }
+  })();
 
-  cachedKeys = keyMap;
-  cacheExpiry = now + 5 * 60 * 1000; // 5分キャッシュ
-  return keyMap;
+  return fetchingPromise;
 }
 
 /** JWTを検証してペイロードを返す */

@@ -8,8 +8,8 @@
 //         プレス役(FW/WG/OMから最大2体)のみ敵ボールに向かう。
 // ============================================================
 
-import type { Piece, Team, HexCoord, Order, OrderType } from '../engine/types';
-import { hexKey, hexDistance, getNeighbors, hexLinePath, buildZocMap } from '../engine/movement';
+import type { Piece, Team, HexCoord, Order } from '../engine/types';
+import { hexKey, hexDistance, hexLinePath, buildZocMap } from '../engine/movement';
 import { evaluateBoard, recommendStrategy, type Strategy, type EvaluationResult } from './evaluator';
 import {
   generateAllLegalMoves,
@@ -583,74 +583,3 @@ function pickClosestToRow(moves: LegalAction[], targetRow: number): LegalAction 
   });
 }
 
-// ================================================================
-// §9-3 Gemma出力の検証・フォールバック置換（変更なし）
-// ================================================================
-
-export interface GemmaOrder {
-  piece_id: string;
-  action: string;
-  target_hex?: [number, number];
-  target_piece?: string;
-  zone?: string;
-  bench_piece?: string;
-}
-
-export function validateAndFillGemmaOutput(
-  rawOrders: GemmaOrder[],
-  allLegalMoves: PieceLegalMoves[],
-  ruleBasedOrders: Order[],
-): Order[] {
-  const legalMap = new Map(allLegalMoves.map((pm) => [pm.pieceId, pm]));
-  const ruleMap = new Map(ruleBasedOrders.map((o) => [o.pieceId, o]));
-  const result: Order[] = [];
-  const usedIds = new Set<string>();
-
-  for (const gemmaOrder of rawOrders) {
-    if (usedIds.has(gemmaOrder.piece_id)) continue;
-    const pieceMoves = legalMap.get(gemmaOrder.piece_id);
-    if (!pieceMoves) continue;
-
-    const isLegal = pieceMoves.legalActions.some((la) => {
-      if (la.action !== gemmaOrder.action) return false;
-      if (gemmaOrder.target_hex && la.targetHex) {
-        return la.targetHex.col === gemmaOrder.target_hex[0] &&
-               la.targetHex.row === gemmaOrder.target_hex[1];
-      }
-      if (gemmaOrder.target_piece && la.targetPieceId) {
-        return la.targetPieceId === gemmaOrder.target_piece;
-      }
-      if (gemmaOrder.zone && la.shootZone) {
-        return la.shootZone === gemmaOrder.zone;
-      }
-      if (gemmaOrder.bench_piece && la.benchPieceId) {
-        return la.benchPieceId === gemmaOrder.bench_piece;
-      }
-      if (la.action === 'stay') return gemmaOrder.action === 'stay';
-      return false;
-    });
-
-    if (isLegal) {
-      result.push({
-        pieceId: gemmaOrder.piece_id,
-        type: gemmaOrder.action as OrderType,
-        target: gemmaOrder.target_hex
-          ? { col: gemmaOrder.target_hex[0], row: gemmaOrder.target_hex[1] }
-          : undefined,
-        targetPieceId: gemmaOrder.target_piece,
-      });
-      usedIds.add(gemmaOrder.piece_id);
-    }
-  }
-
-  for (const [pieceId] of legalMap) {
-    if (usedIds.has(pieceId)) continue;
-    const fallback = ruleMap.get(pieceId);
-    if (fallback) {
-      result.push(fallback);
-      usedIds.add(pieceId);
-    }
-  }
-
-  return result;
-}

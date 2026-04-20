@@ -11,8 +11,8 @@ export { generateAllLegalMoves, toLegalMovesJson } from './legal_moves';
 export type { PieceLegalMoves, LegalAction, LegalMovesContext, ShootZone } from './legal_moves';
 
 // ルールベースAI（フォールバック / ブートストラップ）
-export { generateRuleBasedOrders, validateAndFillGemmaOutput } from './rule_based';
-export type { RuleBasedInput, RuleBasedOutput, GemmaOrder } from './rule_based';
+export { generateRuleBasedOrders } from './rule_based';
+export type { RuleBasedInput, RuleBasedOutput } from './rule_based';
 
 // プロンプト生成（§2）
 export { buildPrompt } from './prompt_builder';

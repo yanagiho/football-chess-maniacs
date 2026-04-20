@@ -88,7 +88,7 @@ function buildRecord(
     winner: summary.winner,
     board_state: serializePieces(turn.boardBefore),
     score: { home: turn.scoreHome, away: turn.scoreAway },
-    remaining_turns: 90 - turn.turn,
+    remaining_turns: summary.totalTurns - turn.turn,
     orders: serializeOrders(orders),
     events: turn.events.map((e) => e.type),
   };

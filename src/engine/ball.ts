@@ -214,11 +214,12 @@ export function processBall(
       const distToGoal = hexDistance(shooter.coord, goal);
 
       // ZOC隣接情報（各チェックの発生地点）
+      // attackTeamを渡す: attackCount=シューター側, defenseCount=ブロッカー/GK側
       const blockZocAdj: ZocAdjacency = blocker
-        ? getZocAdjacency(blocker.coord, defenseTeam, pieces)
+        ? getZocAdjacency(blocker.coord, attackTeam, pieces)
         : { attackCount: 0, defenseCount: 0 };
       const savingZocAdj: ZocAdjacency = gk
-        ? getZocAdjacency(gk.coord, defenseTeam, pieces)
+        ? getZocAdjacency(gk.coord, attackTeam, pieces)
         : { attackCount: 0, defenseCount: 0 };
       const successZocAdj = getZocAdjacency(shooter.coord, attackTeam, pieces);
 

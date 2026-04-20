@@ -85,18 +85,18 @@ describe('passCut1', () => {
     );
   });
 
-  describe('ZOC隣接修正: 攻撃側+5 / 守備側-10', () => {
+  describe('ZOC隣接修正: 攻撃側-5 / 守備側+10', () => {
     it.each([
       // [atk, def, expected]
       // 基礎=35 (MF2 vs MF2: (2-2+3)×15 - 10(MF passer) = 35)
       [0, 0, 35],
-      [1, 0, 40],  // +5
-      [2, 0, 45],  // +10
-      [3, 0, 50],  // +15
-      [0, 1, 25],  // -10
-      [0, 2, 15],  // -20
-      [0, 3, 5],   // -30
-      [2, 1, 35],  // +10-10=0
+      [1, 0, 30],  // -5
+      [2, 0, 25],  // -10
+      [3, 0, 20],  // -15
+      [0, 1, 45],  // +10
+      [0, 2, 55],  // +20
+      [0, 3, 65],  // +30
+      [2, 1, 35],  // -10+10=0
     ])(
       'atk=%s def=%s → %s%%',
       (atk, def, expected) => {
@@ -154,16 +154,16 @@ describe('passCut2', () => {
     );
   });
 
-  describe('ZOC隣接修正: 攻撃側+5 / 守備側-20', () => {
+  describe('ZOC隣接修正: 攻撃側-5 / 守備側+20', () => {
     // 基礎=30 (MF2 vs MF2, nomod)
     it.each([
       [0, 0, 20],  // 30-10(MF receiver)
-      [1, 0, 25],  // 30-10+5
-      [2, 0, 30],  // 30-10+10
-      [3, 0, 35],  // 30-10+15
-      [0, 1, 0],   // 30-10-20 → clamped 0
-      [0, 2, 0],   // 30-10-40 → clamped 0
-      [1, 1, 5],   // 30-10+5-20 = 5
+      [1, 0, 15],  // 30-10-5
+      [2, 0, 10],  // 30-10-10
+      [3, 0, 5],   // 30-10-15
+      [0, 1, 40],  // 30-10+20
+      [0, 2, 60],  // 30-10+40
+      [1, 1, 35],  // 30-10-5+20 = 35
     ])(
       '攻撃%s体 守備%s体（1体目除外済み）→ %s%%',
       (atk, def, expected) => {
@@ -178,13 +178,13 @@ describe('passCut2', () => {
 
   it('§7-3 注記: cut2トリガーの1体目はZOC隣接修正に含めない', () => {
     // 守備コマ3体がZOC内にいる場合、トリガー1体目を除いて defenseCount=2 を渡す
-    // MF2 vs MF2, def=2 (1体目除外済み): 30-10 + 2×(-20) = 30-10-40 → 0
-    mockJudge.mockReturnValue(ng(0));
+    // MF2 vs MF2, def=2 (1体目除外済み): 30-10 + 2×(+20) = 30-10+40 = 60
+    mockJudge.mockReturnValue(ok(60));
     const interceptor = makePiece({ position: 'MF', cost: 2, team: 'away' });
     const receiver    = makePiece({ position: 'MF', cost: 2 });
     // defenseCount=2 は「2体目、3体目」を意味する（1体目のトリガーは含まない）
     passCut2({ interceptor, receiver, zoc: { attackCount: 0, defenseCount: 2 } });
-    expect(mockJudge).toHaveBeenCalledWith(0);
+    expect(mockJudge).toHaveBeenCalledWith(60);
   });
 });
 

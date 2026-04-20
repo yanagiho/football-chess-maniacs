@@ -536,13 +536,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // サーバーサイドCOM: matchIdが gemma_com_ で始まる場合はDO経由（WebSocket接続）
   // クライアントサイドCOM: matchIdが com_ で始まる場合は従来のローカル処理
   const isServerCom = !!matchId?.startsWith('gemma_com_');
-  const isCom = !isServerCom && (gameMode === 'com' || gameMode === 'comVsCom' || matchId?.startsWith('com_'));
   const isComVsCom = gameMode === 'comVsCom';
+  const isCom = !isServerCom && (gameMode === 'com' || gameMode === 'comVsCom' || matchId?.startsWith('com_'));
 
   // ── Gemma AI（サーバー経由）設定 ──
-  // 環境変数 VITE_USE_GEMMA=true でGemma AIを有効化
-  // クライアントサイドCOM時のみ使用（サーバーサイドCOMはDO内でAI実行）
-  // フォールバック: サーバー接続失敗時はローカルのルールベースAIを使用
   const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
   const useGemmaRef = useRef(viteEnv.VITE_USE_GEMMA === 'true');
 
@@ -752,11 +749,16 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (state.status !== 'halftime') return;
     setCeremony('halftime');
     setHalftimeReady(false);
+    // COM vs COM: 交代パネルをスキップして即後半開始
+    if (isComVsCom) {
+      const t1 = setTimeout(() => setHalftimeReady(true), HALFTIME_CEREMONY_MS);
+      return () => clearTimeout(t1);
+    }
     setHalftimeCountdown(30);
     // 3秒後に交代パネルへ遷移
     const t1 = setTimeout(() => setCeremony('halftime_sub'), HALFTIME_CEREMONY_MS);
     return () => clearTimeout(t1);
-  }, [state.status]);
+  }, [state.status, isComVsCom]);
 
   // ハーフタイム交代パネルのカウントダウン
   useEffect(() => {
@@ -882,12 +884,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   useEffect(() => {
     if (state.turnPhase !== 'TURN_START' || state.status !== 'playing') return;
     clearPhaseTimeout();
-    // Turn X の演出表示
-    if (state.turn > 0) {
+    // Turn X の演出表示（COM vs COM では蓄積防止のためスキップ）
+    if (state.turn > 0 && !isComVsCom) {
       showOverlay(`Turn ${state.turn}`, { duration: 800, fontSize: 36 });
     }
-    // Turn 1 初回チュートリアルヒント
-    if (state.turn === 1 && !tutorialShownRef.current) {
+    // Turn 1 初回チュートリアルヒント（COM vs COM では非表示）
+    if (state.turn === 1 && !tutorialShownRef.current && !isComVsCom) {
       tutorialShownRef.current = true;
       setTimeout(() => {
         showOverlay('コマタップ → 移動・ドリブル', {
@@ -896,7 +898,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         });
       }, 1200);
     }
-    const normalDelay = state.turn === 1 ? 4000 : 1000; // Turn 1はチュートリアル分長く
+    const normalDelay = isComVsCom ? 500 : (state.turn === 1 ? 4000 : 1000); // COM vs COMは高速化
     phaseTimeoutRef.current = setTimeout(() => {
       dispatch({ type: 'SAVE_SNAPSHOT' });
       dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
@@ -907,7 +909,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       if (state.turnPhase === 'TURN_START') dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
     }, safetyDelay);
     return () => { clearPhaseTimeout(); clearTimeout(safety); };
-  }, [state.turnPhase, state.status, state.turn, dispatch, clearPhaseTimeout, showOverlay]);
+  }, [state.turnPhase, state.status, state.turn, dispatch, clearPhaseTimeout, showOverlay, isComVsCom]);
 
   // ── 非INPUTフェーズではメニューを閉じる ──
   useEffect(() => {
@@ -1330,6 +1332,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             scoreHome: state.scoreHome, scoreAway: state.scoreAway,
             turn: state.turn, maxTurn,
             remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
+            difficulty: comDifficulty,
           });
           homeOrders = homeResult.orders;
           console.log(`[Battle] COM vs COM home AI: strategy=${homeResult.strategy}, orders=${homeOrders.length}`);
@@ -1338,19 +1341,17 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             .map(o => clientOrderToEngine(o, fieldPieces));
         }
 
-        // 2. COM AI命令を生成（Gemma AI → フォールバック: ルールベース）
+        // away側 COM AI命令生成（Gemma AI → フォールバック: ルールベース）
         let awayOrders: EngineOrder[];
 
-        if (useGemmaRef.current) {
-          // サーバー経由でGemma AIを呼び出し
+        if (useGemmaRef.current && !isComVsCom) {
           const gemmaOrders = await fetchGemmaOrders(
             enginePieces, state.scoreHome, state.scoreAway, state.turn, maxTurn,
           );
           if (gemmaOrders) {
             awayOrders = gemmaOrders;
-            console.log(`[Battle] Gemma AI orders: ${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
+            console.log(`[Battle] Gemma AI orders: ${awayOrders.length}`);
           } else {
-            // Gemmaフォールバック → ルールベース
             const comResult = generateRuleBasedOrders({
               pieces: enginePieces, myTeam: 'away',
               scoreHome: state.scoreHome, scoreAway: state.scoreAway,
@@ -1359,10 +1360,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               difficulty: comDifficulty,
             });
             awayOrders = comResult.orders;
-            console.log(`[Battle] Gemma fallback → rule-based: strategy=${comResult.strategy}, orders=${awayOrders.length}`);
+            console.log(`[Battle] Gemma fallback → rule-based: orders=${awayOrders.length}`);
           }
         } else {
-          // ローカルルールベースAI（デフォルト）
           const comResult = generateRuleBasedOrders({
             pieces: enginePieces, myTeam: 'away',
             scoreHome: state.scoreHome, scoreAway: state.scoreAway,
@@ -1371,7 +1371,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             difficulty: comDifficulty,
           });
           awayOrders = comResult.orders;
-          console.log(`[Battle] COM AI: strategy=${comResult.strategy}, orders=${awayOrders.length}`, awayOrders.map(o => `${o.pieceId}:${o.type}`).join(', '));
+          console.log(`[Battle] COM AI (away): strategy=${comResult.strategy}, orders=${awayOrders.length}`);
         }
 
         // 3. エンジン Board 構築
@@ -1616,10 +1616,61 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             const kickerPiece = fieldPieces.find(p =>
               p.team === fouledTeam && p.hasBall,
             ) ?? fieldPieces.find(p => p.team === fouledTeam && p.position === 'FW')
-              ?? fieldPieces.find(p => p.team === fouledTeam && !p.isBench)!;
+              ?? fieldPieces.find(p => p.team === fouledTeam && !p.isBench)
+              ?? fieldPieces[0];
             const gkPiece = fieldPieces.find(p =>
               p.team === tacklerTeam && p.position === 'GK',
-            ) ?? fieldPieces.find(p => p.team === tacklerTeam && !p.isBench)!;
+            ) ?? fieldPieces.find(p => p.team === tacklerTeam && !p.isBench)
+              ?? fieldPieces[0];
+
+            // COM vs COM: ミニゲームUIを表示せず即座に解決
+            if (isComVsCom) {
+              const attackerZone = Math.floor(Math.random() * 6);
+              const gkZone = Math.floor(Math.random() * 6);
+              const guessedRight = attackerZone === gkZone;
+              const isPK = foulEv.result.outcome === 'pk';
+              const baseRate = isPK
+                ? (guessedRight ? kickerPiece.cost * 0.10 : Math.min(0.95, kickerPiece.cost * 0.15 + 0.40))
+                : (guessedRight ? kickerPiece.cost * 0.15 : Math.min(0.95, kickerPiece.cost * 0.20 + 0.30));
+              const kickSuccess = Math.random() < baseRate;
+
+              if (kickSuccess) {
+                if (fouledTeam === 'home') newScoreHome++; else newScoreAway++;
+                goalScoredRef.current = { scored: true, scorerTeam: fouledTeam };
+                showOverlay('GOAL!!', {
+                  subText: `${isPK ? 'PK' : 'FK'} ${newScoreHome} - ${newScoreAway}`,
+                  duration: 2000, color: '#FFD700', fontSize: 64, glow: true,
+                });
+                await wait(2000);
+                const kickoff = fouledTeam === 'home' ? 'away' : 'home';
+                const resetPieces = createGoalRestartPieces(formationData, kickoff, state.board.pieces);
+                goalScoredRef.current = { scored: false, scorerTeam: null };
+                dispatch({
+                  type: 'SET_BOARD',
+                  board: { pieces: resetPieces },
+                  turn: state.turn,
+                  scoreHome: newScoreHome,
+                  scoreAway: newScoreAway,
+                });
+              } else {
+                showOverlay(guessedRight ? 'SAVE!' : 'MISS!', { duration: 1200, fontSize: 48 });
+                await wait(1200);
+                const defenseTeam: Team = fouledTeam === 'home' ? 'away' : 'home';
+                const gk = state.board.pieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
+                const holderId = gk?.id ?? state.board.pieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
+                const ballState = setBallHolder(state.board.pieces, holderId);
+                dispatch({
+                  type: 'SET_BOARD',
+                  board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
+                  turn: state.turn,
+                  scoreHome: newScoreHome,
+                  scoreAway: newScoreAway,
+                });
+              }
+              clearReplayTimers();
+              dispatch({ type: 'NEXT_TURN' });
+              return;
+            }
 
             if (foulEv.result.outcome === 'pk') {
               setMiniGame({
@@ -1652,6 +1703,30 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           );
           if (ckShoot) {
             const ckAttackTeam: Team = ckShoot.shooterId.startsWith('h') ? 'home' : 'away';
+
+            // COM vs COM: CKミニゲームも即座に解決
+            if (isComVsCom) {
+              const defenseTeam: Team = ckAttackTeam === 'home' ? 'away' : 'home';
+              // 簡易CK解決: 攻撃側が50%でボール獲得
+              const attackerWon = Math.random() < 0.5;
+              const ballTeam = attackerWon ? ckAttackTeam : defenseTeam;
+              const holder = state.board.pieces.find(p => p.team === ballTeam && !p.isBench && p.position !== 'GK')
+                ?? state.board.pieces.find(p => p.team === ballTeam && !p.isBench);
+              showOverlay(attackerWon ? 'CK: 攻撃成功' : 'CK: 守備成功', { duration: 1000, fontSize: 36 });
+              await wait(1000);
+              const ballState = setBallHolder(state.board.pieces, holder?.id ?? null);
+              dispatch({
+                type: 'SET_BOARD',
+                board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
+                turn: state.turn,
+                scoreHome: newScoreHome,
+                scoreAway: newScoreAway,
+              });
+              clearReplayTimers();
+              dispatch({ type: 'NEXT_TURN' });
+              return;
+            }
+
             const isMyAttack = ckAttackTeam === state.myTeam;
             const attackPieces = fieldPieces
               .filter(p => p.team === ckAttackTeam && p.position !== 'GK')
@@ -1746,6 +1821,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // COM観戦用: handleConfirmの最新参照を保持
   handleConfirmRef.current = handleConfirm;
 
+  // COM vs COM 自動ターン進行: INPUTフェーズになったら即座にhandleConfirmを呼ぶ
+  useEffect(() => {
+    if (!isComVsCom) return;
+    if (state.turnPhase !== 'INPUT' || state.status !== 'playing') return;
+    const timer = setTimeout(() => handleConfirm(), 300);
+    return () => clearTimeout(timer);
+  }, [isComVsCom, state.turnPhase, state.status, handleConfirm]);
+
   const handleTimeout = useCallback(() => {
     handleConfirm();
   }, [handleConfirm]);
@@ -1812,7 +1895,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
     // COM守備のゾーン選択（学習型AI）
     const comZone = pickComGkZone();
-    comGkHistory.current.push(data.zone); // プレイヤーの選択を記録
+    if (!isComVsCom) comGkHistory.current.push(data.zone); // プレイヤーの選択を記録（COM vs COMでは不要）
     const attackerZone = data.zone;
     const gkGuessedRight = attackerZone === comZone;
 
@@ -1878,7 +1961,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom]);
 
   const handlePKComplete = useCallback((zone: number) => {
     if (!miniGame || miniGame.type !== 'pk') return;
@@ -1948,7 +2031,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom]);
 
   // ── A7: CKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
   const handleCKComplete = useCallback((data: import('../components/minigame/CKGame').CKInput) => {
@@ -2467,7 +2550,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             onHexClick={handleHexClick}
             onBallClick={handleBallClick}
             chainBallPulseId={null}
-            isMobile={true}
+            isMobile={isMobile}
             myTeam={state.myTeam}
             flipY={state.myTeam === 'home'}
             shootRangeHexes={shootRangeHexes}
