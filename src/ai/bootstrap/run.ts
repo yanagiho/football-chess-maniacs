@@ -36,18 +36,27 @@ function parseArgs() {
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--matches':
-        totalMatches = parseInt(args[++i], 10);
+      case '--matches': {
+        const v = parseInt(args[++i], 10);
+        if (Number.isNaN(v) || v <= 0) { console.error('Invalid --matches value'); process.exit(1); }
+        totalMatches = v;
         break;
+      }
       case '--output':
         outputDir = args[++i];
         break;
-      case '--batch':
-        batchSize = parseInt(args[++i], 10);
+      case '--batch': {
+        const v = parseInt(args[++i], 10);
+        if (Number.isNaN(v) || v <= 0) { console.error('Invalid --batch value'); process.exit(1); }
+        batchSize = v;
         break;
-      case '--offset':
-        offset = parseInt(args[++i], 10);
+      }
+      case '--offset': {
+        const v = parseInt(args[++i], 10);
+        if (Number.isNaN(v) || v < 0) { console.error('Invalid --offset value'); process.exit(1); }
+        offset = v;
         break;
+      }
     }
   }
 

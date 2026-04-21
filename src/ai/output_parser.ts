@@ -87,6 +87,15 @@ export function parseGemmaOutput(
   const usedPieceIds = new Set<string>();
 
   for (const rawOrder of rawOrders) {
+    // target_hex の形式チェック（[number, number]であるべき）
+    if (rawOrder.target_hex !== undefined) {
+      if (!Array.isArray(rawOrder.target_hex) || rawOrder.target_hex.length !== 2
+        || typeof rawOrder.target_hex[0] !== 'number' || typeof rawOrder.target_hex[1] !== 'number') {
+        addReason('invalid_target_hex');
+        continue;
+      }
+    }
+
     // piece_idが自チームのフィールドコマか
     if (!legalMap.has(rawOrder.piece_id)) {
       addReason('unknown_piece_id');

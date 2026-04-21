@@ -15,6 +15,7 @@ src/
 │   └── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
 ├── engine/                   # ゲームエンジン（判定式・ターン処理）
 │   ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
+│   ├── hex_utils.ts          # HEXマップ共通ユーティリティ（hexLookup/ゾーン/BoardContext）
 │   ├── dice.ts               # 判定式: effectiveDiff / calcProbability / judge / calcZocModifier
 │   ├── shoot.ts              # §7-2 シュート判定チェーン
 │   ├── pass.ts               # §7-3 パスカット1・2
@@ -29,9 +30,12 @@ src/
 │   ├── index.ts              # 全モジュール再エクスポート
 │   └── __tests__/
 ├── ai/                       # COM AIエンジン（ルールベース + Gemma）
+│   ├── ai_context.ts         # AI共有コンテキスト型（AiContext, DiffConfig）
 │   ├── evaluator.ts          # §4 局面評価（盤面スコアリング）
 │   ├── legal_moves.ts        # §5 合法手生成（全コマの合法手列挙）
-│   ├── rule_based.ts         # フォーメーション維持型ルールベースAI（3ライン制御）
+│   ├── rule_based.ts         # ルールベースAI オーケストレーター（AiContext作成→各AI呼出）
+│   ├── ball_holder_ai.ts     # ボール保持コマAI（シュート→パス→中継→ドリブル優先度）
+│   ├── formation_ai.ts       # フォーメーション制御AI（3ライン・プレス・攻守移動）
 │   ├── prompt_builder.ts     # §2 難易度別プロンプト生成（ビギナー/レギュラー/マニアック）
 │   ├── gemma_client.ts       # §9-1 Workers AI (Gemma) 呼び出し（タイムアウト制御）
 │   ├── output_parser.ts      # §9-3 Gemma出力のパース＋検証
@@ -46,6 +50,8 @@ src/
 ├── wrangler.toml             # Cloudflare設定（DO/D1/KV/R2/Queues）
 ├── durable/
 │   ├── game_session.ts       # ゲームセッションDO（Hibernation API）
+│   ├── game_session_helpers.ts # DO型定義・定数・純粋関数（GameState, WsAttachment等）
+│   ├── com_ai_integration.ts # COM AI統合（Gemma 5sタイムアウト + ルールベースフォールバック）
 │   └── matchmaking.ts        # マッチメイキングDO（リージョンシャード）
 ├── api/
 │   ├── auth.ts               # プラットフォーム認証・Webhook
@@ -69,6 +75,9 @@ src/
     │   ├── Formation.tsx      # 編成画面v2（→onFormationConfirmでApp.tsxへデータ引継ぎ）
     │   ├── Matching.tsx       # マッチング待機（COM: クライアント即遷移 or サーバーDO作成 / Online: WS接続+キュー参加）
     │   ├── Battle.tsx         # 対戦画面（processTurn接続済・演出・ゴールリスタート・flipY）
+    │   ├── Battle/
+    │   │   ├── battleUtils.ts # Battle用純粋関数・定数・型（createInitialPieces等）
+    │   │   └── CeremonyLayer.tsx # 試合演出オーバーレイ（KICK OFF/HALF TIME/GOAL!/FULL TIME）
     │   ├── HalfTime.tsx       # ハーフタイム
     │   ├── Result.tsx         # 結果画面
     │   └── Replay.tsx         # リプレイ画面
@@ -78,12 +87,12 @@ src/
     │   │   ├── PieceIcon.tsx  # コマアイコンSVG（ui_spec v1.2 §6-1: ランク表記/枠装飾/敵味方色）
     │   │   ├── Piece.tsx      # コマ表示ラッパー（PieceIcon + PA外警告/交代マーク）
     │   │   ├── Overlay.tsx    # Canvas: 移動矢印(白)/ドリブル矢印(緑)/パスライン/シュート線/ZOC/ゾーン境界
+    │   │   ├── overlay_renderers.ts # Canvas描画レイヤー関数（ボール軌跡・フェーズエフェクト）
     │   │   └── Controls.tsx   # ズーム/パン（ピンチ/ホイール/中クリック）
     │   ├── ui/
     │   │   ├── Timer.tsx      # ターンタイマー（60秒カウントダウン、プログレスバー、(M:SS)形式）
     │   │   ├── ActionBar.tsx  # スマホ: アクションバー（ドリブル/パス/シュート/交代/確定）+ベンチスライドアップ
-    │   │   ├── SidePanel.tsx  # PC: 左パネル(§3-4)+右パネル(§3-5)
-    │   │   └── PresetButtons.tsx # プリセット行動（§2-7）※Battle.tsxからは未使用（廃止）
+    │   │   └── SidePanel.tsx  # PC: 左パネル(§3-4)+右パネル(§3-5)
     │   └── minigame/
     │       ├── FKGame.tsx     # FKミニゲーム（§4-1）
     │       ├── CKGame.tsx     # CKミニゲーム（§4-2）
@@ -114,7 +123,7 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール | ✅ 350 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール | ✅ 502 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -169,7 +178,7 @@ src/
 | CenterOverlay改行対応 | whiteSpace:pre-lineでsubTextの\n改行をサポート | ✅ |
 | Workers AI統合 | wrangler.toml AI binding + AI_MODEL_ID env var + wrapAiBinding adapter | ✅ |
 | AI APIエンドポイント | POST /api/ai/test (デバッグ) + POST /api/ai/turn (COM対戦) | ✅ |
-| AIモジュールユニットテスト | output_parser(20) + fallback(15) + prompt_builder(24) + com_ai(11) = 69テスト | ✅ |
+| AIモジュールユニットテスト | output_parser(20) + fallback(15) + prompt_builder(24) + com_ai(11) + evaluator(16) + rule_based(11) + legal_moves(7) = 104テスト | ✅ |
 | Gemmaプロンプトトークン計測 | 初期盤面4,854chars / 実合法手7,500-7,800chars（Gemma 12B 8192トークン上限内） | ✅ |
 | サーバーサイドCOM対戦フロー | POST /match/com → GameSession DO /init → WS接続 → COM AI生成（Gemma+フォールバック） | ✅ |
 | COM対戦セッション認証 | comSessionToken(crypto.randomUUID) でWS認証、レート制限付き | ✅ |
@@ -178,6 +187,7 @@ src/
 | fallback 空orders対応 | validCount=0 で全面フォールバック（partial_fillにならない） | ✅ |
 | COM観戦モード（COM vs COM） | モード選択→即マッチング→両チームAI自動操作→演出付き自動進行→結果画面 | ✅ |
 | コードレビュー修正（2026-04-20） | エンジン4件+AI3件+クライアント4件+サーバー6件 = 計17件修正（下記「2026-04-20修正」参照） | ✅ |
+| リファクタリング（2026-04-21） | Phase1: Battle.tsx/rule_based/game_session/Overlay分割、Phase2: hex_utils共通化・コード品質改善、Phase3: テスト追加(152件新規、350→502) | ✅ |
 
 ---
 
@@ -297,7 +307,7 @@ src/
   - **maniac**: シュート距離9HEX、プレス3体、ZOC考慮パスブロック、中継パス距離12HEX、横パス優先（テンポ維持）
 - App.tsx → Battle.tsx（`comDifficulty` prop）→ `generateRuleBasedOrders({ difficulty })` の経路で伝播
 - **移動先重複防止**: `usedTargets` セットで2体が同じHEXに移動指示しない
-- **selectBallHolderOrderはクロージャ内関数**（generateRuleBasedOrders内部でヘルパーを共有）
+- **selectBallHolderOrder/selectFormationOrdersは別ファイル**（ball_holder_ai.ts/formation_ai.tsに分離、AiContextで状態を共有）
 - COM対戦ではBattle.tsxの`handleConfirm`内で`generateRuleBasedOrders`を呼び出し、プレイヤーの命令と同時にprocessTurnで処理
 
 ### ブートストラップ（§3-1）
@@ -410,7 +420,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全350テスト）
+npm test              # vitest run（全502テスト）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）

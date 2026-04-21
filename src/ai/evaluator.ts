@@ -10,38 +10,12 @@ import {
   getNeighbors,
   buildZocMap,
 } from '../engine/movement';
-import hexMapData from '../data/hex_map.json';
-
-// ── hex_map.json からゾーン情報を構築 ──
-
-interface HexEntry {
-  col: number;
-  row: number;
-  x: number;
-  y: number;
-  zone: string;
-  lane: string;
-}
-
-const hexMap = hexMapData as HexEntry[];
-
-const zoneByHex = new Map<string, Zone>();
-for (const h of hexMap) {
-  zoneByHex.set(`${h.col},${h.row}`, h.zone as Zone);
-}
-
-/** ゾーン→HEXキー一覧 */
-const hexesByZone = new Map<Zone, Set<string>>();
-for (const h of hexMap) {
-  const z = h.zone as Zone;
-  if (!hexesByZone.has(z)) hexesByZone.set(z, new Set());
-  hexesByZone.get(z)!.add(`${h.col},${h.row}`);
-}
+import { getZoneByKey, getHexesByZone } from '../engine/hex_utils';
 
 /** ミドルサード全HEX（ZOC支配率計算用） */
 const middleThirdHexes = new Set<string>();
 for (const z of ['ミドルサードD', 'ミドルサードA'] as Zone[]) {
-  const hexes = hexesByZone.get(z);
+  const hexes = getHexesByZone(z);
   if (hexes) for (const k of hexes) middleThirdHexes.add(k);
 }
 
@@ -82,7 +56,7 @@ function normalizeZone(zone: Zone, team: Team): Zone {
 }
 
 function getHexZone(coord: HexCoord): Zone {
-  return zoneByHex.get(`${coord.col},${coord.row}`) ?? 'ミドルサードD';
+  return getZoneByKey(`${coord.col},${coord.row}`) ?? 'ミドルサードD';
 }
 
 // ── PA判定（GK評価用） ──

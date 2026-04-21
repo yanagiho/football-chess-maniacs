@@ -27,6 +27,16 @@ interface FieldPiece {
   cost: number;
 }
 
+/** フィールドコマのバリデーション（POST/PUT共通） */
+function validateFieldPieces(fieldPieces: FieldPiece[]): string | null {
+  if (fieldPieces.length !== 11) return 'Field must have exactly 11 pieces';
+  const totalCost = fieldPieces.reduce((sum, p) => sum + p.cost, 0);
+  if (totalCost > 16) return 'Field cost exceeds 16';
+  const gkCount = fieldPieces.filter(p => p.position === 'GK').length;
+  if (gkCount !== 1) return 'Field must have exactly 1 GK';
+  return null;
+}
+
 // ── チーム一覧取得 ──
 team.get('/', async (c) => {
   const userId = c.get('userId');
@@ -95,20 +105,12 @@ team.post('/', async (c) => {
     return c.json({ error: 'Invalid team name' }, 400);
   }
 
-  if (!body.fieldPieces || body.fieldPieces.length !== 11) {
+  if (!body.fieldPieces) {
     return c.json({ error: 'Field must have exactly 11 pieces' }, 400);
   }
-
-  // フィールド総コスト16以下チェック
-  const totalCost = body.fieldPieces.reduce((sum, p) => sum + p.cost, 0);
-  if (totalCost > 16) {
-    return c.json({ error: 'Field cost exceeds 16' }, 400);
-  }
-
-  // GK1枚チェック
-  const gkCount = body.fieldPieces.filter(p => p.position === 'GK').length;
-  if (gkCount !== 1) {
-    return c.json({ error: 'Field must have exactly 1 GK' }, 400);
+  const fieldError = validateFieldPieces(body.fieldPieces);
+  if (fieldError) {
+    return c.json({ error: fieldError }, 400);
   }
 
   // 所持コマ検証（プラットフォームAPI経由）
@@ -155,17 +157,9 @@ team.put('/:teamId', async (c) => {
   }
 
   if (body.fieldPieces) {
-    if (body.fieldPieces.length !== 11) {
-      return c.json({ error: 'Field must have exactly 11 pieces' }, 400);
-    }
-    const totalCost = body.fieldPieces.reduce((sum, p) => sum + p.cost, 0);
-    if (totalCost > 16) {
-      return c.json({ error: 'Field cost exceeds 16' }, 400);
-    }
-    // GK1枚チェック（Bug 23も合わせて修正）
-    const gkCount = body.fieldPieces.filter(p => p.position === 'GK').length;
-    if (gkCount !== 1) {
-      return c.json({ error: 'Field must have exactly 1 GK' }, 400);
+    const fieldError = validateFieldPieces(body.fieldPieces);
+    if (fieldError) {
+      return c.json({ error: fieldError }, 400);
     }
   }
 

@@ -7,6 +7,7 @@
 
 import React, { useRef, useEffect } from 'react';
 import type { HexCoord, HexCell, PieceData, OrderData, ActionMode } from '../../types';
+import { renderBallTrails, renderPhaseEffects } from './overlay_renderers';
 
 /** ボール軌跡（EXECUTIONフェーズ中に表示） */
 export interface BallTrail {
@@ -88,8 +89,6 @@ const ZOC_STRIPE_STEP = 6;
 const ZOC_STRIPE_WIDTH = 2;
 const ZONE_BORDER_WIDTH = 1;
 const MOVE_RANGE_OUTLINE_WIDTH = 1;
-const EFFECT_ICON_FONT = 'bold 40px sans-serif';
-const EFFECT_TEXT_FONT = 'bold 24px sans-serif';
 
 export default function Overlay({
   width,
@@ -267,121 +266,12 @@ export default function Overlay({
     // ================================================================
     // 6c. ボール軌跡（EXECUTIONフェーズ）
     // ================================================================
-    for (const trail of ballTrails) {
-      const fromCell = findCell(trail.from);
-      const toCell = findCell(trail.to);
-      if (!fromCell || !toCell) continue;
-
-      ctx.save();
-      // 共通: 黒い縁取り（太い線の下地）で視認性を確保
-      const drawLine = (fx: number, fy: number, tx: number, ty: number, color: string, width: number, dash?: number[]) => {
-        // 黒縁
-        ctx.setLineDash(dash ?? []);
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.lineWidth = width + 4;
-        ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(tx, ty); ctx.stroke();
-        // 本体
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(tx, ty); ctx.stroke();
-        ctx.setLineDash([]);
-      };
-      const drawCircle = (cx: number, cy: number, r: number, fillColor: string) => {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.beginPath(); ctx.arc(cx, cy, r + 2, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = fillColor;
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-      };
-
-      switch (trail.type) {
-        case 'pass':
-          drawLine(fromCell.x, fromCell.y, toCell.x, toCell.y, '#3B82F6', 6, [10, 6]);
-          drawCircle(toCell.x, toCell.y, 8, '#3B82F6');
-          break;
-        case 'throughPass':
-          drawLine(fromCell.x, fromCell.y, toCell.x, toCell.y, '#06B6D4', 6, [10, 6]);
-          drawCircle(toCell.x, toCell.y, 8, '#06B6D4');
-          break;
-        case 'passCut':
-          drawLine(fromCell.x, fromCell.y, toCell.x, toCell.y, '#F59E0B', 6, [10, 6]);
-          // × マーク
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-          ctx.lineWidth = 8;
-          ctx.beginPath(); ctx.moveTo(toCell.x - 10, toCell.y - 10); ctx.lineTo(toCell.x + 10, toCell.y + 10); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(toCell.x + 10, toCell.y - 10); ctx.lineTo(toCell.x - 10, toCell.y + 10); ctx.stroke();
-          ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 5;
-          ctx.beginPath(); ctx.moveTo(toCell.x - 10, toCell.y - 10); ctx.lineTo(toCell.x + 10, toCell.y + 10); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(toCell.x + 10, toCell.y - 10); ctx.lineTo(toCell.x - 10, toCell.y + 10); ctx.stroke();
-          break;
-        case 'dribble':
-          drawLine(fromCell.x, fromCell.y, toCell.x, toCell.y, '#22C55E', 7);
-          // ボールアイコン（中間地点）
-          const bx = (fromCell.x + toCell.x) / 2;
-          const by = (fromCell.y + toCell.y) / 2;
-          drawCircle(bx, by, 8, '#fff');
-          ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
-          ctx.beginPath(); ctx.arc(bx, by, 8, 0, Math.PI * 2); ctx.stroke();
-          break;
-        case 'shoot': {
-          drawLine(fromCell.x, fromCell.y, toCell.x, toCell.y, '#EF4444', 8);
-          // 結果マーカー
-          if (trail.result === 'goal') {
-            // 金色の星（大きめ）
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            const sx = toCell.x, sy = toCell.y;
-            ctx.beginPath();
-            for (let j = 0; j < 10; j++) {
-              const a = (j * 36 - 90) * Math.PI / 180;
-              const r = j % 2 === 0 ? 18 : 9;
-              if (j === 0) ctx.moveTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
-              else ctx.lineTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
-            }
-            ctx.closePath(); ctx.fill();
-            ctx.fillStyle = '#FFD700';
-            ctx.beginPath();
-            for (let j = 0; j < 10; j++) {
-              const a = (j * 36 - 90) * Math.PI / 180;
-              const r = j % 2 === 0 ? 16 : 8;
-              if (j === 0) ctx.moveTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
-              else ctx.lineTo(sx + r * Math.cos(a), sy + r * Math.sin(a));
-            }
-            ctx.closePath(); ctx.fill();
-          } else if (trail.result === 'blocked' || trail.result === 'saved') {
-            const mx = (fromCell.x * 0.3 + toCell.x * 0.7);
-            const my = (fromCell.y * 0.3 + toCell.y * 0.7);
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)'; ctx.lineWidth = 8;
-            ctx.beginPath(); ctx.moveTo(mx - 12, my - 12); ctx.lineTo(mx + 12, my + 12); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(mx + 12, my - 12); ctx.lineTo(mx - 12, my + 12); ctx.stroke();
-            ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 5;
-            ctx.beginPath(); ctx.moveTo(mx - 12, my - 12); ctx.lineTo(mx + 12, my + 12); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(mx + 12, my - 12); ctx.lineTo(mx - 12, my + 12); ctx.stroke();
-          }
-          break;
-        }
-      }
-      ctx.restore();
-    }
+    renderBallTrails(ctx, ballTrails, findCell);
 
     // ================================================================
     // 6d. フェーズ演出エフェクト（§5-1b: アイコン + テキスト）
     // ================================================================
-    for (const effect of phaseEffects) {
-      const cell = findCell(effect.coord);
-      if (!cell) continue;
-      ctx.save();
-      ctx.font = EFFECT_ICON_FONT;
-      ctx.fillStyle = effect.color;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(effect.icon, cell.x, cell.y - 30);
-      if (effect.text) {
-        ctx.font = EFFECT_TEXT_FONT;
-        ctx.fillStyle = effect.color;
-        ctx.globalAlpha = 0.9;
-        ctx.fillText(effect.text, cell.x, cell.y - 62);
-      }
-      ctx.restore();
-    }
+    renderPhaseEffects(ctx, phaseEffects, findCell);
 
     // ================================================================
     // 7. オフサイドライン（§6-2: 黄色の点線, §1-3: 常時ON/OFF切替可）

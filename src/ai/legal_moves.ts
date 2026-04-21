@@ -7,7 +7,7 @@
 
 import type {
   Piece, Team, HexCoord, Zone, Lane, Order, OrderType,
-  Cost, BoardContext,
+  Cost,
 } from '../engine/types';
 import {
   hexKey,
@@ -21,35 +21,7 @@ import {
   hexLinePath,
 } from '../engine/movement';
 import { calcProbability } from '../engine/dice';
-import hexMapData from '../data/hex_map.json';
-
-// ── hex_map.json からBoardContext相当を構築 ──
-
-interface HexEntry {
-  col: number;
-  row: number;
-  x: number;
-  y: number;
-  zone: string;
-  lane: string;
-}
-
-const hexMap = hexMapData as HexEntry[];
-
-const hexLookup = new Map<string, HexEntry>();
-for (const h of hexMap) hexLookup.set(`${h.col},${h.row}`, h);
-
-function getZone(coord: HexCoord): Zone {
-  return (hexLookup.get(hexKey(coord))?.zone as Zone) ?? 'ミドルサードD';
-}
-
-function getLane(coord: HexCoord): Lane {
-  return (hexLookup.get(hexKey(coord))?.lane as Lane) ?? 'センターレーン';
-}
-
-function isValidHex(coord: HexCoord): boolean {
-  return coord.col >= 0 && coord.col <= 21 && coord.row >= 0 && coord.row <= 33;
-}
+import { getZone, getLane, isValidHex } from '../engine/hex_utils';
 
 // ── シュートゾーン定義（ゴール6分割） ──
 

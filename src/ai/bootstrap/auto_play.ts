@@ -7,41 +7,12 @@
 // ============================================================
 
 import type {
-  Piece, Board, Order, BoardContext, HexCoord, Zone, Lane,
+  Piece, Board, Order, HexCoord,
   Team, Cost, Position, GameEvent, TurnResult,
 } from '../../engine/types';
 import { processTurn } from '../../engine/turn_processor';
 import { generateRuleBasedOrders, type RuleBasedInput } from '../rule_based';
-import hexMapData from '../../data/hex_map.json';
-
-// ================================================================
-// hex_map.json ベースの BoardContext
-// ================================================================
-
-interface HexEntry {
-  col: number;
-  row: number;
-  x: number;
-  y: number;
-  zone: string;
-  lane: string;
-}
-
-const hexMap = hexMapData as HexEntry[];
-const hexLookup = new Map<string, HexEntry>();
-for (const h of hexMap) hexLookup.set(`${h.col},${h.row}`, h);
-
-const boardContext: BoardContext = {
-  getZone(coord: HexCoord): Zone {
-    return (hexLookup.get(`${coord.col},${coord.row}`)?.zone as Zone) ?? 'ミドルサードD';
-  },
-  getLane(coord: HexCoord): Lane {
-    return (hexLookup.get(`${coord.col},${coord.row}`)?.lane as Lane) ?? 'センターレーン';
-  },
-  isValidHex({ col, row }: HexCoord): boolean {
-    return col >= 0 && col <= 21 && row >= 0 && row <= 33;
-  },
-};
+import { boardContext } from '../../engine/hex_utils';
 
 // ================================================================
 // 初期フォーメーション（4-4-2）

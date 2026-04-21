@@ -5,13 +5,12 @@
 // ============================================================
 
 import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
-import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Cost, Position, Team, WsMessage, FormationData, FormationPiece, MatchEndData, MatchStats, MvpInfo, TurnPhase } from '../types';
+import type { Page, GameEvent, HexCoord, ActionMode, PieceData, GameMode, Team, WsMessage, FormationData, MatchEndData, TurnPhase } from '../types';
 import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
 import { soundManager } from '../audio/SoundManager';
 import { useSettings } from '../contexts/SettingsContext';
 import type { BallTrail } from '../components/board/Overlay';
 import { type FlyingBallData } from '../components/FlyingBall';
-// BallActionMenu is now inlined in the render
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
 import { useGameState } from '../hooks/useGameState';
@@ -22,10 +21,7 @@ import ActionBar from '../components/ui/ActionBar';
 import { LeftPanel, RightPanel } from '../components/ui/SidePanel';
 import { generateRuleBasedOrders } from '../../ai/rule_based';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../../engine/turn_processor';
-import {
-  getMovementRange, getNeighbors, hexKey, hexDistance,
-  buildZocMap, buildZoc2Map,
-} from '../../engine/movement';
+import { hexKey, hexDistance, buildZocMap, buildZoc2Map } from '../../engine/movement';
 import type {
   Piece as EnginePiece, Board as EngineBoard, Order as EngineOrder,
   ShootEvent, FoulEvent as EngineFoulEvent, GameEvent as EngineGameEvent,
@@ -34,9 +30,28 @@ import type {
 import FKGame from '../components/minigame/FKGame';
 import CKGame from '../components/minigame/CKGame';
 import PKGame from '../components/minigame/PKGame';
-import HalftimeSubPanel from '../components/ui/HalftimeSubPanel';
 import hexMapData from '../data/hex_map.json';
 import { setBallHolder } from '../utils/ballManager';
+import CeremonyLayer from './Battle/CeremonyLayer';
+import {
+  // Constants
+  DEFAULT_MOVE_RANGE, HALF_TURNS, HALF_LINE_ROW, MAX_SUBSTITUTIONS, MAX_FIELD_COST,
+  MINUTES_PER_TURN, HALFTIME_MINUTE, FULLTIME_MINUTE,
+  KICKOFF_CEREMONY_MS, HALFTIME_CEREMONY_MS, SECOND_HALF_DELAY_MS,
+  FULLTIME_RESULT_BTN_DELAY_MS, TURN_FLASH_MS, GOAL_CEREMONY_MS,
+  RECONNECT_BANNER_MS, SAFETY_TIMEOUT_MS, REPLAY_DURATION,
+  MINIGAME_COUNTDOWN_INTERVAL_MS, MINIGAME_FK_PK_COUNTDOWN, MINIGAME_CK_COUNTDOWN,
+  SHOOT_ZONE_HOME_MIN_ROW, SHOOT_ZONE_AWAY_MAX_ROW,
+  GOAL_COL_MIN, GOAL_COL_MAX, GOAL_ROW_RANGE,
+  PHASE_TIMINGS, TOTAL_ANIMATION_MS,
+  // Types
+  type MiniGameState, type CeremonyPhase,
+  // Functions
+  createInitialPieces, createGoalRestartPieces, toEnginePiece,
+  clientOrderToEngine, enginePiecesToClient,
+  computeReachableHexes, isShootZoneForPiece, getAccuratePassRange,
+  getMatchTimeLabel, computeStats, computeMvp,
+} from './Battle/battleUtils';
 
 interface BattleProps {
   onNavigate: (page: Page) => void;
@@ -47,468 +62,6 @@ interface BattleProps {
   formationData?: FormationData | null;
   onMatchEnd?: (data: MatchEndData) => void;
   comDifficulty?: 'beginner' | 'regular' | 'maniac';
-}
-
-/** イベントログからスタッツを集計 */
-function computeStats(allEvents: GameEvent[], totalTurns: number): MatchStats {
-  const stats: MatchStats = {
-    possession: { home: 50, away: 50 },
-    shots: { home: 0, away: 0 },
-    shotsOnTarget: { home: 0, away: 0 },
-    passesAttempted: { home: 0, away: 0 },
-    passesCompleted: { home: 0, away: 0 },
-    tackles: { home: 0, away: 0 },
-    fouls: { home: 0, away: 0 },
-    offsides: { home: 0, away: 0 },
-    cornerKicks: { home: 0, away: 0 },
-  };
-
-  let homePossessionTurns = 0;
-  let awayPossessionTurns = 0;
-
-  for (const ev of allEvents) {
-    const e = ev as Record<string, unknown>;
-    const pieceId = (e.pieceId ?? e.shooterId ?? e.passerId ?? '') as string;
-    const team = pieceId.startsWith('h') ? 'home' : 'away';
-
-    switch (ev.type) {
-      case 'SHOOT': {
-        stats.shots[team]++;
-        const outcome = (e.result as Record<string, unknown>)?.outcome;
-        if (outcome === 'goal' || outcome === 'saved_catch' || outcome === 'saved_ck') {
-          stats.shotsOnTarget[team]++;
-        }
-        if (outcome === 'saved_ck') stats.cornerKicks[team]++;
-        break;
-      }
-      case 'PASS_DELIVERED':
-        stats.passesAttempted[pieceId.startsWith('h') ? 'home' : 'away']++;
-        stats.passesCompleted[pieceId.startsWith('h') ? 'home' : 'away']++;
-        break;
-      case 'PASS_CUT': {
-        const pTeam = pieceId.startsWith('h') ? 'home' : 'away';
-        stats.passesAttempted[pTeam]++;
-        break;
-      }
-      case 'TACKLE': {
-        const tackler = ((e.result as Record<string, unknown>)?.tackler as Record<string, unknown>);
-        const tTeam = (tackler?.team as string) === 'home' ? 'home' : 'away';
-        if ((e.result as Record<string, unknown>)?.success) stats.tackles[tTeam]++;
-        break;
-      }
-      case 'FOUL': {
-        const fTeam = (e.tacklerId as string)?.startsWith('h') ? 'home' : 'away';
-        stats.fouls[fTeam]++;
-        break;
-      }
-      case 'OFFSIDE': {
-        const rTeam = (e.receiverId as string)?.startsWith('h') ? 'home' : 'away';
-        stats.offsides[rTeam]++;
-        break;
-      }
-      case 'BALL_ACQUIRED':
-        if (team === 'home') homePossessionTurns++;
-        else awayPossessionTurns++;
-        break;
-    }
-  }
-
-  const totalPoss = homePossessionTurns + awayPossessionTurns;
-  if (totalPoss > 0) {
-    stats.possession.home = Math.round((homePossessionTurns / totalPoss) * 100);
-    stats.possession.away = 100 - stats.possession.home;
-  }
-  return stats;
-}
-
-/** イベントログからMVPを選出 */
-function computeMvp(allEvents: GameEvent[]): MvpInfo | null {
-  const scores = new Map<string, { goals: number; assists: number; tackles: number; team: string; position: string; cost: number }>();
-
-  for (const ev of allEvents) {
-    const e = ev as Record<string, unknown>;
-    if (ev.type === 'SHOOT') {
-      const outcome = (e.result as Record<string, unknown>)?.outcome;
-      if (outcome === 'goal') {
-        const id = e.shooterId as string;
-        const s = scores.get(id) ?? { goals: 0, assists: 0, tackles: 0, team: id.startsWith('h') ? 'home' : 'away', position: '', cost: 1 };
-        s.goals++;
-        scores.set(id, s);
-      }
-    }
-    if (ev.type === 'PASS_DELIVERED') {
-      // Assist = パス→次ターンゴール（簡易的にパス送り手をアシスト候補に）
-      const id = e.passerId as string;
-      const s = scores.get(id) ?? { goals: 0, assists: 0, tackles: 0, team: id.startsWith('h') ? 'home' : 'away', position: '', cost: 1 };
-      s.assists++;
-      scores.set(id, s);
-    }
-    if (ev.type === 'TACKLE') {
-      const result = e.result as Record<string, unknown>;
-      if (result?.success) {
-        const tackler = result.tackler as Record<string, unknown>;
-        const id = tackler?.id as string;
-        if (id) {
-          const s = scores.get(id) ?? { goals: 0, assists: 0, tackles: 0, team: id.startsWith('h') ? 'home' : 'away', position: '', cost: 1 };
-          s.tackles++;
-          scores.set(id, s);
-        }
-      }
-    }
-  }
-
-  if (scores.size === 0) return null;
-
-  let best: [string, typeof scores extends Map<string, infer V> ? V : never] | null = null;
-  for (const [id, s] of scores) {
-    if (!best || s.goals > best[1].goals || (s.goals === best[1].goals && s.assists > best[1].assists) || (s.goals === best[1].goals && s.assists === best[1].assists && s.tackles > best[1].tackles)) {
-      best = [id, s];
-    }
-  }
-
-  if (!best) return null;
-  const [id, s] = best;
-  return {
-    pieceId: id,
-    position: (s.position || 'FW') as Position,
-    cost: (s.cost || 1) as Cost,
-    team: s.team as Team,
-    goals: s.goals,
-    assists: s.assists,
-    tackles: s.tackles,
-  };
-}
-
-/** ハーフライン（row 16 が中央、キックオフ時は各チーム自陣のみ） */
-const HALF_LINE_ROW = 16;
-
-/** デフォルト4-4-2テンプレート（自陣側: row 0〜16 に収まる） */
-const DEFAULT_TEMPLATE: Array<{ pos: Position; cost: Cost; col: number; row: number }> = [
-  { pos: 'GK', cost: 1,   col: 10, row: 1 },
-  { pos: 'DF', cost: 1,   col: 7,  row: 5 },
-  { pos: 'DF', cost: 1.5, col: 13, row: 5 },
-  { pos: 'SB', cost: 1,   col: 4,  row: 6 },
-  { pos: 'SB', cost: 1,   col: 16, row: 6 },
-  { pos: 'VO', cost: 1,   col: 10, row: 9 },
-  { pos: 'MF', cost: 1,   col: 7,  row: 12 },
-  { pos: 'MF', cost: 1,   col: 13, row: 12 },
-  { pos: 'OM', cost: 2,   col: 10, row: 14 },
-  { pos: 'WG', cost: 1.5, col: 4,  row: 13 },
-  { pos: 'FW', cost: 2.5, col: 10, row: 16 },
-];
-
-/** フォーメーション座標を自陣にクランプ（キックオフルール準拠） */
-function clampToOwnHalf(row: number, team: Team): number {
-  // home: row 0〜16, away: row 17〜33
-  if (team === 'home') return Math.min(row, HALF_LINE_ROW);
-  return Math.max(row, HALF_LINE_ROW + 1);
-}
-
-/** FormationPiece配列 → PieceData配列に変換 */
-function formationToPieces(starters: FormationPiece[], bench: FormationPiece[], team: Team): PieceData[] {
-  const prefix = team === 'home' ? 'h' : 'a';
-  const pieces: PieceData[] = [];
-  starters.forEach((s, i) => {
-    pieces.push({
-      id: `${prefix}${String(i + 1).padStart(2, '0')}`,
-      team,
-      position: s.position,
-      cost: s.cost,
-      coord: { col: s.col, row: clampToOwnHalf(s.row, team) },
-      hasBall: false,
-      moveRange: DEFAULT_MOVE_RANGE,
-      isBench: false,
-    });
-  });
-  bench.forEach((b, i) => {
-    pieces.push({
-      id: `${prefix}b${String(i + 1).padStart(2, '0')}`,
-      team,
-      position: b.position,
-      cost: b.cost,
-      coord: { col: b.col, row: b.row },
-      hasBall: false,
-      moveRange: DEFAULT_MOVE_RANGE,
-      isBench: true,
-    });
-  });
-  return pieces;
-}
-
-/** COM/awayチーム用のデフォルトコマ生成（row を反転して相手陣に配置） */
-function createDefaultAwayPieces(): PieceData[] {
-  return DEFAULT_TEMPLATE.map((t, i) => ({
-    id: `a${String(i + 1).padStart(2, '0')}`,
-    team: 'away' as Team,
-    position: t.pos,
-    cost: t.cost,
-    coord: { col: t.col, row: MAX_ROW - t.row },
-    hasBall: false,
-    moveRange: DEFAULT_MOVE_RANGE,
-    isBench: false,
-  }));
-}
-
-/** homeチーム用のデフォルトコマ生成（フォーメーション未設定時のフォールバック） */
-function createDefaultHomePieces(): PieceData[] {
-  return DEFAULT_TEMPLATE.map((t, i) => ({
-    id: `h${String(i + 1).padStart(2, '0')}`,
-    team: 'home' as Team,
-    position: t.pos,
-    cost: t.cost,
-    coord: { col: t.col, row: t.row },
-    hasBall: false,
-    moveRange: DEFAULT_MOVE_RANGE,
-    isBench: false,
-  }));
-}
-
-/** 初期コマ配置生成（Formation データ優先、なければデフォルト） */
-function createInitialPieces(formationData?: FormationData | null, kickoffTeam: Team = 'home'): PieceData[] {
-  // ── homeチーム: フォーメーションデータがあればそれを使用 ──
-  const homePieces = formationData
-    ? formationToPieces(formationData.starters, formationData.bench, 'home')
-    : createDefaultHomePieces();
-
-  // ── awayチーム: デフォルト4-4-2（row反転で相手陣配置） ──
-  const awayPieces = createDefaultAwayPieces();
-
-  const pieces = [...homePieces, ...awayPieces];
-
-  // キックオフ: 指定チームの FW にボール
-  const fw = pieces.find((p) => p.team === kickoffTeam && p.position === 'FW' && !p.isBench);
-  if (fw) fw.hasBall = true;
-
-  return pieces;
-}
-
-/** PieceData → engine Piece 変換 */
-function toEnginePiece(p: PieceData): EnginePiece {
-  return { id: p.id, team: p.team, position: p.position, cost: p.cost, coord: p.coord, hasBall: p.hasBall };
-}
-
-/** クライアント OrderData → エンジン Order に変換 */
-function clientOrderToEngine(order: import('../types').OrderData, pieces: PieceData[]): EngineOrder {
-  if (order.action === 'pass' && order.targetPieceId) {
-    const receiver = pieces.find(p => p.id === order.targetPieceId);
-    return {
-      pieceId: order.pieceId,
-      type: 'pass',
-      target: receiver?.coord,
-      targetPieceId: order.targetPieceId,
-    };
-  }
-  if (order.action === 'throughPass') {
-    // スルーパスはエンジン上では 'throughPass' として処理
-    return {
-      pieceId: order.pieceId,
-      type: 'throughPass',
-      target: order.targetHex,
-    };
-  }
-  return {
-    pieceId: order.pieceId,
-    type: (order.action ?? 'stay') as EngineOrder['type'],
-    target: order.targetHex,
-  };
-}
-
-/** エンジン Piece[] → PieceData[] に変換（moveRange/isBench を既存データから引き継ぎ） */
-function enginePiecesToClient(enginePieces: EnginePiece[], existing: PieceData[]): PieceData[] {
-  const existMap = new Map(existing.map(p => [p.id, p]));
-  return enginePieces.map(ep => ({
-    id: ep.id,
-    team: ep.team,
-    position: ep.position,
-    cost: ep.cost,
-    coord: ep.coord,
-    hasBall: ep.hasBall,
-    moveRange: existMap.get(ep.id)?.moveRange ?? DEFAULT_MOVE_RANGE,
-    isBench: existMap.get(ep.id)?.isBench ?? false,
-  }));
-}
-
-/**
- * ゴールリスタート用コマ配置（失点チームがキックオフ）
- * 交代済みコマを保持したまま、初期配置座標にリセットする。
- * currentPiecesが渡された場合はそのコマ構成を維持し、なければformationDataから生成。
- */
-function createGoalRestartPieces(
-  fd: FormationData | null | undefined,
-  kickoffTeam: Team,
-  currentPieces?: PieceData[],
-): PieceData[] {
-  // 現在のコマリストがない場合はフォーメーションから新規生成
-  if (!currentPieces || currentPieces.length === 0) {
-    return createInitialPieces(fd, kickoffTeam);
-  }
-
-  // テンプレート配置を取得（座標マッピング用）
-  const templatePieces = createInitialPieces(fd, kickoffTeam);
-  const templateById = new Map(templatePieces.map(p => [p.id, p]));
-
-  // 現在のコマ構成を維持しつつ、座標を初期位置にリセット
-  const resetPieces = currentPieces.map(cp => {
-    const template = templateById.get(cp.id);
-    if (template) {
-      return { ...cp, coord: template.coord, hasBall: template.hasBall };
-    }
-    // テンプレートにないコマ（交代で入ったコマ）は、交代元のポジション座標を使う
-    // 同チーム・同ポジションのテンプレートから座標を借りる
-    const posTemplate = templatePieces.find(tp =>
-      tp.team === cp.team && tp.position === cp.position && !templateById.has(cp.id),
-    );
-    if (posTemplate) {
-      return { ...cp, coord: posTemplate.coord, hasBall: false };
-    }
-    return { ...cp, hasBall: false };
-  });
-
-  // ボール配置: キックオフチームのFWにボール
-  const fw = resetPieces.find(p => p.team === kickoffTeam && p.position === 'FW' && !p.isBench);
-  if (fw) {
-    for (const p of resetPieces) p.hasBall = false;
-    fw.hasBall = true;
-  }
-
-  return resetPieces;
-}
-
-// ============================================================
-// ゲームメカニクス定数
-// ============================================================
-
-/** 基本移動力 (§8-1) */
-const DEFAULT_MOVE_RANGE = 4;
-
-/** 正確パス距離の基本値 (§7-3) */
-const BASE_ACCURATE_PASS_RANGE = 6;
-/** パス距離ボーナス: コスト3 → +1 */
-const PASS_RANGE_COST3_BONUS = 1;
-/** パス距離ボーナス: OMポジション → +1 */
-const PASS_RANGE_OM_BONUS = 1;
-
-/** シュートゾーン閾値 (§7-2: homeは row>=22, awayは row<=11) */
-const SHOOT_ZONE_HOME_MIN_ROW = 22;
-const SHOOT_ZONE_AWAY_MAX_ROW = 11;
-/** シュート距離補正: DF/VO/SB は -1, WG/OM/FW は +1 */
-const SHOOT_RANGE_PENALTY_POSITIONS: Position[] = ['DF', 'VO', 'SB'];
-const SHOOT_RANGE_BONUS_POSITIONS: Position[] = ['WG', 'OM', 'FW'];
-
-/** ゴール周辺のHEX範囲 (ゴールポスト: col 7〜14, ゴールラインからの行数: ±2) */
-const GOAL_COL_MIN = 7;
-const GOAL_COL_MAX = 14;
-const GOAL_ROW_RANGE = 2;
-
-/** 交代ルール (§9-4) */
-const MAX_SUBSTITUTIONS = 3;
-/** フィールドコスト上限 (§6-2) */
-const MAX_FIELD_COST = 16;
-
-/** 試合時間表示 (§9-2) */
-const MINUTES_PER_TURN = 3;
-const HALFTIME_MINUTE = 45;
-const FULLTIME_MINUTE = 90;
-
-// ============================================================
-// タイミング定数 (ms)
-// ============================================================
-
-const KICKOFF_CEREMONY_MS = 2500;
-const HALFTIME_CEREMONY_MS = 3000;
-const SECOND_HALF_DELAY_MS = 4500;
-const FULLTIME_RESULT_BTN_DELAY_MS = 3000;
-const TURN_FLASH_MS = 1200;
-const GOAL_CEREMONY_MS = 2000;
-const RECONNECT_BANNER_MS = 3000;
-const SAFETY_TIMEOUT_MS = 8000;
-const MINIGAME_COUNTDOWN_INTERVAL_MS = 1000;
-const MINIGAME_FK_PK_COUNTDOWN = 5;
-const MINIGAME_CK_COUNTDOWN = 10;
-
-/** 正確パス距離（§7-3: 基本6HEX, コスト3+1, OM+1） */
-function getAccuratePassRange(piece: PieceData): number {
-  let range = BASE_ACCURATE_PASS_RANGE;
-  if (piece.cost === 3) range += PASS_RANGE_COST3_BONUS;
-  if (piece.position === 'OM') range += PASS_RANGE_OM_BONUS;
-  return range;
-}
-
-/** シュート可能判定（ポジション別距離補正: DF/VO/SB -1, WG/OM/FW +1） */
-function isShootZoneForPiece(coord: HexCoord, myTeam: Team, position: Position): boolean {
-  let modifier = 0;
-  if (SHOOT_RANGE_PENALTY_POSITIONS.includes(position)) modifier = -1;
-  if (SHOOT_RANGE_BONUS_POSITIONS.includes(position)) modifier = 1;
-  if (myTeam === 'home') return coord.row >= (SHOOT_ZONE_HOME_MIN_ROW - modifier);
-  return coord.row <= (SHOOT_ZONE_AWAY_MAX_ROW + modifier);
-}
-
-/** BFS で移動可能HEXを列挙 */
-function computeReachableHexes(
-  piece: EnginePiece,
-  isDribbling: boolean,
-  boardContext: import('../../engine/types').BoardContext,
-): HexCoord[] {
-  const zone = boardContext.getZone(piece.coord);
-  const lane = boardContext.getLane(piece.coord);
-  const range = getMovementRange(piece, isDribbling, zone, lane);
-  const reachable: HexCoord[] = [];
-  const visited = new Set<string>();
-  const queue: Array<{ coord: HexCoord; dist: number }> = [{ coord: piece.coord, dist: 0 }];
-  visited.add(hexKey(piece.coord));
-  while (queue.length > 0) {
-    const { coord, dist } = queue.shift()!;
-    if (dist > 0) reachable.push(coord);
-    if (dist >= range) continue;
-    for (const nb of getNeighbors(coord)) {
-      const k = hexKey(nb);
-      if (visited.has(k) || !boardContext.isValidHex(nb)) continue;
-      visited.add(k);
-      queue.push({ coord: nb, dist: dist + 1 });
-    }
-  }
-  return reachable;
-}
-
-/** フェーズ演出タイミング (ms) */
-const PHASE_TIMINGS = [800, 500, 500, 500, 500]; // Phase0-4
-const TOTAL_ANIMATION_MS = PHASE_TIMINGS.reduce((a, b) => a + b, 0); // 2800
-
-/** ミニゲーム状態型 */
-type MiniGameState =
-  | null
-  | { type: 'fk'; coord: HexCoord; kickerPiece: PieceData; gkPiece: PieceData; isAttacker: boolean; fouledTeam: Team }
-  | { type: 'ck'; isAttacker: boolean; pieces: PieceData[]; attackTeam: Team }
-  | { type: 'pk'; coord: HexCoord; kickerPiece: PieceData; gkPiece: PieceData; isKicker: boolean; fouledTeam: Team };
-
-/** 前半/後半の基本ターン数 */
-const HALF_TURNS = 15;
-
-/**
- * サッカー風試合時間ラベルを生成。
- * 前半15ターン = 0:00〜42:00 (3分刻み), AT = 45+1, 45+2 …
- * 後半15ターン = 45:00〜87:00, AT = 90+1, 90+2 …
- */
-function getMatchTimeLabel(turn: number, at1: number, at2: number): { label: string; isAT: boolean } {
-  const halfEnd = HALF_TURNS + at1;
-
-  // 前半レギュラー (ターン 1〜15)
-  if (turn <= HALF_TURNS) {
-    const min = (turn - 1) * MINUTES_PER_TURN;
-    return { label: `${min}:00`, isAT: false };
-  }
-  // 前半AT (ターン 16〜halfEnd)
-  if (turn <= halfEnd) {
-    return { label: `${HALFTIME_MINUTE}+${turn - HALF_TURNS}`, isAT: true };
-  }
-  // 後半レギュラー
-  const secondHalfTurn = turn - at1; // at1 を引いて後半ターン番号に
-  if (secondHalfTurn <= HALF_TURNS * 2) {
-    const min = HALFTIME_MINUTE + (secondHalfTurn - HALF_TURNS - 1) * MINUTES_PER_TURN;
-    return { label: `${min}:00`, isAT: false };
-  }
-  // 後半AT
-  return { label: `${FULLTIME_MINUTE}+${secondHalfTurn - HALF_TURNS * 2}`, isAT: true };
 }
 
 export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd, comDifficulty = 'regular' }: BattleProps) {
@@ -732,7 +285,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [isCom, matchId, dispatch, formationData]);
 
   // ── 演出フェーズ管理 ──
-  type CeremonyPhase = 'kickoff' | 'kickoff2nd' | 'halftime' | 'halftime_sub' | 'secondhalf' | 'fulltime' | 'turn' | 'goal' | null;
   const [ceremony, setCeremony] = useState<CeremonyPhase>(null);
   const [showResultBtn, setShowResultBtn] = useState(false);
 
@@ -1251,9 +803,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     [state.selectedPieceId, state.actionMode, state.board.pieces, state.myTeam,
      dispatch, isMobile, isShootZone, state.turnPhase],
   );
-
-  /** リプレイアニメーション時間（ms）。§5-1: 約2.5秒 */
-  const REPLAY_DURATION = 2500;
 
   // ── HEX座標→ピクセル座標変換（hex_mapデータを使用、flipY対応） ──
   const hexToPixel = useCallback((coord: HexCoord): { x: number; y: number } => {
@@ -2138,182 +1687,27 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   );
 
   // ── 演出オーバーレイ（共通） ──
-  const ceremonyEl = ceremony && (
-    <>
-      <style>{`
-        @keyframes fcms-slide-up { 0% { opacity:0; transform:translate(-50%,-40%) translateY(40px); } 20% { opacity:1; transform:translate(-50%,-50%) translateY(0); } 80% { opacity:1; } 100% { opacity:0; } }
-        @keyframes fcms-scale-in { 0% { opacity:0; transform:translate(-50%,-50%) scale(0.5); } 25% { opacity:1; transform:translate(-50%,-50%) scale(1.08); } 40% { transform:translate(-50%,-50%) scale(1); } 100% { opacity:1; transform:translate(-50%,-50%) scale(1); } }
-        @keyframes fcms-scale-out { 0% { opacity:1; transform:translate(-50%,-50%) scale(1); } 100% { opacity:0; transform:translate(-50%,-50%) scale(0.8); } }
-        @keyframes fcms-turn-flash { 0% { opacity:0; transform:translate(-50%,-50%) scale(0.8); } 30% { opacity:1; transform:translate(-50%,-50%) scale(1); } 100% { opacity:0; transform:translate(-50%,-50%) scale(1); } }
-        @keyframes fcms-whistle { 0%,100% { transform:translate(-50%,-50%); } 10% { transform:translate(-48%,-50%); } 20% { transform:translate(-52%,-50%); } 30% { transform:translate(-49%,-50%); } 40% { transform:translate(-51%,-50%); } 50% { transform:translate(-50%,-50%); } }
-      `}</style>
-      <div style={{
-        position: 'fixed', inset: 0,
-        background: ceremony === 'turn' ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.7)',
-        zIndex: 200,
-        pointerEvents: (ceremony === 'fulltime' && showResultBtn) || ceremony === 'halftime_sub' ? 'auto' : 'none',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {/* ── KICK OFF ── */}
-        {ceremony === 'kickoff' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-slide-up 2.5s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
-              KICK OFF
-            </div>
-            <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
-              1st Half
-            </div>
-          </div>
-        )}
-
-        {/* ── KICK OFF 2nd Half ── */}
-        {ceremony === 'kickoff2nd' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-slide-up 2.5s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
-              KICK OFF
-            </div>
-            <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
-              2nd Half
-            </div>
-          </div>
-        )}
-
-        {/* ── HALF TIME ── */}
-        {ceremony === 'halftime' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-scale-in 0.6s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 40, fontWeight: 900, color: '#FFD700', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
-              HALF TIME
-            </div>
-            <div style={{ fontSize: 28, color: '#fff', marginTop: 16, fontWeight: 700, letterSpacing: 6 }}>
-              {state.scoreHome} - {state.scoreAway}
-            </div>
-          </div>
-        )}
-
-        {/* ── HALFTIME SUBSTITUTION ── */}
-        {ceremony === 'halftime_sub' && (
-          <HalftimeSubPanel
-            pieces={state.board.pieces}
-            myTeam={state.myTeam}
-            maxSubs={MAX_SUBSTITUTIONS}
-            subsUsed={halftimeSubsUsed}
-            onSubstitute={(fieldPieceId, benchPieceId) => {
-              dispatch({ type: 'HALFTIME_SUBSTITUTE', fieldPieceId, benchPieceId });
-              setHalftimeSubsUsed(prev => prev + 1);
-            }}
-            onReady={() => setHalftimeReady(true)}
-            countdown={halftimeCountdown}
-            scoreHome={state.scoreHome}
-            scoreAway={state.scoreAway}
-          />
-        )}
-
-        {/* ── SECOND HALF ── */}
-        {ceremony === 'secondhalf' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-scale-out 1.5s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 36, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
-              SECOND HALF
-            </div>
-          </div>
-        )}
-
-        {/* ── FULL TIME ── */}
-        {ceremony === 'fulltime' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-whistle 0.5s ease-out, fcms-scale-in 0.6s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 42, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
-              FULL TIME
-            </div>
-            <div style={{ fontSize: 32, color: '#fff', marginTop: 16, fontWeight: 700, letterSpacing: 6 }}>
-              {state.scoreHome} - {state.scoreAway}
-            </div>
-            {showResultBtn && (
-              <button
-                onClick={() => {
-                  if (onMatchEnd) {
-                    const allEvts = cumulativeEventsRef.current;
-                    const stats = computeStats(allEvts, state.turn);
-                    const mvp = computeMvp(allEvts);
-                    // Enrich MVP with piece data
-                    if (mvp) {
-                      const piece = state.board.pieces.find(p => p.id === mvp.pieceId);
-                      if (piece) {
-                        mvp.position = piece.position;
-                        mvp.cost = piece.cost;
-                      }
-                    }
-                    onMatchEnd({
-                      scoreHome: state.scoreHome,
-                      scoreAway: state.scoreAway,
-                      myTeam: state.myTeam,
-                      reason: 'completed',
-                      stats,
-                      mvp,
-                    });
-                  } else {
-                    onNavigate('result');
-                  }
-                }}
-                style={{
-                  marginTop: 24, padding: '10px 32px', borderRadius: 8, border: 'none',
-                  background: '#16a34a', color: '#fff', fontSize: 16, fontWeight: 700,
-                  cursor: 'pointer', pointerEvents: 'auto',
-                }}
-              >
-                結果を見る
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* ── GOAL! ── */}
-        {ceremony === 'goal' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-scale-in 0.6s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 52, fontWeight: 900, color: '#FFD700', letterSpacing: 4, textShadow: '0 4px 32px rgba(255,215,0,0.5), 0 2px 24px rgba(0,0,0,0.8)' }}>
-              GOAL!
-            </div>
-            <div style={{ fontSize: 28, color: '#fff', marginTop: 16, fontWeight: 700, letterSpacing: 6 }}>
-              {state.scoreHome} - {state.scoreAway}
-            </div>
-          </div>
-        )}
-
-        {/* ── 通常ターン切替 ── */}
-        {ceremony === 'turn' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            animation: 'fcms-turn-flash 1.2s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#e2e8f0', letterSpacing: 1, textShadow: '0 1px 12px rgba(0,0,0,0.6)', whiteSpace: 'nowrap' }}>
-              Turn {state.turn}
-            </div>
-          </div>
-        )}
-      </div>
-    </>
+  const ceremonyEl = (
+    <CeremonyLayer
+      ceremony={ceremony}
+      showResultBtn={showResultBtn}
+      scoreHome={state.scoreHome}
+      scoreAway={state.scoreAway}
+      turn={state.turn}
+      myTeam={state.myTeam}
+      pieces={state.board.pieces}
+      halftimeSubsUsed={halftimeSubsUsed}
+      onHalftimeSubstitute={(fieldPieceId, benchPieceId) => {
+        dispatch({ type: 'HALFTIME_SUBSTITUTE', fieldPieceId, benchPieceId });
+        setHalftimeSubsUsed(prev => prev + 1);
+      }}
+      onHalftimeReady={() => setHalftimeReady(true)}
+      halftimeCountdown={halftimeCountdown}
+      cumulativeEvents={cumulativeEventsRef.current}
+      boardPieces={state.board.pieces}
+      onMatchEnd={onMatchEnd}
+      onNavigate={onNavigate}
+    />
   );
 
   // ── ボール表示の排他制御 ──
