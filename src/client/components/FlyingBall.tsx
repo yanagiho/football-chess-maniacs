@@ -71,7 +71,7 @@ export default function FlyingBall({ data, onComplete }: FlyingBallProps) {
         position: 'absolute',
         width: SZ,
         height: SZ,
-        zIndex: 200,
+        zIndex: 260,
         pointerEvents: 'none',
         filter: `drop-shadow(0 0 12px ${glowColor})`,
       }}

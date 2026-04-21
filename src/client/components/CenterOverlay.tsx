@@ -71,7 +71,7 @@ export default function CenterOverlay({ queue, onComplete }: CenterOverlayProps)
     <div style={{
       position: 'absolute', inset: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 250, pointerEvents: 'none',
+      zIndex: 270, pointerEvents: 'none',
     }}>
       <div style={{
         background: 'rgba(0,0,0,0.7)', borderRadius: 16,

@@ -17,6 +17,7 @@ import hexMapData from '../../data/hex_map.json';
 import Piece from './Piece';
 import type { BallTrail } from './Overlay';
 import Overlay from './Overlay';
+import FlyingBall, { type FlyingBallData } from '../FlyingBall';
 import { useControls, fitToContainer, type Transform } from './Controls';
 
 const hexMap = hexMapData as HexCell[];
@@ -109,6 +110,10 @@ interface HexBoardProps {
   onActionDribble?: () => void;
   /** キャンセル */
   onActionCancel?: () => void;
+  /** ボール飛行アニメーションデータ */
+  flyingBall?: FlyingBallData | null;
+  /** ボール飛行完了コールバック */
+  onFlyingBallComplete?: () => void;
 }
 
 export default function HexBoard({
@@ -136,6 +141,8 @@ export default function HexBoard({
   onActionPass,
   onActionDribble,
   onActionCancel,
+  flyingBall,
+  onFlyingBallComplete,
 }: HexBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -518,6 +525,11 @@ export default function HexBoard({
             </div>
           );
         })()}
+
+        {/* ボール飛行アニメーション（transformコンテナ内） */}
+        {flyingBall && onFlyingBallComplete && (
+          <FlyingBall data={flyingBall} onComplete={onFlyingBallComplete} />
+        )}
 
         {/* フリーボール表示 */}
         {freeBallHex && (() => {

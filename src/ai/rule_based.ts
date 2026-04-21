@@ -80,8 +80,6 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
     relayMaxDist: difficulty === 'beginner' ? 6 : difficulty === 'maniac' ? 12 : 8,
     /** 最善手を選ぶか（false: 上位3つからランダム） */
     pickBest: difficulty !== 'beginner',
-    /** 横パスでのテンポ維持（maniac: ドリブルより横パスを先に試す） */
-    preferLateralPass: difficulty === 'maniac',
   };
 
   // 合法手生成
@@ -251,17 +249,31 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       continue;
     }
 
-    // ── GK: 常にゴール中央付近に留まる ──
+    // ── GK: ゴール中央（col 10, depth 1）付近に留まる ──
     if (piece.position === 'GK') {
       const gkTargetRow = fromAttackDepth(1);
+      const gkTargetCol = 10;
       const moves = getFilteredMoves(pm, isAttacking);
-      const best = pickClosestToRow(moves, gkTargetRow);
-      if (best) {
-        addOrder({ pieceId: piece.id, type: 'move', target: best.targetHex });
+      // ゴール中央への距離でスコアリング（row重視 + col中央重視）
+      const scored = moves.map(m => {
+        const rowDist = -Math.abs(m.targetHex!.row - gkTargetRow);
+        const colDist = -Math.abs(m.targetHex!.col - gkTargetCol);
+        return { action: m, score: rowDist * 3 + colDist * 2 };
+      }).sort((a, b) => b.score - a.score);
+
+      // 現在位置がすでにゴール中央付近ならstay
+      const currentRowDist = Math.abs(piece.coord.row - gkTargetRow);
+      const currentColDist = Math.abs(piece.coord.col - gkTargetCol);
+      const alreadyGood = currentRowDist <= 1 && currentColDist <= 1;
+
+      if (scored.length > 0 && !alreadyGood) {
+        const best = scored[0];
+        addOrder({ pieceId: piece.id, type: 'move', target: best.action.targetHex });
+        console.log(`[COM AI]   GK → move(${best.action.targetHex!.col},${best.action.targetHex!.row})`);
       } else {
         addOrder({ pieceId: piece.id, type: 'stay' });
+        console.log(`[COM AI]   GK → stay (already at goal center)`);
       }
-      console.log(`[COM AI]   GK → ${best ? `move(${best.targetHex!.col},${best.targetHex!.row})` : 'stay'}`);
       continue;
     }
 
@@ -293,20 +305,25 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
 
       const moves = getFilteredMoves(pm, true);
 
-      // スコアリング: 前方移動 + 横に広がる + 味方から離れる
+      // スコアリング: 目標行への接近 + 適度な横幅 + 味方から離れる
       const scored = moves.map(m => {
-        const depthGain = toAttackDepth(m.targetHex!.row) - currentDepth;
-        const rowCloseness = -Math.abs(m.targetHex!.row - targetRow); // 目標rowに近いほど良い
-        const spread = Math.abs(m.targetHex!.col - 10); // 中央から離れるほど良い（横に広がる）
+        const targetDepthActual = toAttackDepth(m.targetHex!.row);
+        const rowCloseness = -Math.abs(m.targetHex!.row - targetRow); // 目標rowに近いほど良い（最重要）
+        // 横幅: 中央付近を維持しつつ適度に広がる（col 5〜15が理想帯、端は減点）
+        const colDist = Math.abs(m.targetHex!.col - 10);
+        const spreadScore = colDist <= 5 ? colDist * 0.5 : -(colDist - 5) * 2; // 5以内は微加点、超えると大減点
         // 味方から離れているか（固まらない）
         const minAllyDist = myPieces
           .filter(p => p.id !== piece.id)
           .reduce((min, p) => Math.min(min, hexDistance(m.targetHex!, p.coord)), 99);
-        const notClumped = minAllyDist > 1 ? 3 : 0;
+        const notClumped = minAllyDist >= 2 ? 2 : minAllyDist >= 1 ? 0 : -3;
+        // ライン範囲の中央に留まるボーナス（上限に張り付かない）
+        const rangeMid = (range.min + range.max) / 2;
+        const rangeCenter = -Math.abs(targetDepthActual - rangeMid) * 0.3;
 
         return {
           action: m,
-          score: depthGain * 2 + rowCloseness * 3 + spread * 0.5 + notClumped,
+          score: rowCloseness * 4 + spreadScore + notClumped + rangeCenter,
         };
       }).sort((a, b) => b.score - a.score);
 
@@ -339,7 +356,10 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         const minAllyDist = sameLine.length > 0
           ? Math.min(...sameLine.map(s => Math.abs(m.targetHex!.col - s.coord.col)))
           : 10;
-        return { action: m, score: rowDist * 3 + minAllyDist * 2 };
+        // 端に行きすぎない（col 3〜18が理想帯）
+        const colDist = Math.abs(m.targetHex!.col - 10);
+        const edgePenalty = colDist > 8 ? -(colDist - 8) * 3 : 0;
+        return { action: m, score: rowDist * 3 + minAllyDist * 2 + edgePenalty };
       }).sort((a, b) => b.score - a.score);
 
       const picked = pickByDifficulty(scored);
@@ -364,12 +384,13 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       // パスコースを塞ぐ位置を優先（敵と味方の間に入る）
       const scored = moves.map(m => {
         const rowCloseness = -Math.abs(m.targetHex!.row - targetRow);
-        const spread = Math.abs(m.targetHex!.col - 10);
+        const colDist = Math.abs(m.targetHex!.col - 10);
+        const spreadScore = colDist <= 5 ? colDist * 0.5 : -(colDist - 5) * 2;
         const minAllyDist = myPieces
           .filter(p => p.id !== piece.id)
           .reduce((min, p) => Math.min(min, hexDistance(m.targetHex!, p.coord)), 99);
-        const notClumped = minAllyDist > 1 ? 2 : 0;
-        return { action: m, score: rowCloseness * 3 + spread * 0.5 + notClumped };
+        const notClumped = minAllyDist >= 2 ? 2 : minAllyDist >= 1 ? 0 : -3;
+        return { action: m, score: rowCloseness * 4 + spreadScore + notClumped };
       }).sort((a, b) => b.score - a.score);
 
       const picked = pickByDifficulty(scored);
@@ -428,27 +449,35 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       return { pieceId, type: 'shoot', target: { col: 10, row: goalRow } };
     }
 
-    // ── 2. 前方の味方に直接パスが通るならパス ──
+    // ── 2. パスが通る味方にパス（前方〜横を含む） ──
     // maniac: ZOC遮断チェックでパスカットリスクを考慮
     const passBlockCheck = diffConfig.useZocPassBlock ? isPassBlockedByZoc : isPassBlockedByBody;
-    const forwardPassCandidates = passes
+    const passCandidates = passes
       .map(p => {
         const receiver = myPieces.find(pc => pc.id === p.targetPieceId);
         if (!receiver) return null;
         const fwdScore = forwardness(currentHex, receiver.coord);
-        if (fwdScore <= 0) return null; // 前方でない
         const blocked = passBlockCheck(currentHex, receiver.coord);
         const dist = hexDistance(currentHex, receiver.coord);
+        // 近すぎるパスは効果が薄い
+        if (dist <= 1) return null;
         return { action: p, receiver, fwdScore, blocked, dist };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null && !x.blocked)
-      .sort((a, b) => b.fwdScore - a.fwdScore || a.dist - b.dist);
+      .sort((a, b) => {
+        // 前方パスを優先、同程度なら近い方
+        const fwdA = a.fwdScore > 0 ? 1 : 0;
+        const fwdB = b.fwdScore > 0 ? 1 : 0;
+        if (fwdA !== fwdB) return fwdB - fwdA;
+        return b.fwdScore - a.fwdScore || a.dist - b.dist;
+      });
 
-    if (forwardPassCandidates.length > 0) {
+    if (passCandidates.length > 0) {
       // beginner: 上位3つからランダム選択
-      const idx = diffConfig.pickBest ? 0 : Math.floor(Math.random() * Math.min(3, forwardPassCandidates.length));
-      const best = forwardPassCandidates[idx];
-      console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: FORWARD PASS → ${best.receiver.position}★${best.receiver.cost} (fwd=${best.fwdScore}, dist=${best.dist})`);
+      const idx = diffConfig.pickBest ? 0 : Math.floor(Math.random() * Math.min(3, passCandidates.length));
+      const best = passCandidates[idx];
+      const passType = best.fwdScore > 0 ? 'FORWARD' : 'LATERAL';
+      console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: ${passType} PASS → ${best.receiver.position}★${best.receiver.cost} (fwd=${best.fwdScore}, dist=${best.dist})`);
       return {
         pieceId, type: 'pass',
         target: best.receiver.coord,
@@ -489,9 +518,8 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
       }
     }
 
-    // ── 4/5. ドリブル or 横パス（maniacは横パスを先に試す） ──
-
-    const tryDribble = (): Order | null => {
+    // ── 4. ドリブル（パスが全て塞がれた場合のフォールバック） ──
+    {
       const range = getLineRange(pm.position, true);
       const dribbles = legalActions
         .filter(a => a.action === 'dribble' && a.targetHex)
@@ -516,47 +544,9 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
         console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: DRIBBLE forward(${best.action.targetHex!.col},${best.action.targetHex!.row})${best.inZoc ? ' [ZOC]' : ''}`);
         return { pieceId, type: 'dribble', target: best.action.targetHex };
       }
-      return null;
-    };
-
-    const tryLateralPass = (): Order | null => {
-      const lateralPasses = passes
-        .map(p => {
-          const receiver = myPieces.find(pc => pc.id === p.targetPieceId);
-          if (!receiver) return null;
-          if (passBlockCheck(currentHex, receiver.coord)) return null;
-          const dist = hexDistance(currentHex, receiver.coord);
-          return { action: p, receiver, dist };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null)
-        .sort((a, b) => a.dist - b.dist);
-
-      if (lateralPasses.length > 0) {
-        const best = lateralPasses[0];
-        console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: LATERAL PASS → ${best.receiver.position}★${best.receiver.cost} (dist=${best.dist})`);
-        return {
-          pieceId, type: 'pass',
-          target: best.receiver.coord,
-          targetPieceId: best.receiver.id,
-        };
-      }
-      return null;
-    };
-
-    // maniac: 横パスを先に試してテンポ維持、regular/beginner: ドリブル優先
-    if (diffConfig.preferLateralPass) {
-      const lateral = tryLateralPass();
-      if (lateral) return lateral;
-      const dribble = tryDribble();
-      if (dribble) return dribble;
-    } else {
-      const dribble = tryDribble();
-      if (dribble) return dribble;
-      const lateral = tryLateralPass();
-      if (lateral) return lateral;
     }
 
-    // ── 6. 待機（最終手段） ──
+    // ── 5. 待機（最終手段） ──
     console.log(`[COM AI]   Ball★${pm.position}★${pm.cost}: STAY (no options)`);
     return { pieceId, type: 'stay' };
   }

@@ -10,7 +10,7 @@ import CenterOverlay, { type OverlayItem } from '../components/CenterOverlay';
 import { soundManager } from '../audio/SoundManager';
 import { useSettings } from '../contexts/SettingsContext';
 import type { BallTrail } from '../components/board/Overlay';
-import FlyingBall, { type FlyingBallData } from '../components/FlyingBall';
+import { type FlyingBallData } from '../components/FlyingBall';
 // BallActionMenu is now inlined in the render
 import { POSITION_COLORS, getWsBaseUrl, MAX_ROW } from '../types';
 import { useDeviceType } from '../hooks/useDeviceType';
@@ -777,59 +777,50 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   }, [ceremony, halftimeCountdown, isComVsCom]);
 
   // 「後半開始」ボタン or カウントダウン完了 → SECOND HALF演出 → 後半開始
+  const secondHalfTriggeredRef = useRef(false);
   useEffect(() => {
-    if (!halftimeReady || state.status !== 'halftime') return;
+    if (!halftimeReady || state.status !== 'halftime') {
+      // halftimeを抜けたらリセット
+      if (state.status !== 'halftime') secondHalfTriggeredRef.current = false;
+      return;
+    }
+    // 二重トリガー防止
+    if (secondHalfTriggeredRef.current) return;
+    secondHalfTriggeredRef.current = true;
+
     const capturedTurn = state.turn;
     const capturedScoreHome = state.scoreHome;
     const capturedScoreAway = state.scoreAway;
+    const capturedPieces = state.board.pieces; // キャプチャして依存を切る
     const secondHalfKickoff: Team = firstHalfKickoffRef.current === 'home' ? 'away' : 'home';
 
-    setCeremony('secondhalf');
-    const t1 = setTimeout(() => {
-      // 後半リセット: 交代済みコマを反映して初期位置に戻す
+    const buildSecondHalfPieces = () => {
       const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
-      // 交代済みのベンチ入れ替えを反映: 現在のpiecesからisBenchフラグを引き継ぐ
-      const currentPieces = state.board.pieces;
       const updatedReset = resetPieces.map(rp => {
-        const current = currentPieces.find(cp => cp.id === rp.id);
-        if (current) {
-          return { ...rp, isBench: current.isBench, position: current.position, cost: current.cost };
-        }
-        return rp;
-      }).filter(p => !p.isBench); // フィールドコマのみ配置
-
-      // ベンチコマも含めた全コマリスト
-      const benchPieces = currentPieces.filter(cp => cp.isBench);
-      const allPieces = [...updatedReset, ...benchPieces];
-
-      // ボール配置: キックオフチームのFWにボール
-      const fw = allPieces.find(p => p.team === secondHalfKickoff && p.position === 'FW' && !p.isBench);
-      if (fw) {
-        for (const p of allPieces) p.hasBall = false;
-        fw.hasBall = true;
-      }
-
-      dispatch({ type: 'SET_DISPLAY_PIECES', pieces: allPieces });
-      setCeremony('kickoff2nd');
-    }, 1500);
-    const t2 = setTimeout(() => {
-      const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
-      const currentPieces = state.board.pieces;
-      const updatedReset = resetPieces.map(rp => {
-        const current = currentPieces.find(cp => cp.id === rp.id);
+        const current = capturedPieces.find(cp => cp.id === rp.id);
         if (current) {
           return { ...rp, isBench: current.isBench, position: current.position, cost: current.cost };
         }
         return rp;
       }).filter(p => !p.isBench);
-      const benchPieces = currentPieces.filter(cp => cp.isBench);
+      const benchPieces = capturedPieces.filter(cp => cp.isBench);
       const allPieces = [...updatedReset, ...benchPieces];
       const fw = allPieces.find(p => p.team === secondHalfKickoff && p.position === 'FW' && !p.isBench);
       if (fw) {
         for (const p of allPieces) p.hasBall = false;
         fw.hasBall = true;
       }
+      return allPieces;
+    };
 
+    setCeremony('secondhalf');
+    const t1 = setTimeout(() => {
+      const allPieces = buildSecondHalfPieces();
+      dispatch({ type: 'SET_DISPLAY_PIECES', pieces: allPieces });
+      setCeremony('kickoff2nd');
+    }, 1500);
+    const t2 = setTimeout(() => {
+      const allPieces = buildSecondHalfPieces();
       setCeremony(null);
       setHalftimeReady(false);
       dispatch({
@@ -841,7 +832,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       });
     }, 1500 + KICKOFF_CEREMONY_MS);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [halftimeReady, state.status, dispatch, formationData, state.turn, state.scoreHome, state.scoreAway, state.board.pieces]);
+  }, [halftimeReady, state.status, dispatch, formationData]);
 
   // タイムアップ演出（試合終了時）
   useEffect(() => {
@@ -931,17 +922,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     }
   }, [state.turnPhase, state.status, state.board.pieces, state.board.freeBallHex, state.myTeam, dispatch]);
 
-  // ── COM観戦: 自動確定（INPUTフェーズ開始後に自動でhandleConfirm） ──
+  // ── COM観戦: handleConfirmの最新参照を保持（useEffect内でstale closureを避ける） ──
   const handleConfirmRef = useRef<(() => void) | undefined>(undefined);
-  useEffect(() => {
-    if (!isComVsCom) return;
-    if (state.turnPhase !== 'INPUT' || state.status !== 'playing') return;
-    // 少し待ってから自動確定（Turn演出の後）
-    const timer = setTimeout(() => {
-      handleConfirmRef.current?.();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [isComVsCom, state.turnPhase, state.status]);
 
   // EXECUTION → EVENT → TURN_END は handleConfirm のsetTimeoutチェーンで管理（既存）
   // EXECUTION 安全弁: 8秒（既存の replaySafetyRef）
@@ -1667,6 +1649,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                   scoreAway: newScoreAway,
                 });
               }
+              setBallTrails([]);
               clearReplayTimers();
               dispatch({ type: 'NEXT_TURN' });
               return;
@@ -1722,6 +1705,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 scoreHome: newScoreHome,
                 scoreAway: newScoreAway,
               });
+              setBallTrails([]);
               clearReplayTimers();
               dispatch({ type: 'NEXT_TURN' });
               return;
@@ -1821,13 +1805,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   // COM観戦用: handleConfirmの最新参照を保持
   handleConfirmRef.current = handleConfirm;
 
-  // COM vs COM 自動ターン進行: INPUTフェーズになったら即座にhandleConfirmを呼ぶ
+  // COM vs COM 自動ターン進行: INPUTフェーズになったら自動でhandleConfirm
   useEffect(() => {
     if (!isComVsCom) return;
     if (state.turnPhase !== 'INPUT' || state.status !== 'playing') return;
-    const timer = setTimeout(() => handleConfirm(), 300);
+    const timer = setTimeout(() => {
+      handleConfirmRef.current?.();
+    }, 300);
     return () => clearTimeout(timer);
-  }, [isComVsCom, state.turnPhase, state.status, handleConfirm]);
+  }, [isComVsCom, state.turnPhase, state.status]);
 
   const handleTimeout = useCallback(() => {
     handleConfirm();
@@ -2526,7 +2512,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }} ref={boardRef}>
           {/* INPUT以外のフェーズではピッチ全体を覆ってクリックをブロック + 暗転 */}
           {/* ただし試合終了/ハーフタイム/ミニゲーム中は非表示（演出UIのクリックを妨げない） */}
-          {state.turnPhase !== 'INPUT' && !miniGame && state.status !== 'finished' && state.status !== 'halftime' && (
+          {state.turnPhase !== 'INPUT' && !miniGame && state.status !== 'finished' && state.status !== 'halftime' && !isComVsCom && (
             <div
               style={{
                 position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed',
@@ -2537,7 +2523,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             />
           )}
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
-          <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
             pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
@@ -2562,6 +2547,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             onActionPass={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
             onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
             onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
+            flyingBall={flyingBall}
+            onFlyingBallComplete={handleFlyingBallComplete}
           />
 
           {/* A8: オフサイドライントグル削除済 */}
@@ -2707,7 +2694,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={boardRef}>
           {/* INPUT以外のフェーズではピッチ全体を覆ってクリックをブロック + 暗転 */}
           {/* ただし試合終了/ハーフタイム/ミニゲーム中は非表示（演出UIのクリックを妨げない） */}
-          {state.turnPhase !== 'INPUT' && !miniGame && state.status !== 'finished' && state.status !== 'halftime' && (
+          {state.turnPhase !== 'INPUT' && !miniGame && state.status !== 'finished' && state.status !== 'halftime' && !isComVsCom && (
             <div
               style={{
                 position: 'absolute', inset: 0, zIndex: 250, cursor: 'not-allowed',
@@ -2718,7 +2705,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             />
           )}
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
-          <FlyingBall data={flyingBall} onComplete={handleFlyingBallComplete} />
           <HexBoard
             pieces={displayPieces}
             selectedPieceId={state.selectedPieceId}
@@ -2743,6 +2729,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             onActionPass={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'pass' }); setBallActionMenu(null); }}
             onActionDribble={() => { dispatch({ type: 'SET_ACTION_MODE', mode: 'dribble' }); setBallActionMenu(null); }}
             onActionCancel={() => { dispatch({ type: 'SELECT_PIECE', pieceId: null }); setBallActionMenu(null); }}
+            flyingBall={flyingBall}
+            onFlyingBallComplete={handleFlyingBallComplete}
           />
 
           {/* §3-2 右クリックコンテキストメニュー */}
