@@ -19,6 +19,7 @@ new_classes = ["GameSession", "Matchmaking"]
 binding = "DB"
 database_name = "fcms"
 database_id = "9326989a-a33e-487b-bf07-bc82f7a943eb"
+migrations_dir = "migrations"
 
 # ── KV Namespace ──
 [[kv_namespaces]]

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+training_data/
+src/.wrangler/
+.dev.vars
+.env
+.env.local
+*.log
