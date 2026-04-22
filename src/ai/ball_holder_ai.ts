@@ -73,7 +73,8 @@ export function selectBallHolderOrder(pm: PieceLegalMoves, ctx: AiContext): Orde
         if (hexDistance(relayB.coord, targetC.coord) > diffConfig.relayMaxDist) return null;
         return { action: p, relayB, targetC };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => hexDistance(a.relayB.coord, a.targetC.coord) - hexDistance(b.relayB.coord, b.targetC.coord));
 
     if (relays.length > 0) {
       const best = relays[0];

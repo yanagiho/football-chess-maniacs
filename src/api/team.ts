@@ -179,28 +179,30 @@ team.put('/:teamId', async (c) => {
   }
 
   const now = new Date().toISOString();
-  const updates: string[] = [];
+
+  // カラム名は全て固定リテラル（ユーザ入力は全てプレースホルダ経由）
+  const setClauses: string[] = [];
   const values: unknown[] = [];
 
   if (body.name !== undefined) {
-    updates.push('name = ?');
+    setClauses.push('name = ?');
     values.push(body.name);
   }
   if (body.fieldPieces) {
-    updates.push('field_pieces = ?');
+    setClauses.push('field_pieces = ?');
     values.push(JSON.stringify(body.fieldPieces));
   }
   if (body.benchPieces) {
-    updates.push('bench_pieces = ?');
+    setClauses.push('bench_pieces = ?');
     values.push(JSON.stringify(body.benchPieces));
   }
-  updates.push('updated_at = ?');
+  setClauses.push('updated_at = ?');
   values.push(now);
   values.push(teamId);
   values.push(userId);
 
   await c.env.DB.prepare(
-    `UPDATE teams SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
+    `UPDATE teams SET ${setClauses.join(', ')} WHERE id = ? AND user_id = ?`,
   )
     .bind(...values)
     .run();

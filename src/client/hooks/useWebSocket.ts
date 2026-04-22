@@ -30,7 +30,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected' as ConnectionStatus);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    // OPEN または CONNECTING 中は重複接続を防止
+    const rs = wsRef.current?.readyState;
+    if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
 
     // §7-2: URLクエリパラメータにトークンを含める
     const wsUrl = `${url}?token=${encodeURIComponent(token)}`;

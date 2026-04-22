@@ -5,6 +5,7 @@
 import { useReducer, useCallback, useMemo } from 'react';
 import type { GameState, OrderData, PieceData, ActionMode, HexCoord, WsMessage, Team, TurnPhase } from '../types';
 import { setBallHolder } from '../utils/ballManager';
+import { hexDistance } from '../../engine/movement';
 
 /** 前半/後半の基本ターン数 */
 const HALF_TURNS = 15;
@@ -93,7 +94,7 @@ function applyOrders(pieces: PieceData[], orders: Map<string, OrderData>): Piece
         const p = moved[i];
         if (p.id === order.pieceId || p.isBench) continue;
         if (p.team !== moved.find(pp => pp.id === order.pieceId)?.team) continue;
-        const d = Math.abs(p.coord.col - target.col) + Math.abs(p.coord.row - target.row);
+        const d = hexDistance(p.coord, target);
         if (d < bestDist) { bestDist = d; bestIdx = i; }
       }
       if (bestIdx >= 0 && bestDist <= 2) {

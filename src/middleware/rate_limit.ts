@@ -30,9 +30,10 @@ export const RATE_LIMITS = {
  */
 export function rateLimitMiddleware(config: RateLimitConfig) {
   return async (c: Context<{ Bindings: Env['Bindings']; Variables: { userId: string } }>, next: Next) => {
-    const userId = c.get('userId');
+    // userIdがない場合はIPベースでレート制限（未認証エンドポイント対応）
+    const userId = c.get('userId') ?? c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For')?.split(',')[0]?.trim();
     if (!userId) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json({ error: 'Rate limit identifier unavailable' }, 400);
     }
 
     const kv = c.env.KV;
@@ -81,6 +82,10 @@ export class WebSocketRateLimiter {
     const now = Date.now();
     const oneSecondAgo = now - 1000;
 
+    // 無制限成長を防止: フィルター前にキャップ（バースト送信対策）
+    if (this.timestamps.length > this.maxPerSecond * 5) {
+      this.timestamps = this.timestamps.slice(-this.maxPerSecond * 2);
+    }
     // 1秒以上前のタイムスタンプを除去
     this.timestamps = this.timestamps.filter((t) => t > oneSecondAgo);
 

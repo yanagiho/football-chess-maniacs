@@ -20,6 +20,20 @@ import {
 } from './game_session_helpers';
 import { generateComOrders } from './com_ai_integration';
 
+/** 定数時間文字列比較（タイミング攻撃防止） */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  // 長さ不一致も定数時間で処理（短い方を基準にXOR、長さ差もresultに混入）
+  const len = Math.max(bufA.length, bufB.length);
+  let result = bufA.length ^ bufB.length;
+  for (let i = 0; i < len; i++) {
+    result |= (bufA[i] ?? 0) ^ (bufB[i] ?? 0);
+  }
+  return result === 0;
+}
+
 export class GameSession extends DurableObject<Env['Bindings']> {
   private rateLimiters = new Map<string, WebSocketRateLimiter>();
   private turnInputs = new Map<string, TurnInput>();
@@ -48,7 +62,7 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       if (!token) {
         return new Response('Missing token for COM session', { status: 401 });
       }
-      if (!existingState?.comSessionToken || token !== existingState.comSessionToken) {
+      if (!existingState?.comSessionToken || !timingSafeEqual(token, existingState.comSessionToken)) {
         return new Response('Invalid COM session token', { status: 403 });
       }
       userId = existingState.homeUserId;
@@ -159,7 +173,8 @@ export class GameSession extends DurableObject<Env['Bindings']> {
   // ── WebSocket Hibernation ハンドラ ──
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const attachment = ws.deserializeAttachment() as WsAttachment;
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    if (!attachment?.userId) return;
     const userId = attachment.userId;
 
     if (!this.rateLimiters.has(userId)) {
@@ -213,61 +228,78 @@ export class GameSession extends DurableObject<Env['Bindings']> {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-    const attachment = ws.deserializeAttachment() as WsAttachment;
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    if (!attachment?.userId) return;
     await this.handleDisconnect(attachment.userId);
   }
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    const attachment = ws.deserializeAttachment() as WsAttachment;
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    if (!attachment?.userId) return;
     await this.handleDisconnect(attachment.userId);
   }
 
   // ── ターン入力処理 ──
 
   private async handleTurnInput(ws: WebSocket, attachment: WsAttachment, input: TurnInput): Promise<void> {
-    const state = await this.getGameState();
-    if (!state || state.status !== 'playing') {
-      ws.send(JSON.stringify({ type: 'ERROR', message: 'Game not in progress' }));
-      return;
-    }
+    // トランザクションで状態の読み取り・バリデーション・更新を原子的に実行
+    // resolveTurn は外部API呼び出し(COM AI)を含むためトランザクション外で実行
+    let shouldResolve = false;
+    let stateForResolve: GameState | null = null;
 
-    const pieces: PieceInfo[] = state.board ? boardToPieceInfos(state.board) : [];
-    const lastSeqMap = new Map(Object.entries(state.lastSequences).map(([k, v]) => [k, v]));
-    const usedNonces = new Set(state.usedNonces);
+    await this.ctx.storage.transaction(async () => {
+      const state = await this.getGameState();
+      if (!state || state.status !== 'playing') {
+        ws.send(JSON.stringify({ type: 'ERROR', message: 'Game not in progress' }));
+        return;
+      }
 
-    const validation = validateTurnInput(
-      input,
-      state.matchId,
-      [state.homeUserId, state.awayUserId],
-      lastSeqMap,
-      usedNonces,
-      pieces,
-      attachment.team,
-      state.remainingSubs[attachment.userId] ?? 3,
-    );
+      const pieces: PieceInfo[] = state.board ? boardToPieceInfos(state.board) : [];
+      const lastSeqMap = new Map(Object.entries(state.lastSequences).map(([k, v]) => [k, v]));
+      const usedNonces = new Set(state.usedNonces);
 
-    if (validation.rejected) {
-      ws.send(JSON.stringify({
-        type: 'INPUT_REJECTED',
-        violations: validation.violations,
-      }));
-      return;
-    }
+      const validation = validateTurnInput(
+        input,
+        state.matchId,
+        [state.homeUserId, state.awayUserId],
+        lastSeqMap,
+        usedNonces,
+        pieces,
+        attachment.team,
+        state.remainingSubs[attachment.userId] ?? 3,
+      );
 
-    state.lastSequences[input.player_id] = input.sequence;
-    state.usedNonces.push(input.nonce);
-    if (state.usedNonces.length > MAX_NONCE_HISTORY) {
-      state.usedNonces = state.usedNonces.slice(-MAX_NONCE_HISTORY);
-    }
+      if (validation.rejected) {
+        ws.send(JSON.stringify({
+          type: 'INPUT_REJECTED',
+          violations: validation.violations,
+        }));
+        return;
+      }
 
-    this.turnInputs.set(attachment.userId, input);
-    ws.send(JSON.stringify({ type: 'INPUT_ACCEPTED', turn: state.turn }));
+      state.lastSequences[input.player_id] = input.sequence;
+      state.usedNonces.push(input.nonce);
+      if (state.usedNonces.length > MAX_NONCE_HISTORY) {
+        state.usedNonces = state.usedNonces.slice(-MAX_NONCE_HISTORY);
+      }
 
-    const requiredInputs = state.isComMatch ? 1 : 2;
-    if (this.turnInputs.size >= requiredInputs) {
-      await this.resolveTurn(state);
-    } else {
-      await this.ctx.storage.put('gameState', state);
+      this.turnInputs.set(attachment.userId, input);
+      ws.send(JSON.stringify({ type: 'INPUT_ACCEPTED', turn: state.turn }));
+
+      const requiredInputs = state.isComMatch ? 1 : 2;
+      if (this.turnInputs.size >= requiredInputs) {
+        // resolveTurnはトランザクション外で実行（外部API呼び出しを含むため）
+        shouldResolve = true;
+        stateForResolve = state;
+        // stateはresolveTurn内でputされるので、ここではputしない
+      } else {
+        await this.ctx.storage.put('gameState', state);
+      }
+    });
+
+    // トランザクション外でターン解決（COM AI の外部API呼び出しを含む）
+    if (shouldResolve && stateForResolve) {
+      await this.resolveTurn(stateForResolve);
     }
   }
 

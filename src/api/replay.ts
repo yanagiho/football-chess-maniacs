@@ -7,9 +7,15 @@ import type { Env } from '../worker';
 
 const replay = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 
+/** matchIdのフォーマット検証（パストラバーサル防止） */
+const MATCH_ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;
+
 // ── リプレイデータ取得（R2からJSON） ──
 replay.get('/:matchId', async (c) => {
   const matchId = c.req.param('matchId');
+  if (!MATCH_ID_PATTERN.test(matchId)) {
+    return c.json({ error: 'Invalid matchId format' }, 400);
+  }
   const userId = c.get('userId');
 
   // まずD1で試合の存在・参加権を確認
@@ -74,6 +80,9 @@ replay.get('/', async (c) => {
 // ── 特定ターンのデータ取得 ──
 replay.get('/:matchId/turn/:turn', async (c) => {
   const matchId = c.req.param('matchId');
+  if (!MATCH_ID_PATTERN.test(matchId)) {
+    return c.json({ error: 'Invalid matchId format' }, 400);
+  }
   const userId = c.get('userId');
   const turn = parseInt(c.req.param('turn'));
 

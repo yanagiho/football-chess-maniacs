@@ -135,7 +135,17 @@ auth.post('/purchase', async (c) => {
     return c.json({ error: 'Invalid signature' }, 401);
   }
 
-  const data = JSON.parse(body) as { user_id: string; event: string };
+  let data: { user_id: string; event: string };
+  try {
+    data = JSON.parse(body) as { user_id: string; event: string };
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  if (!data.user_id || typeof data.user_id !== 'string') {
+    return c.json({ error: 'Missing user_id' }, 400);
+  }
+
   if (data.event === 'purchase_complete') {
     await c.env.KV.delete(`owned_pieces:${data.user_id}`);
   }

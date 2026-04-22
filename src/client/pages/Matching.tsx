@@ -101,6 +101,7 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
     if (useGemma) {
       // サーバーサイドCOM: GameSession DO を作成して接続
       let cancelled = false;
+      let matched = false;
       const baseUrl = viteEnv.VITE_API_BASE ?? '';
 
       (async () => {
@@ -115,16 +116,14 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
           });
           if (!res.ok) throw new Error(`Server returned ${res.status}`);
           const data = await res.json() as { matchId: string; userId: string; team: 'home' | 'away'; token: string };
-          if (cancelled) return;
-          // サーバーが返したmatchIdを使用（gemma_com_で始まる）
-          // Battle.tsxはこのprefixでサーバーサイドCOMと判別する
-          // tokenはセッション認証用（推測不能なランダム値、WebSocket接続時に使用）
+          if (cancelled || matched) return;
+          matched = true;
           setStatus('found');
           onMatchFound(data.matchId, data.team, data.token);
         } catch (e) {
           console.warn('[Matching] Server-side COM creation failed, falling back to client-side:', e);
-          if (cancelled) return;
-          // フォールバック: クライアントサイドCOM
+          if (cancelled || matched) return;
+          matched = true;
           const comMatchId = `com_${Date.now()}`;
           setStatus('found');
           onMatchFound(comMatchId);

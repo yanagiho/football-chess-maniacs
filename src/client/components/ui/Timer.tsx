@@ -3,7 +3,7 @@
 // 残り MM:SS + プログレスバー。30秒以下で赤点滅。
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface TimerProps {
   turnStartedAt: number | null;
@@ -27,6 +27,9 @@ export default function Timer({
   isAdditionalTime = false,
 }: TimerProps) {
   const [remaining, setRemaining] = useState(durationMs);
+  // onTimeoutをrefに保存してuseEffectの依存配列から除外（再生成によるインターバルリセット防止）
+  const onTimeoutRef = useRef(onTimeout);
+  onTimeoutRef.current = onTimeout;
 
   useEffect(() => {
     if (!turnStartedAt) {
@@ -44,18 +47,22 @@ export default function Timer({
       if (left <= 0 && !timeoutFired) {
         timeoutFired = true;
         clearInterval(interval);
-        onTimeout();
+        onTimeoutRef.current();
       }
     };
 
     tick();
     const interval = setInterval(tick, 200);
     return () => clearInterval(interval);
-  }, [turnStartedAt, durationMs, onTimeout]);
+  }, [turnStartedAt, durationMs]);
 
-  // §2-6 振動フィードバック（残り10秒）
+  // §2-6 振動フィードバック（残り10秒 — 閾値をまたいだ瞬間に1回だけ発火）
+  const vibrationFiredRef = useRef(false);
   useEffect(() => {
-    if (remaining <= 10_000 && remaining > 9_800 && isMobile && navigator.vibrate) {
+    if (remaining > 10_000) {
+      vibrationFiredRef.current = false;
+    } else if (remaining <= 10_000 && !vibrationFiredRef.current && isMobile && navigator.vibrate) {
+      vibrationFiredRef.current = true;
       navigator.vibrate([100, 50, 100]);
     }
   }, [remaining, isMobile]);

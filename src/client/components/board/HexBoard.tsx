@@ -328,6 +328,7 @@ export default function HexBoard({
   );
 
   // ── PC マウスホバー（§3-6 予測線） ──
+  // hoverCoordはOverlay描画用のため表示座標系（flipY適用済み）で保持
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (isMobile) return;

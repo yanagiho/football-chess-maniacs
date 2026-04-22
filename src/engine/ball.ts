@@ -412,7 +412,9 @@ export function processBall(
         const enemies = piecesAtTarget.filter(p => p.team !== passer.team);
         if (enemies.length > 0) {
           // 敵がいる → 敵のボール（コスト最高が取得）
-          const enemy = enemies.reduce((a, b) => a.cost > b.cost ? a : b);
+          const maxCost = Math.max(...enemies.map(e => e.cost));
+          const topEnemies = enemies.filter(e => e.cost === maxCost);
+          const enemy = topEnemies[Math.floor(Math.random() * topEnemies.length)];
           passer.hasBall = false;
           enemy.hasBall = true;
           events.push({ type: 'BALL_ACQUIRED', phase: 2, pieceId: enemy.id } as BallAcquiredEvent);

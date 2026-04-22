@@ -7,6 +7,9 @@ import type { Env } from '../worker';
 
 const match = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 
+/** matchId/replayKeyのフォーマット検証（パストラバーサル防止） */
+const MATCH_ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;
+
 /** リージョン判定（クライアントのCFヘッダーから） */
 function resolveRegion(country: string | undefined): string {
   if (!country) return 'europe';
@@ -57,6 +60,9 @@ match.get('/ws', async (c) => {
 match.get('/:matchId', async (c) => {
   const userId = c.get('userId');
   const matchId = c.req.param('matchId');
+  if (!MATCH_ID_PATTERN.test(matchId)) {
+    return c.json({ error: 'Invalid matchId format' }, 400);
+  }
 
   const result = await c.env.DB.prepare(
     'SELECT id, home_user_id, away_user_id, status, score_home, score_away, created_at FROM matches WHERE id = ? AND (home_user_id = ? OR away_user_id = ?)',
@@ -144,6 +150,9 @@ match.get('/:matchId/ws', async (c) => {
   }
 
   const matchId = c.req.param('matchId');
+  if (!MATCH_ID_PATTERN.test(matchId)) {
+    return c.text('Invalid matchId format', 400);
+  }
   const doId = c.env.GAME_SESSION.idFromName(matchId);
   const stub = c.env.GAME_SESSION.get(doId);
 
