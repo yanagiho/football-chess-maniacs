@@ -223,4 +223,94 @@ describe.skipIf(!IS_LIVE)('WebSocket E2E (wrangler dev)', () => {
 
     client.close();
   }, 30000);
+
+  // ── フルマッチ完走（30+ターン → MATCH_END） ──
+  // NOTE: miniflareのDOアラームが正しく上書きされず、60秒後に
+  // 空入力で自動解決されるため、wrangler devでは不安定。
+  // 本番Cloudflareでは正常動作する想定（setAlarmは上書き保証）。
+  // FULL_MATCH=1で有効化: LIVE_E2E=1 FULL_MATCH=1 npx vitest run ...
+  it.skipIf(!process.env.FULL_MATCH)('COM対戦: フルマッチ完走（全ターン → MATCH_END）', async () => {
+    const session = await createComSession('beginner');
+
+    const result = await new Promise<{ halfTime: boolean; matchEnd: boolean; turns: number; score: string }>((resolve, reject) => {
+      const ws = new WebSocket(`${WS_BASE}/match/${session.matchId}/ws?token=${session.token}`);
+      let turn = 1, seq = 0, halfTime = false;
+
+      function sendTurn() {
+        ws.send(JSON.stringify({
+          type: 'TURN_INPUT', match_id: session.matchId, turn,
+          player_id: session.userId, sequence: seq,
+          nonce: crypto.randomUUID(), timestamp: Date.now(),
+          client_hash: 'e2e', orders: [],
+        }));
+      }
+
+      ws.addEventListener('open', () => sendTurn());
+      ws.addEventListener('error', () => reject(new Error('WebSocket error')));
+
+      ws.addEventListener('message', (ev) => {
+        const d = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data)) as Msg;
+        if (d.type === 'TURN_RESULT') {
+          turn = d.turn as number;
+          seq++;
+          if (turn <= 40) sendTurn();
+        } else if (d.type === 'HALFTIME') {
+          halfTime = true;
+        } else if (d.type === 'MATCH_END') {
+          ws.close();
+          resolve({
+            halfTime,
+            matchEnd: true,
+            turns: turn - 1,
+            score: `${d.scoreHome}-${d.scoreAway}`,
+          });
+        } else if (d.type === 'INPUT_REJECTED') {
+          // DOアラーム発火でターンが進んだ場合:
+          // 次のTURN_RESULTで正しいturnを取得してリトライ
+          // （sequence不一致 → sequenceをリセットしてリトライ）
+          seq++;
+        } else if (d.type === 'ERROR') {
+          // "Game not in progress" = 試合終了後
+          if (String(d.message).includes('not in progress')) return;
+          ws.close();
+          reject(new Error(`ERROR at turn ${turn}: ${JSON.stringify(d)}`));
+        }
+      });
+
+      setTimeout(() => { ws.close(); reject(new Error(`Timeout at turn ${turn}`)); }, 120000);
+    });
+
+    expect(result.halfTime).toBe(true);
+    expect(result.matchEnd).toBe(true);
+    expect(result.turns).toBeGreaterThanOrEqual(30);
+    expect(result.turns).toBeLessThanOrEqual(36);
+  }, 180000);
+
+  // ── 切断→再接続でRECONNECT受信 ──
+  it('切断後に再接続するとRECONNECTが返る', async () => {
+    const session = await createComSession();
+    const client1 = await connectWs(`${WS_BASE}/match/${session.matchId}/ws?token=${session.token}`);
+
+    // 1ターン実行
+    client1.ws.send(JSON.stringify(makeTurnInput(session, 1, 0)));
+    await client1.waitForMessage('INPUT_ACCEPTED', 5000);
+    const result = await client1.waitForMessage('TURN_RESULT', 15000);
+    const turnAfter = result.turn as number;
+
+    // 切断
+    client1.close();
+    await new Promise(r => setTimeout(r, 1000));
+
+    // 再接続
+    const client2 = await connectWs(`${WS_BASE}/match/${session.matchId}/ws?token=${session.token}`);
+
+    // RECONNECTメッセージを受信
+    const reconnect = await client2.waitForMessage('RECONNECT', 5000);
+    expect(reconnect.type).toBe('RECONNECT');
+    const state = reconnect.state as { turn: number; board: unknown };
+    expect(state.turn).toBe(turnAfter);
+    expect(state.board).toBeTruthy();
+
+    client2.close();
+  }, 30000);
 });
