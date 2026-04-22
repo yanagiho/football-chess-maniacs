@@ -124,7 +124,7 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール | ✅ 523 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド | ✅ 560 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -191,6 +191,7 @@ src/
 | リファクタリング（2026-04-21） | Phase1: Battle.tsx/rule_based/game_session/Overlay分割、Phase2: hex_utils共通化・コード品質改善、Phase3: テスト追加(152件新規、350→502) | ✅ |
 | セキュリティ・堅牢性修正（2026-04-22） | timingSafeEqual抽出・DO transaction化・matchIdバリデーション・レート制限改善・WS二重接続防止 等24件（下記「2026-04-22修正」参照） | ✅ |
 | テスト追加（2026-04-22） | crypto_utils(14)+rate_limit(5)+ball throughPass(2) = 21件新規（502→523） | ✅ |
+| フロントエンドテスト（2026-04-22） | battleUtils純粋関数37件（clampToOwnHalf/passRange/shootZone/matchTime/formation/stats/mvp）（523→560） | ✅ |
 | WebSocket upgradeバグ修正（2026-04-22） | secureHeaders/CORSがWS 101レスポンスのimmutableヘッダーに書き込み500エラー → upgradeリクエストでスキップ | ✅ |
 | WebSocket E2Eライブテスト（2026-04-22） | wrangler dev接続テスト8件: COM対戦フロー/3ターン連続/PING/不正トークン/不正JSON/nonce重複/sequence検証（`LIVE_E2E=1`で実行） | ✅ |
 
@@ -425,7 +426,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全523テスト + 8 E2Eスキップ）
+npm test              # vitest run（全560テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
