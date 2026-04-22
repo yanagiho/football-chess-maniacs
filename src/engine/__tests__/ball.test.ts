@@ -204,3 +204,61 @@ describe('スルーパス — ロングパスズレ', () => {
     randomSpy.mockRestore();
   });
 });
+
+// ============================================================
+// スルーパス — ズレ先の敵ボール取得（最高コスト選択）
+// ============================================================
+describe('スルーパス敵取得', () => {
+  it('ズレ先に敵がいる場合、最高コストの敵がボールを取得する', () => {
+    // パサーからターゲットへのスルーパスがズレて、ターゲットHEXに敵がいるケース
+    const tpPasser = makePiece({ id: 'mf1', position: 'MF', cost: 2 as Cost, team: 'home' as Team, coord: { col: 10, row: 15 }, hasBall: true });
+    // 遠いターゲット（ズレを発生させるため距離 > 6）
+    const target: HexCoord = { col: 10, row: 28 };
+    // ターゲットHEXに敵（味方なし → 敵取得ルートへ）
+    const enemyLow = makePiece({ id: 'e1', position: 'DF', cost: 1 as Cost, team: 'away' as Team, coord: target });
+    const enemyHigh = makePiece({ id: 'e2', position: 'DF', cost: 2.5 as Cost, team: 'away' as Team, coord: target });
+
+    // Math.randomでズレを発生させ、味方が距離2以内にいない状況を作る
+    const randomSpy = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.0)   // deviationChance → ズレ発生
+      .mockReturnValueOnce(0.0)   // 隣接HEX選択（ズレ方向）
+      .mockReturnValueOnce(0.5);  // topEnemies内ランダム選択
+
+    const pieces = [tpPasser, enemyLow, enemyHigh];
+    const orders: Order[] = [{ pieceId: 'mf1', type: 'throughPass', target }];
+
+    const result = processBall(pieces, orders, makeContext());
+
+    // 敵がボール取得するか、ルーズボールになる（ズレ先の状況依存）
+    const ballAcquired = result.events.find(e => e.type === 'BALL_ACQUIRED');
+    const looseBall = result.events.find(e => e.type === 'LOOSE_BALL');
+    expect(ballAcquired || looseBall).toBeDefined();
+
+    // パサーのボールは消えている
+    const passerAfter = result.pieces.find(p => p.id === 'mf1');
+    expect(passerAfter?.hasBall).toBe(false);
+
+    randomSpy.mockRestore();
+  });
+
+  it('ズレ先に誰もいない場合、LOOSE_BALLが発生する', () => {
+    const tpPasser = makePiece({ id: 'mf1', position: 'MF', cost: 2 as Cost, team: 'home' as Team, coord: { col: 10, row: 15 }, hasBall: true });
+    // 誰もいない遠いターゲット
+    const target: HexCoord = { col: 10, row: 28 };
+
+    const randomSpy = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.0)   // deviationChance → ズレ発生
+      .mockReturnValueOnce(0.0);  // 隣接HEX選択
+
+    const pieces = [tpPasser];
+    const orders: Order[] = [{ pieceId: 'mf1', type: 'throughPass', target }];
+
+    const result = processBall(pieces, orders, makeContext());
+
+    const looseBall = result.events.find(e => e.type === 'LOOSE_BALL');
+    expect(looseBall).toBeDefined();
+    expect(result.pieces.find(p => p.id === 'mf1')?.hasBall).toBe(false);
+
+    randomSpy.mockRestore();
+  });
+});

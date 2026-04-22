@@ -5,10 +5,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../worker';
 
-const replay = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
+import { MATCH_ID_PATTERN } from '../middleware/crypto_utils';
 
-/** matchIdのフォーマット検証（パストラバーサル防止） */
-const MATCH_ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;
+const replay = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 
 // ── リプレイデータ取得（R2からJSON） ──
 replay.get('/:matchId', async (c) => {

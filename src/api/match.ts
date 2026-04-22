@@ -5,10 +5,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../worker';
 
-const match = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
+import { MATCH_ID_PATTERN } from '../middleware/crypto_utils';
 
-/** matchId/replayKeyのフォーマット検証（パストラバーサル防止） */
-const MATCH_ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;
+const match = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 
 /** リージョン判定（クライアントのCFヘッダーから） */
 function resolveRegion(country: string | undefined): string {

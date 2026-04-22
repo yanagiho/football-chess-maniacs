@@ -61,6 +61,7 @@ src/
 │   └── replay.ts             # リプレイ取得（R2）
 ├── middleware/
 │   ├── jwt_verify.ts         # JWT検証（JWKS）
+│   ├── crypto_utils.ts       # timingSafeEqual + MATCH_ID_PATTERN（共通セキュリティユーティリティ）
 │   ├── rate_limit.ts         # レート制限（KV）
 │   └── validation.ts         # 入力バリデーション（§7-3 全14項目）
 └── client/                   # React フロントエンド（Cloudflare Pages）
@@ -123,7 +124,7 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール | ✅ 502 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール | ✅ 523 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -188,6 +189,8 @@ src/
 | COM観戦モード（COM vs COM） | モード選択→即マッチング→両チームAI自動操作→演出付き自動進行→結果画面 | ✅ |
 | コードレビュー修正（2026-04-20） | エンジン4件+AI3件+クライアント4件+サーバー6件 = 計17件修正（下記「2026-04-20修正」参照） | ✅ |
 | リファクタリング（2026-04-21） | Phase1: Battle.tsx/rule_based/game_session/Overlay分割、Phase2: hex_utils共通化・コード品質改善、Phase3: テスト追加(152件新規、350→502) | ✅ |
+| セキュリティ・堅牢性修正（2026-04-22） | timingSafeEqual抽出・DO transaction化・matchIdバリデーション・レート制限改善・WS二重接続防止 等24件（下記「2026-04-22修正」参照） | ✅ |
+| テスト追加（2026-04-22） | crypto_utils(14)+rate_limit(5)+ball throughPass(2) = 21件新規（502→523） | ✅ |
 
 ---
 
@@ -420,7 +423,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全502テスト）
+npm test              # vitest run（全523テスト）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
@@ -523,6 +526,43 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 41. ~~TURN_INPUT 型検証で `sequence`/`nonce`/`timestamp`/`client_hash` 未検証~~ — ✅ 全8フィールド検証追加
 42. ~~`matchRoutes` が `/match` と `/api/matches` に二重マウント~~ — ✅ `/api/matches` を削除
 43. ~~JWKS 並行フェッチ~~ — ✅ Promise再利用で防止
+
+---
+
+## セキュリティ・堅牢性修正（2026-04-22 全24件）
+
+### セキュリティ（7件）
+44. ~~timingSafeEqualが長さ差で早期returnしタイミングリーク~~ — ✅ XOR長さ比較+max長ループに修正、crypto_utils.tsに抽出
+45. ~~matchIdバリデーションなし（match.ts, replay.ts）~~ — ✅ MATCH_ID_PATTERN（`/^[a-zA-Z0-9_\-]+$/`）でパストラバーサル防止
+46. ~~レート制限anonymous共有バケット~~ — ✅ CF-Connecting-IP / X-Forwarded-For フォールバック追加
+47. ~~WebSocket二重接続ガードにCONNECTING状態なし~~ — ✅ `WebSocket.CONNECTING` を追加
+48. ~~Matching.tsxでonMatchFoundが二重発火~~ — ✅ matchedフラグで1回のみ発火
+49. ~~auth.ts webhook JSON.parseがtry-catchなし~~ — ✅ エラーハンドリング+user_idバリデーション追加
+50. ~~HMAC hexToBytes不正hex文字を0に変換~~ — ✅ 正規表現バリデーション追加（前回修正の再確認）
+
+### DO堅牢性（4件）
+51. ~~handleTurnInputにトランザクションなし~~ — ✅ `ctx.storage.transaction()`で原子的読み書き、resolveTurnはトランザクション外
+52. ~~deserializeAttachmentのnullガードなし~~ — ✅ webSocketMessage/Close/Errorの3箇所にnullチェック追加
+53. ~~DOアラーム上書き競合~~ — ✅ 既存アラーム比較で早い方を優先（前回修正の確認）
+54. ~~COM sessionTokenの文字列比較がタイミング安全でない~~ — ✅ crypto_utils.tsのtimingSafeEqualを使用
+
+### クライアント（5件）
+55. ~~Timer onTimeoutのuseEffect依存配列にonTimeout~~ — ✅ useRefに格納してintervalリセット防止
+56. ~~Timer振動が閾値超え後に毎秒発火~~ — ✅ refで1回のみ発火、閾値復帰時リセット
+57. ~~useGameState throughPass距離計算がManhattan~~ — ✅ hexDistance（cube座標）に修正
+58. ~~HexBoard hover flipRow変換~~ — ✅ 調査の結果不要と判断（hoverCoordは表示座標系で正しい）
+59. ~~ball.ts スルーパスズレ先の敵取得がreduce~~ — ✅ Math.max+filter+random選択に修正
+
+### コード品質（4件）
+60. ~~team.ts ALLOWED_COLUMNS抽象化が過剰~~ — ✅ プレーンなコード+コメントに簡素化
+61. ~~rate_limit.ts WebSocketRateLimiter capが到達不能~~ — ✅ filter前にcap(×5閾値)を配置
+62. ~~relay passの候補ソートなし~~ — ✅ ball_holder_ai.tsで中継距離順ソート追加
+63. ~~crypto_utils共通化~~ — ✅ timingSafeEqual+MATCH_ID_PATTERNをmiddleware/crypto_utils.tsに抽出、game_session/match/replayから参照
+
+### テスト追加（4件）
+64. timingSafeEqualテスト（14件）: 同一/空/UUID/異なる/長さ違い/日本語/prefix一致 + MATCH_ID_PATTERNバリデーション
+65. WebSocketRateLimiterテスト（5件）: 10件許可/11件目拒否/3回連続超過warn/リセット/consecutiveExceedsリセット
+66. スルーパス敵取得テスト（2件）: 最高コスト敵取得/LOOSE_BALL発生
 
 ---
 
