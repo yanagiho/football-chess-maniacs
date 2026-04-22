@@ -191,6 +191,8 @@ src/
 | リファクタリング（2026-04-21） | Phase1: Battle.tsx/rule_based/game_session/Overlay分割、Phase2: hex_utils共通化・コード品質改善、Phase3: テスト追加(152件新規、350→502) | ✅ |
 | セキュリティ・堅牢性修正（2026-04-22） | timingSafeEqual抽出・DO transaction化・matchIdバリデーション・レート制限改善・WS二重接続防止 等24件（下記「2026-04-22修正」参照） | ✅ |
 | テスト追加（2026-04-22） | crypto_utils(14)+rate_limit(5)+ball throughPass(2) = 21件新規（502→523） | ✅ |
+| WebSocket upgradeバグ修正（2026-04-22） | secureHeaders/CORSがWS 101レスポンスのimmutableヘッダーに書き込み500エラー → upgradeリクエストでスキップ | ✅ |
+| WebSocket E2Eライブテスト（2026-04-22） | wrangler dev接続テスト8件: COM対戦フロー/3ターン連続/PING/不正トークン/不正JSON/nonce重複/sequence検証（`LIVE_E2E=1`で実行） | ✅ |
 
 ---
 
@@ -423,10 +425,14 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全523テスト）
+npm test              # vitest run（全523テスト + 8 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
+
+# WebSocket E2Eテスト（wrangler dev起動が必要）
+cd src && npx wrangler dev --local  # Terminal 1
+LIVE_E2E=1 npx vitest run src/online/__tests__/ws_e2e_live.test.ts  # Terminal 2
 ```
 
 ### テスト上の注意点
@@ -563,6 +569,19 @@ npm run bootstrap:small  # AI自動対戦テスト（10試合）
 64. timingSafeEqualテスト（14件）: 同一/空/UUID/異なる/長さ違い/日本語/prefix一致 + MATCH_ID_PATTERNバリデーション
 65. WebSocketRateLimiterテスト（5件）: 10件許可/11件目拒否/3回連続超過warn/リセット/consecutiveExceedsリセット
 66. スルーパス敵取得テスト（2件）: 最高コスト敵取得/LOOSE_BALL発生
+
+### WebSocket upgrade修正（1件）
+67. ~~secureHeaders/CORSがWS 101レスポンスのimmutableヘッダーに書き込み500エラー~~ — ✅ WebSocket upgradeリクエストでCORS/secureHeadersをスキップ
+
+### WebSocket E2Eライブテスト（8件）
+68. COM対戦フルフロー: セッション作成→WS接続→TURN_INPUT→INPUT_ACCEPTED→TURN_RESULT
+69. 3ターン連続進行（COM AIルールベースフォールバック動作確認）
+70. PING/PONG keepalive
+71. 不正COMトークンで接続拒否
+72. 不正JSON → ERRORレスポンス
+73. 不明メッセージタイプ → ERRORレスポンス
+74. nonce重複リプレイ攻撃 → INPUT_REJECTED
+75. sequence非単調増加 → INPUT_REJECTED
 
 ---
 
