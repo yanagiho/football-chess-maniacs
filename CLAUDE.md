@@ -13,6 +13,8 @@ HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeSc
 src/
 ├── data/
 │   └── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
+├── migrations/
+│   └── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
 ├── engine/                   # ゲームエンジン（判定式・ターン処理）
 │   ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
 │   ├── hex_utils.ts          # HEXマップ共通ユーティリティ（hexLookup/ゾーン/BoardContext）
@@ -194,6 +196,10 @@ src/
 | フロントエンドテスト（2026-04-22） | battleUtils純粋関数37件（clampToOwnHalf/passRange/shootZone/matchTime/formation/stats/mvp）（523→560） | ✅ |
 | WebSocket upgradeバグ修正（2026-04-22） | secureHeaders/CORSがWS 101レスポンスのimmutableヘッダーに書き込み500エラー → upgradeリクエストでスキップ | ✅ |
 | WebSocket E2Eライブテスト（2026-04-22） | wrangler dev接続テスト8件: COM対戦フロー/3ターン連続/PING/不正トークン/不正JSON/nonce重複/sequence検証（`LIVE_E2E=1`で実行） | ✅ |
+| E2Eテスト拡充（2026-04-22） | フルマッチ完走テスト（`FULL_MATCH=1`）+ 切断→再接続RECONNECTテスト（8→10件） | ✅ |
+| .gitignore作成（2026-04-22） | node_modules/dist/training_data/src/.wrangler/.dev.vars/.env/.env.local/*.log | ✅ |
+| D1マイグレーション（2026-04-22） | 0001_initial.sql: matches/teams/user_pieces/user_ratings テーブル + インデックス | ✅ |
+| Cloudflareデプロイ（2026-04-22） | Workers/DO(new_sqlite_classes)/D1/KV/R2/Queue/AI 本番反映（football-chess-maniacs.yanagiho.workers.dev） | ✅ |
 
 ---
 
@@ -590,7 +596,8 @@ LIVE_E2E=1 npx vitest run src/online/__tests__/ws_e2e_live.test.ts  # Terminal 2
 
 - `package.json`: `"type": "module"`, vitest ^2.1.0, TypeScript ^5.5.0
 - `tsconfig.json`: target ES2022, module ESNext, moduleResolution bundler, jsx react-jsx, strict
-- `vitest.config.ts`: globals: false, environment: node
+- `vitest.config.ts`: globals: false, environment: node, jsdom for `src/client/**/__tests__/**`
 - `vite.config.ts`: root=src/client, React plugin, 出力=dist/
-- `wrangler.toml`: `[ai] binding = "AI"`, `AI_MODEL_ID = "@cf/google/gemma-3-12b-it"`
+- `wrangler.toml`: `[ai] binding = "AI"`, `AI_MODEL_ID = "@cf/google/gemma-3-12b-it"`, DO=`new_sqlite_classes`（Free plan必須）
+- **本番URL**: `https://football-chess-maniacs.yanagiho.workers.dev`
 - `VITE_USE_GEMMA=true`: クライアント側のGemma AI呼び出しを有効化（.env.localで設定）
