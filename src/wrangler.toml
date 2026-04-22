@@ -12,7 +12,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["GameSession", "Matchmaking"]
+new_sqlite_classes = ["GameSession", "Matchmaking"]
 
 # ── D1 Database ──
 [[d1_databases]]
