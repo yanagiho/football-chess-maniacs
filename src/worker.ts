@@ -54,7 +54,11 @@ const app = new Hono<Env>();
 // ── グローバルミドルウェア ──
 
 // CORS（§7-1: ゲームオリジンのみ許可）
+// WebSocket upgradeはCORS不要（ブラウザはWS upgradeにCORSを適用しない）
 app.use('*', async (c, next) => {
+  if (c.req.header('Upgrade')?.toLowerCase() === 'websocket') {
+    return next();
+  }
   const corsMiddleware = cors({
     origin: c.env.CORS_ORIGIN,
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -65,18 +69,24 @@ app.use('*', async (c, next) => {
 });
 
 // セキュリティヘッダー（§7-1: HSTS, CSP等）
-app.use('*', secureHeaders({
-  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
-  contentSecurityPolicy: {
-    defaultSrc: ["'self'"],
-    scriptSrc: ["'self'"],
-    connectSrc: ["'self'", 'wss://manics.example.com', 'https://api.football-century.example.com'],
-    imgSrc: ["'self'", 'https://r2.example.com'],
-  },
-  xFrameOptions: 'DENY',
-  xContentTypeOptions: 'nosniff',
-  referrerPolicy: 'strict-origin-when-cross-origin',
-}));
+// WebSocket upgradeレスポンス(101)はヘッダーがimmutableなのでスキップ
+app.use('*', async (c, next) => {
+  if (c.req.header('Upgrade')?.toLowerCase() === 'websocket') {
+    return next();
+  }
+  return secureHeaders({
+    strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      connectSrc: ["'self'", 'wss://manics.example.com', 'https://api.football-century.example.com'],
+      imgSrc: ["'self'", 'https://r2.example.com'],
+    },
+    xFrameOptions: 'DENY',
+    xContentTypeOptions: 'nosniff',
+    referrerPolicy: 'strict-origin-when-cross-origin',
+  })(c, next);
+});
 
 // ── ヘルスチェック ──
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
