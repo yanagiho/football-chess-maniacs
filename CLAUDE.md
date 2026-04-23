@@ -13,7 +13,7 @@ HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeSc
 src/
 ├── data/
 │   ├── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
-│   └── npc_teams.ts          # NPC チーム定義（7時代 × 1チーム、Founding Eleven除外）
+│   └── preset_teams.ts       # プリセットチーム v2.0（階段型4チーム、フォーメーションテンプレート自動配置）
 ├── migrations/
 │   ├── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
 │   └── 0002_platform_integration.sql  # piece_master/user_pieces_v2/webhook_deliveries等
@@ -58,7 +58,7 @@ src/
 │   ├── com_ai_integration.ts # COM AI統合（Gemma 5sタイムアウト + ルールベースフォールバック）
 │   └── matchmaking.ts        # マッチメイキングDO（リージョンシャード）
 ├── types/
-│   └── piece.ts              # PieceMaster/ShopCatalogItem/OwnedPieceDetail型 + FOUNDING_ELEVEN_IDS/SHELF_NAMES/costToDisplay
+│   └── piece.ts              # PieceMaster/ShopCatalogItem/OwnedPieceDetail/PresetTeam型 + FOUNDING_ELEVEN_IDS/SHELF_NAMES/costToDisplay
 ├── lib/
 │   └── founding_eleven.ts    # Founding Eleven自動付与（grantFoundingEleven）
 ├── api/
@@ -143,7 +143,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド | ✅ 560 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・プリセットチーム | ✅ 594 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -221,6 +221,7 @@ public/
 | 仮画像200枚生成（2026-04-23） | generate_placeholder_images.ts: CSV→SVG(1024×1536, 時代別背景色, シルエット, PROVISIONALスタンプ, SSスタンプ) → public/images/pieces/ | ✅ |
 | クライアントAPIヘルパー（2026-04-23） | src/client/lib/api.ts: getApiBaseUrl/apiFetch/pieceImageUrl/isProvisionalImage | ✅ |
 | ShopScreen書き換え（2026-04-23） | GET /api/shop/catalog接続、カードグリッド(SVG画像+英名+PieceIcon)、詳細モーダル(summary_ja)、ページネーション、購入ボタン仮実装 | ✅ |
+| プリセットチーム v2.0 データ層（2026-04-23） | npc_teams.ts(7時代)→preset_teams.ts(階段型4チーム)移行。フォーメーションテンプレート自動配置、SS露出0→2→2→3、34テスト追加（560→594） | ✅ |
 
 ---
 
@@ -466,7 +467,7 @@ public/
 ## テスト
 
 ```bash
-npm test              # vitest run（全560テスト + 10 E2Eスキップ）
+npm test              # vitest run（全594テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
