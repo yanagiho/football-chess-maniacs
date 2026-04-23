@@ -11,8 +11,10 @@ import teamRoutes from './api/team';
 import matchRoutes from './api/match';
 import replayRoutes from './api/replay';
 import aiRoutes from './api/ai';
-import piecesRoutes from './server/pieces';
-import { jwtMiddleware } from './middleware/jwt_verify';
+import piecesRoutes from './api/pieces';
+import shopRoutes from './api/shop';
+import webhookRoutes from './api/webhooks';
+import { jwtMiddleware, verifyJwt } from './middleware/jwt_verify';
 import { rateLimitMiddleware, RATE_LIMITS } from './middleware/rate_limit';
 
 // ── Durable Objects 再エクスポート ──
@@ -92,7 +94,7 @@ app.use('*', async (c, next) => {
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
 
 // ── Webhook（認証不要、独自署名検証） ──
-app.route('/webhook', authRoutes);
+app.route('/webhook', webhookRoutes);
 
 // ── WebSocket エンドポイント（JWT検証はDO内で実行） ──
 // REST API（非WebSocket）パスにはJWT認証を適用
@@ -112,6 +114,37 @@ app.use('/match/*', async (c, next) => {
 });
 app.route('/match', matchRoutes);
 
+// ── Shop エンドポイント（カタログ閲覧は公開、購入はJWT必要） ──
+// JWT認証の外に配置。catalogはログイン不要で閲覧可能。
+// purchaseはshop.ts内でuserIdチェック。
+// 注意: /api/shop は /api より先にマウント（Honoはマウント順でマッチする）
+const shopApp = new Hono<Env>();
+shopApp.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
+// JWT optional: Bearer トークンがあれば検証してuserId設定、なくても通過
+shopApp.use('*', async (c, next) => {
+  const auth = c.req.header('Authorization');
+  if (auth?.startsWith('Bearer ')) {
+    const token = auth.slice(7);
+    try {
+      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL);
+      c.set('userId', payload.sub);
+    } catch {
+      // JWT検証失敗でもカタログ閲覧は許可（userIdなし）
+    }
+  }
+  return next();
+});
+shopApp.route('/', shopRoutes);
+app.route('/api/shop', shopApp);
+
+// ── AI エンドポイント（認証なし: COM対戦 + テスト用） ──
+// JWT認証の外に配置。COM対戦はログイン不要で動作する必要がある。
+// レート制限のみ適用。
+const aiApp = new Hono<Env>();
+aiApp.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
+aiApp.route('/', aiRoutes);
+app.route('/api/ai', aiApp);
+
 // ── REST API（JWT認証 + レート制限が必要なルート） ──
 const api = new Hono<Env>();
 api.use('*', jwtMiddleware());
@@ -122,14 +155,6 @@ api.route('/replays', replayRoutes);
 api.route('/pieces', piecesRoutes);
 
 app.route('/api', api);
-
-// ── AI エンドポイント（認証なし: COM対戦 + テスト用） ──
-// JWT認証の外に配置。COM対戦はログイン不要で動作する必要がある。
-// レート制限のみ適用。
-const aiApp = new Hono<Env>();
-aiApp.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
-aiApp.route('/', aiRoutes);
-app.route('/api/ai', aiApp);
 
 // ── Queues Consumer（試合結果の非同期永続化 §5-2） ──
 

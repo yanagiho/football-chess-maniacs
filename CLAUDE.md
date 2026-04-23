@@ -210,6 +210,19 @@ src/
 - 奇数列は偶数列より下にオフセット
 - ZOC = 隣接6HEX、ZOC2 = 外周12HEX
 
+## ドキュメント構成
+- `docs/fcms_spec_v3.md` — コアゲーム仕様(v12)
+- `docs/platform_integration_spec.md` — プラットフォーム連携実装仕様(§10)
+- `docs/com_ai_spec.md` — COM AI設計仕様
+- `docs/formation-spec.md` — 編成画面仕様
+- `docs/ui_spec.md` — UI仕様(v3.1)
+- `docs/piece_allocation.md` — コスト帯シミュレーション表
+- `docs/lore/` — 世界観・ナラティブ資産:
+  - `the_archive.md` — The Archive 世界観設定書
+  - `characters_200.csv` / `characters_200.md` — 200人マスター名簿(全Era統合)
+  - `naming_guidelines.md` — 命名ガイドライン(File No.規則、ISO国コード)
+  - `piece_image_prompts.md` — キャラ画像生成プロンプト集
+
 ### 攻撃方向（重要）
 - **home → row 33 方向に攻撃**（ball.ts: `GOAL_ROW.home = 33`）
 - **away → row 0 方向に攻撃**（ball.ts: `GOAL_ROW.away = 0`）
