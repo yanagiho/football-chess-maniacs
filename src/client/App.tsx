@@ -26,7 +26,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import DifficultySelectScreen from './screens/DifficultySelectScreen';
 import FriendMatchScreen from './screens/FriendMatchScreen';
 import PresetTeamsScreen from './screens/PresetTeamsScreen';
-import OpponentSelectScreen from './screens/OpponentSelectScreen';
+import OpponentSelectScreen, { markTeamDefeated } from './screens/OpponentSelectScreen';
 import ReplayScreen from './screens/ReplayScreen';
 
 import type { PresetTeam } from '../data/presetTeams';
@@ -101,8 +101,16 @@ export default function App() {
 
   const handleMatchEnd = useCallback((data: MatchEndData) => {
     setMatchEndData(data);
+    // COM対戦でプリセットチームに勝利した場合、解放状態を記録
+    if (selectedOpponent && gameMode === 'com') {
+      const myScore = data.myTeam === 'home' ? data.scoreHome : data.scoreAway;
+      const opScore = data.myTeam === 'home' ? data.scoreAway : data.scoreHome;
+      if (myScore > opScore) {
+        markTeamDefeated(selectedOpponent.team_id);
+      }
+    }
     setPage('result');
-  }, []);
+  }, [selectedOpponent, gameMode]);
 
   const handleSelectDifficulty = useCallback((diff: ComDifficulty) => {
     setComDifficulty(diff);

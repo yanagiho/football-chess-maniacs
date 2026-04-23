@@ -107,6 +107,29 @@ describe('PRESET_TEAMS', () => {
     }
   });
 
+  it('Team 1 は解放条件なし（常に解放）', () => {
+    const team1 = getPresetTeamByTier(1)!;
+    expect(team1.unlock_condition).toBeNull();
+  });
+
+  it('Team 2-4 は前のチーム撃破が解放条件', () => {
+    const team2 = getPresetTeamByTier(2)!;
+    expect(team2.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_1_founding_mirror' });
+    const team3 = getPresetTeamByTier(3)!;
+    expect(team3.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_2_silenced_generation' });
+    const team4 = getPresetTeamByTier(4)!;
+    expect(team4.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_3_total_football' });
+  });
+
+  it('解放条件のteam_idが実在するチームを参照', () => {
+    for (const team of PRESET_TEAMS) {
+      if (team.unlock_condition?.type === 'defeat_team') {
+        const ref = getPresetTeamById(team.unlock_condition.team_id);
+        expect(ref).toBeDefined();
+      }
+    }
+  });
+
   it('bench が空（MVP時点）', () => {
     for (const team of PRESET_TEAMS) {
       expect(team.bench).toEqual([]);

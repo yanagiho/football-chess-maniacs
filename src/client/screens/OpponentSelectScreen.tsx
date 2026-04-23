@@ -1,13 +1,14 @@
 // ============================================================
 // OpponentSelectScreen.tsx — COM対戦相手選択画面
 // プリセットチーム v2.0（階段型4チーム）から対戦相手を選ぶ
+// 解放条件: 前のチームを倒すと次が解放される（localStorage追跡）
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { Page } from '../types';
 import PieceIcon from '../components/board/PieceIcon';
 import type { Cost, Position } from '../types';
-import { PRESET_TEAMS } from '../../data/preset_teams';
+import { PRESET_TEAMS, getPresetTeamById } from '../../data/preset_teams';
 import type { PresetTeam } from '../../types/piece';
 
 interface OpponentSelectScreenProps {
@@ -29,11 +30,46 @@ const TIER_LABELS: Record<number, string> = {
   4: 'EXPERT',
 };
 
+// ── 解放状態管理（localStorage） ──
+
+const STORAGE_KEY = 'fcms_defeated_teams';
+
+/** 撃破済みチームIDセットを取得 */
+function getDefeatedTeams(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+/** チームが解放済みか判定 */
+function isTeamUnlocked(team: PresetTeam, defeated: Set<string>): boolean {
+  if (!team.unlock_condition) return true;
+  if (team.unlock_condition.type === 'defeat_team') {
+    return defeated.has(team.unlock_condition.team_id);
+  }
+  return false;
+}
+
+/** 解放条件テキストを生成 */
+function getUnlockText(team: PresetTeam): string | null {
+  if (!team.unlock_condition) return null;
+  if (team.unlock_condition.type === 'defeat_team') {
+    const required = getPresetTeamById(team.unlock_condition.team_id);
+    return required ? `「${required.name_ja}」に勝利して解放` : null;
+  }
+  return null;
+}
+
 export default function OpponentSelectScreen({ onNavigate, onSelectOpponent }: OpponentSelectScreenProps) {
   const [selected, setSelected] = useState<PresetTeam | null>(null);
+  const defeated = useMemo(() => getDefeatedTeams(), []);
 
   const handleConfirm = () => {
-    if (selected) {
+    if (selected && isTeamUnlocked(selected, defeated)) {
       onSelectOpponent(selected);
       onNavigate('teamSelect');
     }
@@ -60,38 +96,56 @@ export default function OpponentSelectScreen({ onNavigate, onSelectOpponent }: O
         }}>
           {PRESET_TEAMS.map((team) => {
             const color = TIER_COLORS[team.difficulty_tier] ?? '#888';
+            const unlocked = isTeamUnlocked(team, defeated);
+            const unlockText = getUnlockText(team);
+
             return (
               <button
                 key={team.team_id}
-                onClick={() => setSelected(team)}
+                onClick={() => unlocked && setSelected(team)}
+                disabled={!unlocked}
                 style={{
-                  padding: '16px 20px', borderRadius: 12, textAlign: 'left', cursor: 'pointer',
-                  border: `1px solid ${color}44`,
-                  background: `linear-gradient(135deg, ${color}11, ${color}08)`,
-                  color: '#fff', transition: 'transform 0.1s',
+                  padding: '16px 20px', borderRadius: 12, textAlign: 'left',
+                  cursor: unlocked ? 'pointer' : 'not-allowed',
+                  border: `1px solid ${unlocked ? color + '44' : 'rgba(255,255,255,0.06)'}`,
+                  background: unlocked
+                    ? `linear-gradient(135deg, ${color}11, ${color}08)`
+                    : 'rgba(255,255,255,0.02)',
+                  color: unlocked ? '#fff' : '#555',
+                  transition: 'transform 0.1s',
+                  opacity: unlocked ? 1 : 0.6,
+                  position: 'relative',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: 18, fontWeight: 'bold' }}>
+                    <div style={{ fontSize: 18, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {!unlocked && <span style={{ fontSize: 16 }}>&#x1F512;</span>}
                       {team.name_ja}
                     </div>
-                    <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: unlocked ? '#aaa' : '#555', marginTop: 2 }}>
                       {team.name_en}
                     </div>
                   </div>
                   <div style={{
                     padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 'bold',
-                    background: `${color}33`, color,
+                    background: unlocked ? `${color}33` : 'rgba(255,255,255,0.05)',
+                    color: unlocked ? color : '#555',
                   }}>
                     {TIER_LABELS[team.difficulty_tier]}
                   </div>
                 </div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 8, display: 'flex', gap: 12 }}>
-                  <span>{team.formation_preset}</span>
-                  <span>Cost {team.total_cost}</span>
-                  {team.ss_count > 0 && <span>SS x{team.ss_count}</span>}
-                </div>
+                {unlocked ? (
+                  <div style={{ fontSize: 12, color: '#888', marginTop: 8, display: 'flex', gap: 12 }}>
+                    <span>{team.formation_preset}</span>
+                    <span>Cost {team.total_cost}</span>
+                    {team.ss_count > 0 && <span>SS x{team.ss_count}</span>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: '#666', marginTop: 8, fontStyle: 'italic' }}>
+                    {unlockText}
+                  </div>
+                )}
               </button>
             );
           })}
@@ -197,4 +251,18 @@ export default function OpponentSelectScreen({ onNavigate, onSelectOpponent }: O
       )}
     </div>
   );
+}
+
+// ── 解放状態書き込みユーティリティ（ResultScreen等から呼び出し） ──
+
+/** チームを撃破済みとしてlocalStorageに記録 */
+export function markTeamDefeated(teamId: string): void {
+  const defeated = getDefeatedTeams();
+  defeated.add(teamId);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...defeated]));
+}
+
+/** 全解放状態をリセット（デバッグ用） */
+export function resetDefeatedTeams(): void {
+  localStorage.removeItem(STORAGE_KEY);
 }
