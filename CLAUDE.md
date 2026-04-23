@@ -143,7 +143,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・プリセットチーム | ✅ 594 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・プリセットチーム | ✅ 601 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -223,6 +223,7 @@ public/
 | ShopScreen書き換え（2026-04-23） | GET /api/shop/catalog接続、カードグリッド(SVG画像+英名+PieceIcon)、詳細モーダル(summary_ja)、ページネーション、購入ボタン仮実装 | ✅ |
 | プリセットチーム v2.0 データ層（2026-04-23） | npc_teams.ts(7時代)→preset_teams.ts(階段型4チーム)移行。フォーメーションテンプレート自動配置、SS露出0→2→2→3、34テスト追加（560→594） | ✅ |
 | COM対戦相手選択UI（2026-04-23） | OpponentSelectScreen(4チーム選択)、DifficultySelect→OpponentSelect→TeamSelectフロー、battleUtils/Battle.tsxがPresetTeamからaway側コマ生成 | ✅ |
+| COM AIチーム別戦術（2026-04-23） | TeamTactics型(LineRangeOverride+DiffConfigオーバーライド)、4チーム分TEAM_TACTICS定義、Battle.tsx→generateRuleBasedOrdersに伝播、7テスト追加（594→601） | ✅ |
 
 ---
 
@@ -468,7 +469,7 @@ public/
 ## テスト
 
 ```bash
-npm test              # vitest run（全594テスト + 10 E2Eスキップ）
+npm test              # vitest run（全601テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
