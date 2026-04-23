@@ -13,7 +13,8 @@ HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeSc
 src/
 ├── data/
 │   ├── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
-│   └── preset_teams.ts       # プリセットチーム v2.0（階段型4チーム、フォーメーションテンプレート自動配置）
+│   ├── preset_teams.ts       # プリセットチーム v2.0（階段型4チーム、フォーメーションテンプレート自動配置）
+│   └── achievements.ts       # 実績バッジシステム（9実績、localStorage追跡、evaluateAndEarnAchievements）
 ├── migrations/
 │   ├── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
 │   └── 0002_platform_integration.sql  # piece_master/user_pieces_v2/webhook_deliveries等
@@ -143,7 +144,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・プリセットチーム | ✅ 604 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・プリセットチーム | ✅ 619 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -225,6 +226,7 @@ public/
 | COM対戦相手選択UI（2026-04-23） | OpponentSelectScreen(4チーム選択)、DifficultySelect→OpponentSelect→TeamSelectフロー、battleUtils/Battle.tsxがPresetTeamからaway側コマ生成 | ✅ |
 | COM AIチーム別戦術（2026-04-23） | TeamTactics型(LineRangeOverride+DiffConfigオーバーライド)、4チーム分TEAM_TACTICS定義、Battle.tsx→generateRuleBasedOrdersに伝播、7テスト追加（594→601） | ✅ |
 | 解放条件UI（2026-04-23） | Team2-4にdefeat_team解放条件設定、OpponentSelectScreenにロック表示+localStorage追跡、勝利時markTeamDefeated、3テスト追加（601→604） | ✅ |
+| 実績バッジシステム（2026-04-23） | achievements.ts(9実績: battle4+team4+milestone1)、evaluateAndEarnAchievements自動判定、ResultScreenにバッジ表示、15テスト追加（604→619） | ✅ |
 
 ---
 
@@ -470,7 +472,7 @@ public/
 ## テスト
 
 ```bash
-npm test              # vitest run（全604テスト + 10 E2Eスキップ）
+npm test              # vitest run（全619テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
