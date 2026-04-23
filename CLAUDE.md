@@ -222,6 +222,7 @@ public/
 | クライアントAPIヘルパー（2026-04-23） | src/client/lib/api.ts: getApiBaseUrl/apiFetch/pieceImageUrl/isProvisionalImage | ✅ |
 | ShopScreen書き換え（2026-04-23） | GET /api/shop/catalog接続、カードグリッド(SVG画像+英名+PieceIcon)、詳細モーダル(summary_ja)、ページネーション、購入ボタン仮実装 | ✅ |
 | プリセットチーム v2.0 データ層（2026-04-23） | npc_teams.ts(7時代)→preset_teams.ts(階段型4チーム)移行。フォーメーションテンプレート自動配置、SS露出0→2→2→3、34テスト追加（560→594） | ✅ |
+| COM対戦相手選択UI（2026-04-23） | OpponentSelectScreen(4チーム選択)、DifficultySelect→OpponentSelect→TeamSelectフロー、battleUtils/Battle.tsxがPresetTeamからaway側コマ生成 | ✅ |
 
 ---
 
