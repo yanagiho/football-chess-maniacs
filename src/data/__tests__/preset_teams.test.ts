@@ -3,7 +3,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { PRESET_TEAMS, FORMATION_TEMPLATES, getPresetTeamById, getPresetTeamByTier } from '../preset_teams';
+import { PRESET_TEAMS, FORMATION_TEMPLATES, TEAM_TACTICS, getPresetTeamById, getPresetTeamByTier, getTeamTactics } from '../preset_teams';
 
 describe('PRESET_TEAMS', () => {
   it('4チーム定義されている', () => {
@@ -169,5 +169,59 @@ describe('getPresetTeamByTier', () => {
 
   it('存在しないtierでundefined', () => {
     expect(getPresetTeamByTier(5)).toBeUndefined();
+  });
+});
+
+describe('TEAM_TACTICS', () => {
+  it('全プリセットチームに戦術パラメータが定義されている', () => {
+    for (const team of PRESET_TEAMS) {
+      const tactics = getTeamTactics(team.team_id);
+      expect(tactics).toBeDefined();
+    }
+  });
+
+  it('getTeamTacticsで存在しないIDはundefined', () => {
+    expect(getTeamTactics('nonexistent')).toBeUndefined();
+  });
+
+  it('Team 1 はdiffOverridesのみ（lineRangesなし）', () => {
+    const t = TEAM_TACTICS['team_1_founding_mirror'];
+    expect(t.diffOverrides).toBeDefined();
+    expect(t.lineRanges).toBeUndefined();
+  });
+
+  it('Team 3 (トータルフットボール) はDF/SBの行動範囲が広い', () => {
+    const t = TEAM_TACTICS['team_3_total_football'];
+    expect(t.lineRanges?.DF?.attack.max).toBeGreaterThan(18); // default is 18
+    expect(t.lineRanges?.SB?.attack.max).toBeGreaterThan(18);
+  });
+
+  it('Team 4 はuseZocPassBlock=true', () => {
+    const t = TEAM_TACTICS['team_4_empty_stands'];
+    expect(t.diffOverrides?.useZocPassBlock).toBe(true);
+  });
+
+  it('lineRangesのmin < max', () => {
+    for (const [, tactics] of Object.entries(TEAM_TACTICS)) {
+      if (!tactics.lineRanges) continue;
+      for (const [, range] of Object.entries(tactics.lineRanges)) {
+        if (!range) continue;
+        expect(range.attack.min).toBeLessThan(range.attack.max);
+        expect(range.defense.min).toBeLessThan(range.defense.max);
+      }
+    }
+  });
+
+  it('lineRangesの値がボード範囲内（0-33）', () => {
+    for (const [, tactics] of Object.entries(TEAM_TACTICS)) {
+      if (!tactics.lineRanges) continue;
+      for (const [, range] of Object.entries(tactics.lineRanges)) {
+        if (!range) continue;
+        expect(range.attack.min).toBeGreaterThanOrEqual(0);
+        expect(range.attack.max).toBeLessThanOrEqual(33);
+        expect(range.defense.min).toBeGreaterThanOrEqual(0);
+        expect(range.defense.max).toBeLessThanOrEqual(33);
+      }
+    }
   });
 });

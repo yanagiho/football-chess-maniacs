@@ -6,6 +6,7 @@
 // ============================================================
 
 import type { PresetTeam, PresetPiecePlacement } from '../types/piece';
+import type { TeamTactics } from '../ai/ai_context';
 
 // ── フォーメーションテンプレート（home側 row 0-16） ──
 // away側は MAX_ROW - row で自動反転
@@ -267,6 +268,111 @@ export const PRESET_TEAMS: PresetTeam[] = [
     narrative_loss_ja: '帝国は揺るがない。だが挑んだ事実は、記録に残る。',
   },
 ];
+
+// ── チーム戦術パラメータ ──
+// フォーメーションと難易度tierに基づくAI行動調整
+
+const TEAM_TACTICS: Record<string, TeamTactics> = {
+  // Team 1: 4-4-2 ミラーマッチ。デフォルトラインそのまま、初心者向けの弱体化
+  team_1_founding_mirror: {
+    diffOverrides: {
+      shootRange: 5,
+      maxPressers: 1,
+      skipRate: 0.15,
+      relayMaxDist: 6,
+    },
+  },
+
+  // Team 2: 3-5-2 ワイドWB。SBがWBとして高い位置を取り、中盤を厚くする
+  team_2_silenced_generation: {
+    lineRanges: {
+      SB: {
+        attack: { min: 8, max: 24 },  // WBとして高い位置まで上がる
+        defense: { min: 5, max: 16 },  // 守備時もやや高め
+      },
+      VO: {
+        attack: { min: 8, max: 20 },   // スイーパー/DMは控えめ
+        defense: { min: 5, max: 15 },
+      },
+    },
+    diffOverrides: {
+      maxPressers: 2,
+      relayMaxDist: 10,  // 中盤が厚いので中継パスが効く
+    },
+  },
+
+  // Team 3: 4-3-3 トータルフットボール。全ポジションが広い行動範囲を持つ
+  team_3_total_football: {
+    lineRanges: {
+      DF: {
+        attack: { min: 5, max: 22 },   // DFも攻撃参加
+        defense: { min: 3, max: 15 },
+      },
+      SB: {
+        attack: { min: 5, max: 22 },   // SBも高い位置まで
+        defense: { min: 3, max: 15 },
+      },
+      MF: {
+        attack: { min: 10, max: 28 },  // MFが広く動く
+        defense: { min: 6, max: 20 },
+      },
+      OM: {
+        attack: { min: 12, max: 30 },  // OMは最前線付近まで
+        defense: { min: 8, max: 22 },
+      },
+      WG: {
+        attack: { min: 14, max: 32 },  // WGはサイド突破
+        defense: { min: 10, max: 22 },
+      },
+    },
+    diffOverrides: {
+      shootRange: 8,
+      maxPressers: 3,
+      useZocPassBlock: true,
+      relayMaxDist: 10,
+    },
+  },
+
+  // Team 4: 4-2-3-1 堅守速攻。DFラインが低く、OM/WGがカウンターで一気に上がる
+  team_4_empty_stands: {
+    lineRanges: {
+      DF: {
+        attack: { min: 3, max: 16 },   // DF低め維持
+        defense: { min: 2, max: 12 },
+      },
+      SB: {
+        attack: { min: 3, max: 18 },
+        defense: { min: 2, max: 12 },
+      },
+      VO: {
+        attack: { min: 10, max: 22 },  // ダブルボランチ
+        defense: { min: 6, max: 16 },
+      },
+      OM: {
+        attack: { min: 16, max: 30 },  // OMが高い位置を取る
+        defense: { min: 10, max: 20 },
+      },
+      WG: {
+        attack: { min: 16, max: 32 },  // WGも高い位置
+        defense: { min: 12, max: 22 },
+      },
+    },
+    diffOverrides: {
+      shootRange: 9,
+      maxPressers: 3,
+      useZocPassBlock: true,
+      relayMaxDist: 12,
+      pickBest: true,
+    },
+  },
+};
+
+export { TEAM_TACTICS };
+
+/** team_id からチーム戦術パラメータを取得 */
+export function getTeamTactics(teamId: string): TeamTactics | undefined {
+  return TEAM_TACTICS[teamId];
+}
 
 // ── エクスポート ──
 

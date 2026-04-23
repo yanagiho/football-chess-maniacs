@@ -20,6 +20,7 @@ import Timer from '../components/ui/Timer';
 import ActionBar from '../components/ui/ActionBar';
 import { LeftPanel, RightPanel } from '../components/ui/SidePanel';
 import { generateRuleBasedOrders } from '../../ai/rule_based';
+import { getTeamTactics } from '../../data/preset_teams';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../../engine/turn_processor';
 import { hexKey, hexDistance, buildZocMap, buildZoc2Map } from '../../engine/movement';
 import type {
@@ -92,6 +93,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const isServerCom = !!matchId?.startsWith('gemma_com_');
   const isComVsCom = gameMode === 'comVsCom';
   const isCom = !isServerCom && (gameMode === 'com' || gameMode === 'comVsCom' || matchId?.startsWith('com_'));
+
+  // ── プリセットチーム戦術パラメータ ──
+  const awayTeamTactics = presetTeam ? getTeamTactics(presetTeam.team_id) : undefined;
 
   // ── Gemma AI（サーバー経由）設定 ──
   const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
@@ -889,7 +893,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               scoreHome: state.scoreHome, scoreAway: state.scoreAway,
               turn: state.turn, maxTurn,
               remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
-              difficulty: comDifficulty,
+              difficulty: comDifficulty, teamTactics: awayTeamTactics,
             });
             awayOrders = comResult.orders;
             console.log(`[Battle] Gemma fallback → rule-based: orders=${awayOrders.length}`);
@@ -900,7 +904,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             scoreHome: state.scoreHome, scoreAway: state.scoreAway,
             turn: state.turn, maxTurn,
             remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
-            difficulty: comDifficulty,
+            difficulty: comDifficulty, teamTactics: awayTeamTactics,
           });
           awayOrders = comResult.orders;
           console.log(`[Battle] COM AI (away): strategy=${comResult.strategy}, orders=${awayOrders.length}`);
