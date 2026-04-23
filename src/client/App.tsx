@@ -27,6 +27,7 @@ import DifficultySelectScreen from './screens/DifficultySelectScreen';
 import FriendMatchScreen from './screens/FriendMatchScreen';
 import PresetTeamsScreen from './screens/PresetTeamsScreen';
 import OpponentSelectScreen, { markTeamDefeated } from './screens/OpponentSelectScreen';
+import { evaluateAndEarnAchievements } from '../data/achievements';
 import ReplayScreen from './screens/ReplayScreen';
 
 import type { PresetTeam } from '../data/presetTeams';
@@ -73,6 +74,8 @@ export default function App() {
     scoreHome: 0, scoreAway: 0, myTeam: 'home', reason: 'completed',
     stats: emptyStats(), mvp: null,
   });
+  // 新規獲得実績（Result画面で表示）
+  const [newAchievements, setNewAchievements] = useState<string[]>([]);
   // リプレイデータ（C9）
   const [replayTurns, setReplayTurns] = useState<TurnSnapshot[]>([]);
 
@@ -101,14 +104,25 @@ export default function App() {
 
   const handleMatchEnd = useCallback((data: MatchEndData) => {
     setMatchEndData(data);
+    const myScore = data.myTeam === 'home' ? data.scoreHome : data.scoreAway;
+    const opScore = data.myTeam === 'home' ? data.scoreAway : data.scoreHome;
+    const isWin = myScore > opScore;
+
     // COM対戦でプリセットチームに勝利した場合、解放状態を記録
-    if (selectedOpponent && gameMode === 'com') {
-      const myScore = data.myTeam === 'home' ? data.scoreHome : data.scoreAway;
-      const opScore = data.myTeam === 'home' ? data.scoreAway : data.scoreHome;
-      if (myScore > opScore) {
-        markTeamDefeated(selectedOpponent.team_id);
-      }
+    if (selectedOpponent && gameMode === 'com' && isWin) {
+      markTeamDefeated(selectedOpponent.team_id);
     }
+
+    // 実績判定
+    const earned = evaluateAndEarnAchievements({
+      result: isWin ? 'win' : myScore < opScore ? 'lose' : 'draw',
+      myScore, opScore,
+      gameMode,
+      presetTeamId: selectedOpponent?.team_id,
+      opTotalCost: selectedOpponent?.total_cost,
+    });
+    setNewAchievements(earned);
+
     setPage('result');
   }, [selectedOpponent, gameMode]);
 
@@ -209,6 +223,7 @@ export default function App() {
             mvp={matchEndData.mvp}
             gameMode={gameMode}
             onNavigate={navigate}
+            newAchievements={newAchievements}
           />
         )}
         {page === 'replay' && (
