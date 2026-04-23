@@ -132,7 +132,9 @@ for (let i = 1; i < lines.length; i++) {
   const family = parseFamily(familyRaw);
   const nationality = parseNationality(natRaw);
   const isFounding = isFcgStr === 'true' ? 1 : 0;
-  const isPurchasable = isFounding ? 0 : 1;
+  // Founding Eleven + piece_id=41 (Vincent Caldwell: 禁止令署名者) は非売品
+  const NON_PURCHASABLE_IDS = new Set([41]);
+  const isPurchasable = (isFounding || NON_PURCHASABLE_IDS.has(pieceId)) ? 0 : 1;
   const sku = `fcms_piece_${idStr.padStart(3, '0')}`;
 
   const familySql = family ? `'${escSql(family)}'` : 'NULL';
