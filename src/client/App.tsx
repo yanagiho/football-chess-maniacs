@@ -200,7 +200,7 @@ export default function App() {
         {page === 'replay' && (
           <Replay onNavigate={navigate} matchId={matchId ?? undefined} />
         )}
-        {page === 'shop' && <ShopScreen onNavigate={navigate} />}
+        {page === 'shop' && <ShopScreen onNavigate={navigate} authToken={authToken} />}
         {page === 'ranking' && <RankingScreen onNavigate={navigate} />}
         {page === 'collection' && <CollectionScreen onNavigate={navigate} />}
         {page === 'profile' && <ProfileScreen onNavigate={navigate} />}

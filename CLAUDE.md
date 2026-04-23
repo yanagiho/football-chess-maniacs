@@ -12,9 +12,11 @@ HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeSc
 ```
 src/
 ├── data/
-│   └── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
+│   ├── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
+│   └── npc_teams.ts          # NPC チーム定義（7時代 × 1チーム、Founding Eleven除外）
 ├── migrations/
-│   └── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
+│   ├── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
+│   └── 0002_platform_integration.sql  # piece_master/user_pieces_v2/webhook_deliveries等
 ├── engine/                   # ゲームエンジン（判定式・ターン処理）
 │   ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
 │   ├── hex_utils.ts          # HEXマップ共通ユーティリティ（hexLookup/ゾーン/BoardContext）
@@ -55,12 +57,19 @@ src/
 │   ├── game_session_helpers.ts # DO型定義・定数・純粋関数（GameState, WsAttachment等）
 │   ├── com_ai_integration.ts # COM AI統合（Gemma 5sタイムアウト + ルールベースフォールバック）
 │   └── matchmaking.ts        # マッチメイキングDO（リージョンシャード）
+├── types/
+│   └── piece.ts              # PieceMaster/ShopCatalogItem/OwnedPieceDetail型 + FOUNDING_ELEVEN_IDS/SHELF_NAMES/costToDisplay
+├── lib/
+│   └── founding_eleven.ts    # Founding Eleven自動付与（grantFoundingEleven）
 ├── api/
-│   ├── auth.ts               # プラットフォーム認証・Webhook
-│   ├── team.ts               # チーム編成CRUD（D1）
+│   ├── auth.ts               # プラットフォーム認証・Webhook（verifyHmacSignature/callPlatformApi）
+│   ├── team.ts               # チーム編成CRUD（D1、スロット1-10/is_active/ローカル所持確認）
 │   ├── match.ts              # マッチング・セッション接続・COM対戦DO作成
 │   ├── ai.ts                 # AI APIエンドポイント（/api/ai/test, /api/ai/turn）
-│   └── replay.ts             # リプレイ取得（R2）
+│   ├── replay.ts             # リプレイ取得（R2）
+│   ├── pieces.ts             # 所持コマAPI（GET /, GET /count, POST /sync）
+│   ├── shop.ts               # ショップAPI（GET /catalog, POST /purchase）
+│   └── webhooks.ts           # Webhook受信（HMAC検証 + delivery_id冪等性）
 ├── middleware/
 │   ├── jwt_verify.ts         # JWT検証（JWKS）
 │   ├── crypto_utils.ts       # timingSafeEqual + MATCH_ID_PATTERN（共通セキュリティユーティリティ）
@@ -104,8 +113,16 @@ src/
     │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証、自動再接続）
     │   ├── useGameState.ts    # ゲーム状態管理（useReducer + APPLY_ENGINE_RESULT + NEXT_TURN + AT）
     │   └── useDeviceType.ts   # スマホ/PC判定
+    ├── lib/
+    │   └── api.ts             # API fetchヘルパー（getApiBaseUrl/apiFetch/pieceImageUrl）
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
+scripts/
+├── generate_seed.ts           # CSV → piece_master_seed.sql 生成
+├── piece_master_seed.sql      # 200人INSERT文（生成済み）
+└── generate_placeholder_images.ts  # CSV → 仮SVG画像200枚生成
+public/
+└── images/pieces/             # コマ仮画像SVG 200枚（001.svg〜200.svg）
 ```
 
 ---
@@ -200,6 +217,10 @@ src/
 | .gitignore作成（2026-04-22） | node_modules/dist/training_data/src/.wrangler/.dev.vars/.env/.env.local/*.log | ✅ |
 | D1マイグレーション（2026-04-22） | 0001_initial.sql: matches/teams/user_pieces/user_ratings テーブル + インデックス | ✅ |
 | Cloudflareデプロイ（2026-04-22） | Workers/DO(new_sqlite_classes)/D1/KV/R2/Queue/AI 本番反映（football-chess-maniacs.yanagiho.workers.dev） | ✅ |
+| Platform連携Phase 1-3（2026-04-23） | D1マイグレーション(piece_master/user_pieces_v2/webhook等) + シード200人 + 型定義 + Founding Eleven + NPCチーム7時代 + Shop API + Pieces API + Webhook + Team拡張 + worker.tsルーティング統合 | ✅ |
+| 仮画像200枚生成（2026-04-23） | generate_placeholder_images.ts: CSV→SVG(1024×1536, 時代別背景色, シルエット, PROVISIONALスタンプ, SSスタンプ) → public/images/pieces/ | ✅ |
+| クライアントAPIヘルパー（2026-04-23） | src/client/lib/api.ts: getApiBaseUrl/apiFetch/pieceImageUrl/isProvisionalImage | ✅ |
+| ShopScreen書き換え（2026-04-23） | GET /api/shop/catalog接続、カードグリッド(SVG画像+英名+PieceIcon)、詳細モーダル(summary_ja)、ページネーション、購入ボタン仮実装 | ✅ |
 
 ---
 
