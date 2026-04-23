@@ -26,9 +26,11 @@ import SettingsScreen from './screens/SettingsScreen';
 import DifficultySelectScreen from './screens/DifficultySelectScreen';
 import FriendMatchScreen from './screens/FriendMatchScreen';
 import PresetTeamsScreen from './screens/PresetTeamsScreen';
+import OpponentSelectScreen from './screens/OpponentSelectScreen';
 import ReplayScreen from './screens/ReplayScreen';
 
 import type { PresetTeam } from '../data/presetTeams';
+import type { PresetTeam as PresetTeamV2 } from '../types/piece';
 import type { PieceData, GameEvent } from './types';
 
 /** リプレイ用ターンスナップショット */
@@ -62,6 +64,7 @@ export default function App() {
   const [myTeam, setMyTeam] = useState<Team>('home');
   const [formationData, setFormationData] = useState<FormationData | null>(null);
   const [comDifficulty, setComDifficulty] = useState<ComDifficulty>('regular');
+  const [selectedOpponent, setSelectedOpponent] = useState<PresetTeamV2 | null>(null);
   // JWT認証トークン（ログインフロー実装後にセット。localStorageフォールバック）
   const [authToken] = useState<string>(() => localStorage.getItem('fcms_token') ?? '');
 
@@ -106,9 +109,11 @@ export default function App() {
   }, []);
 
   const handleSelectPresetTeam = useCallback((_team: PresetTeam) => {
-    // プリセットチームのコマをフォーメーションデータに変換
-    // Formation画面で自動配置するため、ここでは遷移のみ
-    // 将来: formationData にプリセットを注入
+    // B10 プリセットチーム画面（国名チーム）用。遷移のみ
+  }, []);
+
+  const handleSelectOpponent = useCallback((team: PresetTeamV2) => {
+    setSelectedOpponent(team);
   }, []);
 
   // ModeSelect からの遷移: COM/comVsCom時は難易度選択を挟む
@@ -175,6 +180,7 @@ export default function App() {
             formationData={formationData}
             onMatchEnd={handleMatchEnd}
             comDifficulty={comDifficulty}
+            presetTeam={selectedOpponent}
           />
         )}
         {page === 'halfTime' && (
@@ -209,6 +215,9 @@ export default function App() {
           <DifficultySelectScreen onNavigate={navigate} onSelectDifficulty={handleSelectDifficulty} />
         )}
         {page === 'friendMatch' && <FriendMatchScreen onNavigate={navigate} />}
+        {page === 'opponentSelect' && (
+          <OpponentSelectScreen onNavigate={navigate} onSelectOpponent={handleSelectOpponent} />
+        )}
         {page === 'presetTeams' && (
           <PresetTeamsScreen onNavigate={navigate} onSelectPresetTeam={handleSelectPresetTeam} />
         )}

@@ -40,7 +40,7 @@ const OPTIONS: DifficultyOption[] = [
 export default function DifficultySelectScreen({ onNavigate, onSelectDifficulty }: DifficultySelectScreenProps) {
   const handleSelect = (diff: ComDifficulty) => {
     onSelectDifficulty(diff);
-    onNavigate('teamSelect');
+    onNavigate('opponentSelect');
   };
 
   return (

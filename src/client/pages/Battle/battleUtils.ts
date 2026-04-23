@@ -7,6 +7,7 @@ import type {
   FormationData, FormationPiece, MatchStats, MvpInfo,
 } from '../../types';
 import { MAX_ROW } from '../../types';
+import type { PresetTeam } from '../../../types/piece';
 import type {
   Piece as EnginePiece, Board as EngineBoard, Order as EngineOrder,
   BoardContext,
@@ -154,8 +155,20 @@ export function formationToPieces(starters: FormationPiece[], bench: FormationPi
   return pieces;
 }
 
-/** COM/awayチーム用のデフォルトコマ生成（row を反転して相手陣に配置） */
-export function createDefaultAwayPieces(): PieceData[] {
+/** COM/awayチーム用のコマ生成。PresetTeam指定時はそのデータを使用、なければデフォルト4-4-2 */
+export function createDefaultAwayPieces(presetTeam?: PresetTeam | null): PieceData[] {
+  if (presetTeam) {
+    return presetTeam.starters.map((s, i) => ({
+      id: `a${String(i + 1).padStart(2, '0')}`,
+      team: 'away' as Team,
+      position: s.position as Position,
+      cost: s.cost as Cost,
+      coord: { col: s.hex_col, row: s.hex_row },
+      hasBall: false,
+      moveRange: DEFAULT_MOVE_RANGE,
+      isBench: false,
+    }));
+  }
   return DEFAULT_TEMPLATE.map((t, i) => ({
     id: `a${String(i + 1).padStart(2, '0')}`,
     team: 'away' as Team,
@@ -182,12 +195,12 @@ export function createDefaultHomePieces(): PieceData[] {
   }));
 }
 
-/** 初期コマ配置生成（Formation データ優先、なければデフォルト） */
-export function createInitialPieces(formationData?: FormationData | null, kickoffTeam: Team = 'home'): PieceData[] {
+/** 初期コマ配置生成（Formation データ優先、なければデフォルト。away側はPresetTeam優先） */
+export function createInitialPieces(formationData?: FormationData | null, kickoffTeam: Team = 'home', presetTeam?: PresetTeam | null): PieceData[] {
   const homePieces = formationData
     ? formationToPieces(formationData.starters, formationData.bench, 'home')
     : createDefaultHomePieces();
-  const awayPieces = createDefaultAwayPieces();
+  const awayPieces = createDefaultAwayPieces(presetTeam);
   const pieces = [...homePieces, ...awayPieces];
   const fw = pieces.find((p) => p.team === kickoffTeam && p.position === 'FW' && !p.isBench);
   if (fw) fw.hasBall = true;
@@ -247,11 +260,12 @@ export function createGoalRestartPieces(
   fd: FormationData | null | undefined,
   kickoffTeam: Team,
   currentPieces?: PieceData[],
+  presetTeam?: PresetTeam | null,
 ): PieceData[] {
   if (!currentPieces || currentPieces.length === 0) {
-    return createInitialPieces(fd, kickoffTeam);
+    return createInitialPieces(fd, kickoffTeam, presetTeam);
   }
-  const templatePieces = createInitialPieces(fd, kickoffTeam);
+  const templatePieces = createInitialPieces(fd, kickoffTeam, presetTeam);
   const templateById = new Map(templatePieces.map(p => [p.id, p]));
   const resetPieces = currentPieces.map(cp => {
     const template = templateById.get(cp.id);
