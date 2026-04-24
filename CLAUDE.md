@@ -87,7 +87,7 @@ src/
     ├── components/
     │   ├── board/
     │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1、flipY座標反転対応）
-    │   │   ├── PieceIcon.tsx  # コマアイコンSVG（ui_spec v1.2 §6-1: ランク表記/枠装飾/敵味方色）
+    │   │   ├── PieceIcon.tsx  # コマアイコン（PNGトークン画像 + SVGオーバーレイ: 選択リング/バッジ/ボール）
     │   │   ├── Piece.tsx      # コマ表示ラッパー（PieceIcon + PA外警告/交代マーク）
     │   │   ├── Overlay.tsx    # Canvas: 移動矢印(白)/ドリブル矢印(緑)/パスライン/シュート線/ZOC/ゾーン境界
     │   │   ├── overlay_renderers.ts # Canvas描画レイヤー関数（ボール軌跡・フェーズエフェクト）
@@ -104,8 +104,16 @@ src/
     │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証、自動再接続）
     │   ├── useGameState.ts    # ゲーム状態管理（useReducer + APPLY_ENGINE_RESULT + NEXT_TURN + AT）
     │   └── useDeviceType.ts   # スマホ/PC判定
+    ├── utils/
+    │   └── pieceAssetPath.ts  # コマPNG画像パス導出（getPieceAssetPath: position/cost/side → /assets/pieces/*.png）
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
+scripts/
+├── generate_seed.ts           # CSV → piece_master_seed.sql 生成
+├── piece_master_seed.sql      # 200人INSERT文（生成済み）
+└── extract_all_tokens.py      # トークン画像抽出スクリプト
+public/
+└── assets/pieces/             # コマトークンPNG 80枚（{ally|enemy}_{pos}_{rank}.png）
 ```
 
 ---
@@ -126,14 +134,14 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド | ✅ 560 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド | ✅ 566 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
 | middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
 | wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
 | client/pages/* | 全9画面（タイトル〜リプレイ） | ✅ |
-| client/components/board/* | HEXボード + PieceIcon SVGコマアイコン（§6-1 v1.2）+ flipY座標反転 | ✅ |
+| client/components/board/* | HEXボード + PieceIcon PNGトークン画像（§6-1）+ SVGオーバーレイ + flipY座標反転 | ✅ |
 | client/components/ui/* | タイマー(60秒)・アクションバー(ドリブル/パス/シュート/交代)・パネル | ✅ |
 | client/components/minigame/* | FK/CK/PK ミニゲーム（§4-1〜§4-3） | ✅ |
 | client/hooks/* | WebSocket(マッチメイキング+ゲームセッション)・状態管理・デバイス判定 | ✅ |
@@ -200,6 +208,7 @@ src/
 | .gitignore作成（2026-04-22） | node_modules/dist/training_data/src/.wrangler/.dev.vars/.env/.env.local/*.log | ✅ |
 | D1マイグレーション（2026-04-22） | 0001_initial.sql: matches/teams/user_pieces/user_ratings テーブル + インデックス | ✅ |
 | Cloudflareデプロイ（2026-04-22） | Workers/DO(new_sqlite_classes)/D1/KV/R2/Queue/AI 本番反映（football-chess-maniacs.yanagiho.workers.dev） | ✅ |
+| コマPNG画像差し替え（2026-04-24） | PieceIcon.tsxをSVGプレースホルダーからPNGトークン画像に差し替え。getPieceAssetPath()ヘルパー追加、SVGオーバーレイ（選択リング/バッジ/ボール）維持、style幅サイズ上書き対応 | ✅ |
 
 ---
 
@@ -411,12 +420,15 @@ src/
 - `FormationData = { starters: FormationPiece[], bench: FormationPiece[] }`
 - Battle.tsx: `createInitialPieces(formationData)` でhomeチーム配置、awayはデフォルト4-4-2
 
-### PieceIcon（コマアイコン ui_spec v1.2 §6-1）
+### PieceIcon（コマアイコン — PNGトークン画像）
 - パス: `src/client/components/board/PieceIcon.tsx`
 - 使い方: `<PieceIcon cost={2} position="DF" side="ally" selected hasBall />`
-- 味方=青(#2563EB)、敵=赤(#DC2626)。中央にランク表記（1/1+/2/2+/SS）
-- 枠装飾: コスト1=なし, 1.5=銅, 2=銀, 2.5=金, 3=金+大型(72px)
-- 選択時は黄色枠点滅。ボール保持はSVGサッカーボール
+- **PNG画像トークン**: `public/assets/pieces/{side}_{pos}_{rank}.png` — 80枚（ally/enemy × 8ポジション × 5ランク）
+- `getPieceAssetPath(position, cost, side)` でパス導出（`src/client/utils/pieceAssetPath.ts`）
+- コスト→ランク: 1→cost1, 1.5→cost1plus, 2→cost2, 2.5→cost2plus, 3→ss
+- SVGオーバーレイ: 選択時黄色リング点滅、未命令パルス、命令済みバッジ、ボールインジケーター
+- `style={{ width, height }}` でサイズ上書き可能（img/SVGとも親divに追従）
+- デフォルトサイズ: コスト1-2.5=64px、コスト3(SS)=72px
 - **全コマ表示をPieceIconに統一**（Piece.tsx, HexBoard.tsx, Formation.tsx）
 
 ### コマ・チーム編成
