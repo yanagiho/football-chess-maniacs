@@ -20,6 +20,7 @@ import Timer from '../components/ui/Timer';
 import ActionBar from '../components/ui/ActionBar';
 import { LeftPanel, RightPanel } from '../components/ui/SidePanel';
 import { generateRuleBasedOrders } from '../../ai/rule_based';
+import { getTeamTactics } from '../../data/preset_teams';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../../engine/turn_processor';
 import { hexKey, hexDistance, buildZocMap, buildZoc2Map } from '../../engine/movement';
 import type {
@@ -62,9 +63,10 @@ interface BattleProps {
   formationData?: FormationData | null;
   onMatchEnd?: (data: MatchEndData) => void;
   comDifficulty?: 'beginner' | 'regular' | 'maniac';
+  presetTeam?: import('../../types/piece').PresetTeam | null;
 }
 
-export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd, comDifficulty = 'regular' }: BattleProps) {
+export default function Battle({ onNavigate, matchId, gameMode, authToken, myTeam: propMyTeam, formationData, onMatchEnd, comDifficulty = 'regular', presetTeam }: BattleProps) {
   const device = useDeviceType();
   const { settings } = useSettings();
   const animSpeed = settings.animationSpeed || 1;
@@ -91,6 +93,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const isServerCom = !!matchId?.startsWith('gemma_com_');
   const isComVsCom = gameMode === 'comVsCom';
   const isCom = !isServerCom && (gameMode === 'com' || gameMode === 'comVsCom' || matchId?.startsWith('com_'));
+
+  // ── プリセットチーム戦術パラメータ ──
+  const awayTeamTactics = presetTeam ? getTeamTactics(presetTeam.team_id) : undefined;
 
   // ── Gemma AI（サーバー経由）設定 ──
   const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
@@ -274,7 +279,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (!isCom) return;
 
     const kickoffTeam = firstHalfKickoffRef.current;
-    const pieces = createInitialPieces(formationData, kickoffTeam);
+    const pieces = createInitialPieces(formationData, kickoffTeam, presetTeam);
     console.log(`[Battle] COM init: 1st half kickoff = ${kickoffTeam}`);
     dispatch({
       type: 'INIT_MATCH',
@@ -282,7 +287,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       myTeam: 'home',
       board: { pieces },
     });
-  }, [isCom, matchId, dispatch, formationData]);
+  }, [isCom, matchId, dispatch, formationData, presetTeam]);
 
   // ── 演出フェーズ管理 ──
   const [ceremony, setCeremony] = useState<CeremonyPhase>(null);
@@ -347,7 +352,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     const secondHalfKickoff: Team = firstHalfKickoffRef.current === 'home' ? 'away' : 'home';
 
     const buildSecondHalfPieces = () => {
-      const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff);
+      const resetPieces = createGoalRestartPieces(formationData, secondHalfKickoff, undefined, presetTeam);
       const updatedReset = resetPieces.map(rp => {
         const current = capturedPieces.find(cp => cp.id === rp.id);
         if (current) {
@@ -384,7 +389,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       });
     }, 1500 + KICKOFF_CEREMONY_MS);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [halftimeReady, state.status, dispatch, formationData]);
+  }, [halftimeReady, state.status, dispatch, formationData, presetTeam]);
 
   // タイムアップ演出（試合終了時）
   useEffect(() => {
@@ -888,7 +893,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               scoreHome: state.scoreHome, scoreAway: state.scoreAway,
               turn: state.turn, maxTurn,
               remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
-              difficulty: comDifficulty,
+              difficulty: comDifficulty, teamTactics: awayTeamTactics,
             });
             awayOrders = comResult.orders;
             console.log(`[Battle] Gemma fallback → rule-based: orders=${awayOrders.length}`);
@@ -899,7 +904,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             scoreHome: state.scoreHome, scoreAway: state.scoreAway,
             turn: state.turn, maxTurn,
             remainingSubs: MAX_SUBSTITUTIONS, benchPieces: [], maxFieldCost: MAX_FIELD_COST,
-            difficulty: comDifficulty,
+            difficulty: comDifficulty, teamTactics: awayTeamTactics,
           });
           awayOrders = comResult.orders;
           console.log(`[Battle] COM AI (away): strategy=${comResult.strategy}, orders=${awayOrders.length}`);
@@ -1174,7 +1179,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 });
                 await wait(2000);
                 const kickoff = fouledTeam === 'home' ? 'away' : 'home';
-                const resetPieces = createGoalRestartPieces(formationData, kickoff, state.board.pieces);
+                const resetPieces = createGoalRestartPieces(formationData, kickoff, state.board.pieces, presetTeam);
                 goalScoredRef.current = { scored: false, scorerTeam: null };
                 dispatch({
                   type: 'SET_BOARD',
@@ -1283,7 +1288,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             await wait(GOAL_CEREMONY_MS);
             setCeremony(null);
             const kickoff = goalScoredRef.current.scorerTeam === 'home' ? 'away' : 'home';
-            const resetPieces = createGoalRestartPieces(formationData, kickoff, state.board.pieces);
+            const resetPieces = createGoalRestartPieces(formationData, kickoff, state.board.pieces, presetTeam);
             goalScoredRef.current = { scored: false, scorerTeam: null };
             dispatch({
               type: 'SET_BOARD',
@@ -1349,7 +1354,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (isMobile && navigator.vibrate) {
       navigator.vibrate([50, 30, 50]);
     }
-  }, [isCom, isComVsCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, fetchGemmaOrders, comDifficulty]);
+  }, [isCom, isComVsCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, fetchGemmaOrders, comDifficulty, presetTeam]);
 
   // COM観戦用: handleConfirmの最新参照を保持
   handleConfirmRef.current = handleConfirm;
@@ -1461,7 +1466,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         duration: 2500, color: '#FFD700', fontSize: 64, glow: true,
       });
       const kickoff = fouledTeam === 'home' ? 'away' : 'home';
-      const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces);
+      const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces, presetTeam);
       setMiniGame(null);
       setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
       dispatch({
@@ -1496,7 +1501,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom, presetTeam]);
 
   const handlePKComplete = useCallback((zone: number) => {
     if (!miniGame || miniGame.type !== 'pk') return;
@@ -1531,7 +1536,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         duration: 2500, color: '#FFD700', fontSize: 64, glow: true,
       });
       const kickoff = fouledTeam === 'home' ? 'away' : 'home';
-      const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces);
+      const resetPieces = createGoalRestartPieces(formationData, kickoff, currentPieces, presetTeam);
       setMiniGame(null);
       setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
       dispatch({
@@ -1566,7 +1571,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     });
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom, presetTeam]);
 
   // ── A7: CKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
   const handleCKComplete = useCallback((data: import('../components/minigame/CKGame').CKInput) => {

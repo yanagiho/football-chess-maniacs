@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1536" viewBox="0 0 1024 1536">
+  <!-- 背景 -->
+  <rect width="1024" height="1536" fill="#D9D9D9" />
+  <rect x="24" y="24" width="976" height="1488" rx="16" fill="none" stroke="#3E2723" stroke-width="2" opacity="0.3" />
+
+  <!-- File No. (上部) -->
+  <text x="512" y="100" text-anchor="middle" font-family="Georgia, serif" font-size="48" fill="#3E2723" font-weight="bold">File No. 153</text>
+  <line x1="312" y1="120" x2="712" y2="120" stroke="#3E2723" stroke-width="1" opacity="0.4" />
+
+  <!-- 人物シルエット (中央) -->
+  <g transform="translate(512, 620)">
+    <!-- 頭 -->
+    <circle cx="0" cy="-180" r="120" fill="#1A1A1A" opacity="0.85" />
+    <!-- 肩・胴体 -->
+    <ellipse cx="0" cy="20" rx="180" ry="220" fill="#1A1A1A" opacity="0.85" />
+    <!-- 首 -->
+    <rect x="-40" y="-80" width="80" height="60" fill="#1A1A1A" opacity="0.85" />
+  </g>
+
+  <!-- 下部情報 -->
+  <text x="512" y="1060" text-anchor="middle" font-family="Georgia, serif" font-size="44" fill="#3E2723" font-weight="bold">Jacques Dubois</text>
+
+  <text x="512" y="1130" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#5D4037">
+    MF | Cost 1
+  </text>
+
+  <text x="512" y="1190" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="#5D4037">
+    FR · Era 10 (Global)
+  </text>
+
+  <!-- 装飾ライン -->
+  <line x1="212" y1="1220" x2="812" y2="1220" stroke="#3E2723" stroke-width="1" opacity="0.3" />
+
+  <!-- PROVISIONAL スタンプ (右上) -->
+  <g transform="translate(820, 200) rotate(15)">
+    <rect x="-140" y="-30" width="280" height="60" rx="8" fill="none" stroke="#C62828" stroke-width="4" opacity="0.7" />
+    <text x="0" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#C62828" font-weight="bold" opacity="0.7">PROVISIONAL</text>
+  </g>
+</svg>

@@ -12,9 +12,12 @@ HEXグリッド上で行うサッカー×チェス型ボードゲーム（TypeSc
 ```
 src/
 ├── data/
-│   └── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
+│   ├── hex_map.json          # 22×34 flat-top HEX グリッド（748 エントリ）
+│   ├── preset_teams.ts       # プリセットチーム v2.0（階段型4チーム、フォーメーションテンプレート自動配置）
+│   └── achievements.ts       # 実績バッジシステム（9実績、localStorage追跡、evaluateAndEarnAchievements）
 ├── migrations/
-│   └── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
+│   ├── 0001_initial.sql      # D1初期スキーマ（matches/teams/user_pieces/user_ratings）
+│   └── 0002_platform_integration.sql  # piece_master/user_pieces_v2/webhook_deliveries等
 ├── engine/                   # ゲームエンジン（判定式・ターン処理）
 │   ├── types.ts              # 全型定義（Piece, Order, GameEvent, TurnResult …）
 │   ├── hex_utils.ts          # HEXマップ共通ユーティリティ（hexLookup/ゾーン/BoardContext）
@@ -55,12 +58,19 @@ src/
 │   ├── game_session_helpers.ts # DO型定義・定数・純粋関数（GameState, WsAttachment等）
 │   ├── com_ai_integration.ts # COM AI統合（Gemma 5sタイムアウト + ルールベースフォールバック）
 │   └── matchmaking.ts        # マッチメイキングDO（リージョンシャード）
+├── types/
+│   └── piece.ts              # PieceMaster/ShopCatalogItem/OwnedPieceDetail/PresetTeam型 + FOUNDING_ELEVEN_IDS/SHELF_NAMES/costToDisplay
+├── lib/
+│   └── founding_eleven.ts    # Founding Eleven自動付与（grantFoundingEleven）
 ├── api/
-│   ├── auth.ts               # プラットフォーム認証・Webhook
-│   ├── team.ts               # チーム編成CRUD（D1）
+│   ├── auth.ts               # プラットフォーム認証・Webhook（verifyHmacSignature/callPlatformApi）
+│   ├── team.ts               # チーム編成CRUD（D1、スロット1-10/is_active/ローカル所持確認）
 │   ├── match.ts              # マッチング・セッション接続・COM対戦DO作成
 │   ├── ai.ts                 # AI APIエンドポイント（/api/ai/test, /api/ai/turn）
-│   └── replay.ts             # リプレイ取得（R2）
+│   ├── replay.ts             # リプレイ取得（R2）
+│   ├── pieces.ts             # 所持コマAPI（GET /, GET /count, POST /sync）
+│   ├── shop.ts               # ショップAPI（GET /catalog, POST /purchase）
+│   └── webhooks.ts           # Webhook受信（HMAC検証 + delivery_id冪等性）
 ├── middleware/
 │   ├── jwt_verify.ts         # JWT検証（JWKS）
 │   ├── crypto_utils.ts       # timingSafeEqual + MATCH_ID_PATTERN（共通セキュリティユーティリティ）
@@ -87,7 +97,7 @@ src/
     ├── components/
     │   ├── board/
     │   │   ├── HexBoard.tsx   # HEXボード（背景画像+Canvas+DOM §6-1、flipY座標反転対応）
-    │   │   ├── PieceIcon.tsx  # コマアイコンSVG（ui_spec v1.2 §6-1: ランク表記/枠装飾/敵味方色）
+    │   │   ├── PieceIcon.tsx  # コマアイコン（PNGトークン画像 + SVGオーバーレイ: 選択リング/バッジ/ボール）
     │   │   ├── Piece.tsx      # コマ表示ラッパー（PieceIcon + PA外警告/交代マーク）
     │   │   ├── Overlay.tsx    # Canvas: 移動矢印(白)/ドリブル矢印(緑)/パスライン/シュート線/ZOC/ゾーン境界
     │   │   ├── overlay_renderers.ts # Canvas描画レイヤー関数（ボール軌跡・フェーズエフェクト）
@@ -104,8 +114,19 @@ src/
     │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証、自動再接続）
     │   ├── useGameState.ts    # ゲーム状態管理（useReducer + APPLY_ENGINE_RESULT + NEXT_TURN + AT）
     │   └── useDeviceType.ts   # スマホ/PC判定
+    ├── utils/
+    │   └── pieceAssetPath.ts  # コマPNG画像パス導出（getPieceAssetPath: position/cost/side → /assets/pieces/*.png）
+    ├── lib/
+    │   └── api.ts             # API fetchヘルパー（getApiBaseUrl/apiFetch/pieceImageUrl）
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
+scripts/
+├── generate_seed.ts           # CSV → piece_master_seed.sql 生成
+├── piece_master_seed.sql      # 200人INSERT文（生成済み）
+└── generate_placeholder_images.ts  # CSV → 仮SVG画像200枚生成
+public/
+├── assets/pieces/             # コマトークンPNG 80枚（{ally|enemy}_{pos}_{rank}.png）
+└── images/pieces/             # コマ仮画像SVG 200枚（001.svg〜200.svg）
 ```
 
 ---
@@ -126,14 +147,14 @@ src/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド | ✅ 560 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・プリセットチーム | ✅ 625 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
 | middleware/* | §7-2 JWT + §7-3 バリデーション14項目 + §7-4 レート制限 | ✅ |
 | wrangler.toml | DO/D1/KV/R2/Queues バインディング | ✅ |
 | client/pages/* | 全9画面（タイトル〜リプレイ） | ✅ |
-| client/components/board/* | HEXボード + PieceIcon SVGコマアイコン（§6-1 v1.2）+ flipY座標反転 | ✅ |
+| client/components/board/* | HEXボード + PieceIcon PNGトークン画像（§6-1）+ SVGオーバーレイ + flipY座標反転 | ✅ |
 | client/components/ui/* | タイマー(60秒)・アクションバー(ドリブル/パス/シュート/交代)・パネル | ✅ |
 | client/components/minigame/* | FK/CK/PK ミニゲーム（§4-1〜§4-3） | ✅ |
 | client/hooks/* | WebSocket(マッチメイキング+ゲームセッション)・状態管理・デバイス判定 | ✅ |
@@ -200,6 +221,17 @@ src/
 | .gitignore作成（2026-04-22） | node_modules/dist/training_data/src/.wrangler/.dev.vars/.env/.env.local/*.log | ✅ |
 | D1マイグレーション（2026-04-22） | 0001_initial.sql: matches/teams/user_pieces/user_ratings テーブル + インデックス | ✅ |
 | Cloudflareデプロイ（2026-04-22） | Workers/DO(new_sqlite_classes)/D1/KV/R2/Queue/AI 本番反映（football-chess-maniacs.yanagiho.workers.dev） | ✅ |
+| Platform連携Phase 1-3（2026-04-23） | D1マイグレーション(piece_master/user_pieces_v2/webhook等) + シード200人 + 型定義 + Founding Eleven + NPCチーム7時代 + Shop API + Pieces API + Webhook + Team拡張 + worker.tsルーティング統合 | ✅ |
+| 仮画像200枚生成（2026-04-23） | generate_placeholder_images.ts: CSV→SVG(1024×1536, 時代別背景色, シルエット, PROVISIONALスタンプ, SSスタンプ) → public/images/pieces/ | ✅ |
+| クライアントAPIヘルパー（2026-04-23） | src/client/lib/api.ts: getApiBaseUrl/apiFetch/pieceImageUrl/isProvisionalImage | ✅ |
+| ShopScreen書き換え（2026-04-23） | GET /api/shop/catalog接続、カードグリッド(SVG画像+英名+PieceIcon)、詳細モーダル(summary_ja)、ページネーション、購入ボタン仮実装 | ✅ |
+| プリセットチーム v2.0 データ層（2026-04-23） | npc_teams.ts(7時代)→preset_teams.ts(階段型4チーム)移行。フォーメーションテンプレート自動配置、SS露出0→2→2→3、34テスト追加（560→594） | ✅ |
+| COM対戦相手選択UI（2026-04-23） | OpponentSelectScreen(4チーム選択)、DifficultySelect→OpponentSelect→TeamSelectフロー、battleUtils/Battle.tsxがPresetTeamからaway側コマ生成 | ✅ |
+| COM AIチーム別戦術（2026-04-23） | TeamTactics型(LineRangeOverride+DiffConfigオーバーライド)、4チーム分TEAM_TACTICS定義、Battle.tsx→generateRuleBasedOrdersに伝播、7テスト追加（594→601） | ✅ |
+| 解放条件UI（2026-04-23） | Team2-4にdefeat_team解放条件設定、OpponentSelectScreenにロック表示+localStorage追跡、勝利時markTeamDefeated、3テスト追加（601→604） | ✅ |
+| 実績バッジシステム（2026-04-23） | achievements.ts(9実績: battle4+team4+milestone1)、evaluateAndEarnAchievements自動判定、ResultScreenにバッジ表示、15テスト追加（604→619） | ✅ |
+| コマPNG画像差し替え（2026-04-24） | PieceIcon.tsxをSVGプレースホルダーからPNGトークン画像に差し替え。getPieceAssetPath()ヘルパー追加、SVGオーバーレイ（選択リング/バッジ/ボール）維持、style幅サイズ上書き対応、6テスト追加（619→625） | ✅ |
+| プリセットチーム世界観統合（2026-04-24） | 4チームの名称・ナラティブをThe Archive世界観に統合。team_id変更(founding_eleven/banned_day/total_football/empty_archive)、キャラクターCSV summaryに基づくナラティブ（ハミッシュ創設神話/B-Day禁止令/トータルフットボール革命/パンデミック最前線）、achievements.tsの実績名も連動更新 | ✅ |
 
 ---
 
@@ -411,12 +443,15 @@ src/
 - `FormationData = { starters: FormationPiece[], bench: FormationPiece[] }`
 - Battle.tsx: `createInitialPieces(formationData)` でhomeチーム配置、awayはデフォルト4-4-2
 
-### PieceIcon（コマアイコン ui_spec v1.2 §6-1）
+### PieceIcon（コマアイコン — PNGトークン画像）
 - パス: `src/client/components/board/PieceIcon.tsx`
 - 使い方: `<PieceIcon cost={2} position="DF" side="ally" selected hasBall />`
-- 味方=青(#2563EB)、敵=赤(#DC2626)。中央にランク表記（1/1+/2/2+/SS）
-- 枠装飾: コスト1=なし, 1.5=銅, 2=銀, 2.5=金, 3=金+大型(72px)
-- 選択時は黄色枠点滅。ボール保持はSVGサッカーボール
+- **PNG画像トークン**: `public/assets/pieces/{side}_{pos}_{rank}.png` — 80枚（ally/enemy × 8ポジション × 5ランク）
+- `getPieceAssetPath(position, cost, side)` でパス導出（`src/client/utils/pieceAssetPath.ts`）
+- コスト→ランク: 1→cost1, 1.5→cost1plus, 2→cost2, 2.5→cost2plus, 3→ss
+- SVGオーバーレイ: 選択時黄色リング点滅、未命令パルス、命令済みバッジ、ボールインジケーター
+- `style={{ width, height }}` でサイズ上書き可能（img/SVGとも親divに追従）
+- デフォルトサイズ: コスト1-2.5=64px、コスト3(SS)=72px
 - **全コマ表示をPieceIconに統一**（Piece.tsx, HexBoard.tsx, Formation.tsx）
 
 ### コマ・チーム編成
@@ -445,7 +480,7 @@ src/
 ## テスト
 
 ```bash
-npm test              # vitest run（全560テスト + 10 E2Eスキップ）
+npm test              # vitest run（全619テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）

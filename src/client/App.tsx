@@ -26,9 +26,12 @@ import SettingsScreen from './screens/SettingsScreen';
 import DifficultySelectScreen from './screens/DifficultySelectScreen';
 import FriendMatchScreen from './screens/FriendMatchScreen';
 import PresetTeamsScreen from './screens/PresetTeamsScreen';
+import OpponentSelectScreen, { markTeamDefeated } from './screens/OpponentSelectScreen';
+import { evaluateAndEarnAchievements } from '../data/achievements';
 import ReplayScreen from './screens/ReplayScreen';
 
 import type { PresetTeam } from '../data/presetTeams';
+import type { PresetTeam as PresetTeamV2 } from '../types/piece';
 import type { PieceData, GameEvent } from './types';
 
 /** リプレイ用ターンスナップショット */
@@ -62,6 +65,7 @@ export default function App() {
   const [myTeam, setMyTeam] = useState<Team>('home');
   const [formationData, setFormationData] = useState<FormationData | null>(null);
   const [comDifficulty, setComDifficulty] = useState<ComDifficulty>('regular');
+  const [selectedOpponent, setSelectedOpponent] = useState<PresetTeamV2 | null>(null);
   // JWT認証トークン（ログインフロー実装後にセット。localStorageフォールバック）
   const [authToken] = useState<string>(() => localStorage.getItem('fcms_token') ?? '');
 
@@ -70,6 +74,8 @@ export default function App() {
     scoreHome: 0, scoreAway: 0, myTeam: 'home', reason: 'completed',
     stats: emptyStats(), mvp: null,
   });
+  // 新規獲得実績（Result画面で表示）
+  const [newAchievements, setNewAchievements] = useState<string[]>([]);
   // リプレイデータ（C9）
   const [replayTurns, setReplayTurns] = useState<TurnSnapshot[]>([]);
 
@@ -98,17 +104,38 @@ export default function App() {
 
   const handleMatchEnd = useCallback((data: MatchEndData) => {
     setMatchEndData(data);
+    const myScore = data.myTeam === 'home' ? data.scoreHome : data.scoreAway;
+    const opScore = data.myTeam === 'home' ? data.scoreAway : data.scoreHome;
+    const isWin = myScore > opScore;
+
+    // COM対戦でプリセットチームに勝利した場合、解放状態を記録
+    if (selectedOpponent && gameMode === 'com' && isWin) {
+      markTeamDefeated(selectedOpponent.team_id);
+    }
+
+    // 実績判定
+    const earned = evaluateAndEarnAchievements({
+      result: isWin ? 'win' : myScore < opScore ? 'lose' : 'draw',
+      myScore, opScore,
+      gameMode,
+      presetTeamId: selectedOpponent?.team_id,
+      opTotalCost: selectedOpponent?.total_cost,
+    });
+    setNewAchievements(earned);
+
     setPage('result');
-  }, []);
+  }, [selectedOpponent, gameMode]);
 
   const handleSelectDifficulty = useCallback((diff: ComDifficulty) => {
     setComDifficulty(diff);
   }, []);
 
   const handleSelectPresetTeam = useCallback((_team: PresetTeam) => {
-    // プリセットチームのコマをフォーメーションデータに変換
-    // Formation画面で自動配置するため、ここでは遷移のみ
-    // 将来: formationData にプリセットを注入
+    // B10 プリセットチーム画面（国名チーム）用。遷移のみ
+  }, []);
+
+  const handleSelectOpponent = useCallback((team: PresetTeamV2) => {
+    setSelectedOpponent(team);
   }, []);
 
   // ModeSelect からの遷移: COM/comVsCom時は難易度選択を挟む
@@ -175,6 +202,7 @@ export default function App() {
             formationData={formationData}
             onMatchEnd={handleMatchEnd}
             comDifficulty={comDifficulty}
+            presetTeam={selectedOpponent}
           />
         )}
         {page === 'halfTime' && (
@@ -195,12 +223,13 @@ export default function App() {
             mvp={matchEndData.mvp}
             gameMode={gameMode}
             onNavigate={navigate}
+            newAchievements={newAchievements}
           />
         )}
         {page === 'replay' && (
           <Replay onNavigate={navigate} matchId={matchId ?? undefined} />
         )}
-        {page === 'shop' && <ShopScreen onNavigate={navigate} />}
+        {page === 'shop' && <ShopScreen onNavigate={navigate} authToken={authToken} />}
         {page === 'ranking' && <RankingScreen onNavigate={navigate} />}
         {page === 'collection' && <CollectionScreen onNavigate={navigate} />}
         {page === 'profile' && <ProfileScreen onNavigate={navigate} />}
@@ -209,6 +238,9 @@ export default function App() {
           <DifficultySelectScreen onNavigate={navigate} onSelectDifficulty={handleSelectDifficulty} />
         )}
         {page === 'friendMatch' && <FriendMatchScreen onNavigate={navigate} />}
+        {page === 'opponentSelect' && (
+          <OpponentSelectScreen onNavigate={navigate} onSelectOpponent={handleSelectOpponent} />
+        )}
         {page === 'presetTeams' && (
           <PresetTeamsScreen onNavigate={navigate} onSelectPresetTeam={handleSelectPresetTeam} />
         )}

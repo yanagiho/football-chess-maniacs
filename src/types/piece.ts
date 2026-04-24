@@ -87,6 +87,46 @@ export interface WebhookPurchasePayload {
   };
 }
 
+// ── プリセットチーム型定義 ──
+
+/** プリセットチーム（階段型4チーム） */
+export type PresetTeam = {
+  team_id: string;
+  name_ja: string;
+  name_en: string;
+  shelf: number | null;
+  formation_preset: '4-4-2' | '3-5-2' | '4-3-3' | '4-2-3-1';
+  total_cost: number;
+  ss_count: number;
+  difficulty_tier: 1 | 2 | 3 | 4;
+  unlock_condition: UnlockCondition | null;
+  starters: PresetPiecePlacement[];   // 必ず11件
+  bench: PresetBenchPiece[];          // MVPは空
+  narrative_intro_ja: string;
+  narrative_win_ja: string;
+  narrative_loss_ja: string;
+};
+
+/** プリセットチームのコマ配置（away側HEX座標付き） */
+export type PresetPiecePlacement = {
+  piece_id: number;
+  position: string;
+  cost: number;
+  hex_col: number;
+  hex_row: number;
+};
+
+/** プリセットチームのベンチコマ */
+export type PresetBenchPiece = {
+  piece_id: number;
+};
+
+/** 解放条件 */
+export type UnlockCondition = {
+  type: 'defeat_team';
+  team_id: string;
+};
+
 // ── 定数 ──
 
 /** Founding Eleven (FC Grassroots) の piece_id */
