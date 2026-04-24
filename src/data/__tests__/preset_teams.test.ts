@@ -94,7 +94,7 @@ describe('PRESET_TEAMS', () => {
   });
 
   it('Team 1 は Founding Eleven と同じ piece_id', () => {
-    const team1 = getPresetTeamById('team_1_founding_mirror')!;
+    const team1 = getPresetTeamById('team_1_founding_eleven')!;
     const expectedIds = [8, 9, 10, 23, 35, 36, 37, 55, 70, 82, 104];
     const actualIds = team1.starters.map((s) => s.piece_id).sort((a, b) => a - b);
     expect(actualIds).toEqual(expectedIds);
@@ -114,9 +114,9 @@ describe('PRESET_TEAMS', () => {
 
   it('Team 2-4 は前のチーム撃破が解放条件', () => {
     const team2 = getPresetTeamByTier(2)!;
-    expect(team2.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_1_founding_mirror' });
+    expect(team2.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_1_founding_eleven' });
     const team3 = getPresetTeamByTier(3)!;
-    expect(team3.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_2_silenced_generation' });
+    expect(team3.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_2_banned_day' });
     const team4 = getPresetTeamByTier(4)!;
     expect(team4.unlock_condition).toEqual({ type: 'defeat_team', team_id: 'team_3_total_football' });
   });
@@ -173,7 +173,7 @@ describe('FORMATION_TEMPLATES', () => {
 
 describe('getPresetTeamById', () => {
   it('存在するIDで取得できる', () => {
-    const team = getPresetTeamById('team_2_silenced_generation');
+    const team = getPresetTeamById('team_2_banned_day');
     expect(team).toBeDefined();
     expect(team!.difficulty_tier).toBe(2);
   });
@@ -208,7 +208,7 @@ describe('TEAM_TACTICS', () => {
   });
 
   it('Team 1 はdiffOverridesのみ（lineRangesなし）', () => {
-    const t = TEAM_TACTICS['team_1_founding_mirror'];
+    const t = TEAM_TACTICS['team_1_founding_eleven'];
     expect(t.diffOverrides).toBeDefined();
     expect(t.lineRanges).toBeUndefined();
   });
@@ -220,7 +220,7 @@ describe('TEAM_TACTICS', () => {
   });
 
   it('Team 4 はuseZocPassBlock=true', () => {
-    const t = TEAM_TACTICS['team_4_empty_stands'];
+    const t = TEAM_TACTICS['team_4_empty_archive'];
     expect(t.diffOverrides?.useZocPassBlock).toBe(true);
   });
 

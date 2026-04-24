@@ -104,9 +104,9 @@ describe('evaluateAndEarnAchievements', () => {
   it('チーム撃破で対応実績を獲得', () => {
     const result = evaluateAndEarnAchievements({
       result: 'win', myScore: 1, opScore: 0, gameMode: 'com',
-      presetTeamId: 'team_1_founding_mirror',
+      presetTeamId: 'team_1_founding_eleven',
     });
-    expect(result).toContain('defeat_founding_mirror');
+    expect(result).toContain('defeat_founding_eleven');
   });
 
   it('ジャイアントキリング判定', () => {
@@ -120,10 +120,10 @@ describe('evaluateAndEarnAchievements', () => {
   it('全チーム撃破で all_teams_defeated', () => {
     // 4チームを順に撃破
     for (const teamId of [
-      'team_1_founding_mirror',
-      'team_2_silenced_generation',
+      'team_1_founding_eleven',
+      'team_2_banned_day',
       'team_3_total_football',
-      'team_4_empty_stands',
+      'team_4_empty_archive',
     ]) {
       evaluateAndEarnAchievements({
         result: 'win', myScore: 1, opScore: 0, gameMode: 'com',

@@ -231,6 +231,7 @@ public/
 | 解放条件UI（2026-04-23） | Team2-4にdefeat_team解放条件設定、OpponentSelectScreenにロック表示+localStorage追跡、勝利時markTeamDefeated、3テスト追加（601→604） | ✅ |
 | 実績バッジシステム（2026-04-23） | achievements.ts(9実績: battle4+team4+milestone1)、evaluateAndEarnAchievements自動判定、ResultScreenにバッジ表示、15テスト追加（604→619） | ✅ |
 | コマPNG画像差し替え（2026-04-24） | PieceIcon.tsxをSVGプレースホルダーからPNGトークン画像に差し替え。getPieceAssetPath()ヘルパー追加、SVGオーバーレイ（選択リング/バッジ/ボール）維持、style幅サイズ上書き対応、6テスト追加（619→625） | ✅ |
+| プリセットチーム世界観統合（2026-04-24） | 4チームの名称・ナラティブをThe Archive世界観に統合。team_id変更(founding_eleven/banned_day/total_football/empty_archive)、キャラクターCSV summaryに基づくナラティブ（ハミッシュ創設神話/B-Day禁止令/トータルフットボール革命/パンデミック最前線）、achievements.tsの実績名も連動更新 | ✅ |
 
 ---
 

@@ -204,9 +204,9 @@ function countSS(members: TeamMember[]): number {
 
 export const PRESET_TEAMS: PresetTeam[] = [
   {
-    team_id: 'team_1_founding_mirror',
-    name_ja: '創設の鏡',
-    name_en: 'The Founding Mirror',
+    team_id: 'team_1_founding_eleven',
+    name_ja: '創設の11人',
+    name_en: 'The Founding Eleven',
     shelf: null,
     formation_preset: '4-4-2',
     total_cost: sumCost(TEAM_1_MEMBERS),
@@ -215,46 +215,46 @@ export const PRESET_TEAMS: PresetTeam[] = [
     unlock_condition: null,
     starters: buildAwayPlacements('4-4-2', TEAM_1_MEMBERS),
     bench: [],
-    narrative_intro_ja: '君のすぐ先にも、同じ11ファイルを受け取った新米がいる。',
-    narrative_win_ja: '鏡は砕けた。だが映っていたのは、まぎれもなく君自身の姿だった。',
-    narrative_loss_ja: '鏡の中の自分に負けた。同じ手札で、何が違った？',
+    narrative_intro_ja: '1903年、ハミッシュ・マクファーレンが盤に最初に並べた11人のファイル。有名でもなく、家系にも属さない。それでも蹴り続けた者たちだ。',
+    narrative_win_ja: '創設の11人を超えた。だが忘れるな——彼らなくして、この盤は存在しなかった。',
+    narrative_loss_ja: '華麗さはない。だが彼らは160年間、この盤の最初のページを占めてきた。その重みに、君はまだ届かない。',
   },
   {
-    team_id: 'team_2_silenced_generation',
-    name_ja: '沈黙の世代',
-    name_en: 'The Silenced Generation',
+    team_id: 'team_2_banned_day',
+    name_ja: '禁じられた日の記憶',
+    name_en: 'The Banned Day',
     shelf: 2,
     formation_preset: '3-5-2',
     total_cost: sumCost(TEAM_2_MEMBERS),
     ss_count: countSS(TEAM_2_MEMBERS),
     difficulty_tier: 2,
-    unlock_condition: { type: 'defeat_team', team_id: 'team_1_founding_mirror' },
+    unlock_condition: { type: 'defeat_team', team_id: 'team_1_founding_eleven' },
     starters: buildAwayPlacements('3-5-2', TEAM_2_MEMBERS),
     bench: [],
-    narrative_intro_ja: '時代に夢を奪われた者たち。だが沈黙は、決して服従ではなかった。',
-    narrative_win_ja: '沈黙を破ったのは、ピッチ上の言葉だった。',
-    narrative_loss_ja: '彼らの沈黙は、ただ静かに勝利を語っていた。',
+    narrative_intro_ja: '1920年、5万3千人がヴァイオレット・コナーの得点に沸いた。翌年、女子サッカーは禁止された。ドロシー・ブラックウッドは51年間、夢を封印された。この書棚には、沈黙を強いられた者たちのファイルが並ぶ。',
+    narrative_win_ja: '禁止令は砕かれた。51年の沈黙を、君のピッチが終わらせた。ドロシーのファイルに、新しい一行が書き加えられる。',
+    narrative_loss_ja: '5万3千人の歓声を知るヴァイオレット、51年を耐えたドロシー。奪われた時間の重さが、そのまま強さになっている。',
   },
   {
     team_id: 'team_3_total_football',
-    name_ja: 'トータルフットボール',
-    name_en: 'The Total Football',
+    name_ja: '全方位の革命',
+    name_en: 'Total Football',
     shelf: 4,
     formation_preset: '4-3-3',
     total_cost: sumCost(TEAM_3_MEMBERS),
     ss_count: countSS(TEAM_3_MEMBERS),
     difficulty_tier: 3,
-    unlock_condition: { type: 'defeat_team', team_id: 'team_2_silenced_generation' },
+    unlock_condition: { type: 'defeat_team', team_id: 'team_2_banned_day' },
     starters: buildAwayPlacements('4-3-3', TEAM_3_MEMBERS),
     bench: [],
-    narrative_intro_ja: '70年代、サッカーは哲学になった。全員が攻め、全員が守る。',
-    narrative_win_ja: '哲学を超えるのは、実践だけだ。',
-    narrative_loss_ja: 'トータルフットボールの前では、個の力は意味を持たない。',
+    narrative_intro_ja: '1970年代、ハンス・ファン・デル・ベルクは全方位に動き、ルドルフ・ヴァイスハウプトはリベロを発明した。サッカーが「哲学」になった時代のファイルが、この書棚にある。全員が攻め、全員が守る。',
+    narrative_win_ja: '哲学を超えたのは、君自身の解釈だった。ハンスのファイルにも書かれていない手を、君は打った。',
+    narrative_loss_ja: 'ハンスは全方位に動き、ルドルフは思考する壁になった。哲学とは、ただの理屈ではない。ピッチの上で証明され続ける真理だ。',
   },
   {
-    team_id: 'team_4_empty_stands',
-    name_ja: '無観客の帝国',
-    name_en: 'The Empty Stands',
+    team_id: 'team_4_empty_archive',
+    name_ja: '無観客のアーカイブ',
+    name_en: 'The Empty Archive',
     shelf: 7,
     formation_preset: '4-2-3-1',
     total_cost: sumCost(TEAM_4_MEMBERS),
@@ -263,9 +263,9 @@ export const PRESET_TEAMS: PresetTeam[] = [
     unlock_condition: { type: 'defeat_team', team_id: 'team_3_total_football' },
     starters: buildAwayPlacements('4-2-3-1', TEAM_4_MEMBERS),
     bench: [],
-    narrative_intro_ja: 'これが現時点のアーカイブ最前線だ。観客席は空でも、記録は残る。',
-    narrative_win_ja: '空のスタンドに、君の勝利が響いた。アーカイブに新たな一頁。',
-    narrative_loss_ja: '帝国は揺るがない。だが挑んだ事実は、記録に残る。',
+    narrative_intro_ja: 'パンデミックが観客を奪った日も、ベネディクト・ヴァイスハウプトは無人のスタジアムで叫び続けた。アデオラ・オコンクウォは膝をつき、フアン・エルナンデスは走行距離だけで勝った。これがアーカイブ最前線——まだインクの乾かないファイルたちだ。',
+    narrative_win_ja: 'まだ書き終わっていないファイルを、君は超えた。だがアーカイブは更新され続ける。次に君が開く書棚には、新しい名前が並んでいるだろう。',
+    narrative_loss_ja: 'ベネディクトの叫びは、空のスタンドにも届いた。アデオラの才能は、家系10代の重みを背負っている。最前線のファイルは、まだ完結していない。',
   },
 ];
 
@@ -273,8 +273,8 @@ export const PRESET_TEAMS: PresetTeam[] = [
 // フォーメーションと難易度tierに基づくAI行動調整
 
 const TEAM_TACTICS: Record<string, TeamTactics> = {
-  // Team 1: 4-4-2 ミラーマッチ。デフォルトラインそのまま、初心者向けの弱体化
-  team_1_founding_mirror: {
+  // Team 1: 4-4-2 創設の11人。デフォルトラインそのまま、初心者向けの弱体化
+  team_1_founding_eleven: {
     diffOverrides: {
       shootRange: 5,
       maxPressers: 1,
@@ -283,8 +283,8 @@ const TEAM_TACTICS: Record<string, TeamTactics> = {
     },
   },
 
-  // Team 2: 3-5-2 ワイドWB。SBがWBとして高い位置を取り、中盤を厚くする
-  team_2_silenced_generation: {
+  // Team 2: 3-5-2 禁じられた日。SBがWBとして高い位置を取り、中盤を厚くする
+  team_2_banned_day: {
     lineRanges: {
       SB: {
         attack: { min: 8, max: 24 },  // WBとして高い位置まで上がる
@@ -333,8 +333,8 @@ const TEAM_TACTICS: Record<string, TeamTactics> = {
     },
   },
 
-  // Team 4: 4-2-3-1 堅守速攻。DFラインが低く、OM/WGがカウンターで一気に上がる
-  team_4_empty_stands: {
+  // Team 4: 4-2-3-1 無観客のアーカイブ。DFラインが低く、OM/WGがカウンターで一気に上がる
+  team_4_empty_archive: {
     lineRanges: {
       DF: {
         attack: { min: 3, max: 16 },   // DF低め維持

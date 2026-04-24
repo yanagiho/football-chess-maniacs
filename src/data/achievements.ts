@@ -65,18 +65,18 @@ export const ACHIEVEMENTS: Achievement[] = [
 
   // Team系
   {
-    id: 'defeat_founding_mirror',
-    name_ja: '鏡の破砕者',
-    name_en: 'Mirror Breaker',
-    description_ja: '「創設の鏡」を撃破した',
+    id: 'defeat_founding_eleven',
+    name_ja: '創設を超えし者',
+    name_en: 'Beyond the Founding',
+    description_ja: '「創設の11人」を撃破した',
     icon: '\u{1FA9E}',
     category: 'team',
   },
   {
-    id: 'defeat_silenced_generation',
+    id: 'defeat_banned_day',
     name_ja: '沈黙を破る者',
     name_en: 'Silence Breaker',
-    description_ja: '「沈黙の世代」を撃破した',
+    description_ja: '「禁じられた日の記憶」を撃破した',
     icon: '\u{1F50A}',
     category: 'team',
   },
@@ -84,15 +84,15 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'defeat_total_football',
     name_ja: '哲学の超越者',
     name_en: 'Beyond Philosophy',
-    description_ja: '「トータルフットボール」を撃破した',
+    description_ja: '「全方位の革命」を撃破した',
     icon: '\u{1F3C6}',
     category: 'team',
   },
   {
-    id: 'defeat_empty_stands',
-    name_ja: 'アーカイブの征服者',
-    name_en: 'Archive Conqueror',
-    description_ja: '「無観客の帝国」を撃破した',
+    id: 'defeat_empty_archive',
+    name_ja: '最前線の征服者',
+    name_en: 'Frontier Conqueror',
+    description_ja: '「無観客のアーカイブ」を撃破した',
     icon: '\u{1F451}',
     category: 'team',
   },
@@ -111,10 +111,10 @@ export const ACHIEVEMENTS: Achievement[] = [
 // ── チームID → 実績IDマッピング ──
 
 const TEAM_DEFEAT_ACHIEVEMENT: Record<string, string> = {
-  team_1_founding_mirror: 'defeat_founding_mirror',
-  team_2_silenced_generation: 'defeat_silenced_generation',
+  team_1_founding_eleven: 'defeat_founding_eleven',
+  team_2_banned_day: 'defeat_banned_day',
   team_3_total_football: 'defeat_total_football',
-  team_4_empty_stands: 'defeat_empty_stands',
+  team_4_empty_archive: 'defeat_empty_archive',
 };
 
 // ── localStorage管理 ──
