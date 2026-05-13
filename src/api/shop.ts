@@ -171,12 +171,20 @@ shop.post('/purchase', async (c) => {
     }
     const userJwt = authHeader.slice(7);
 
+    // クライアント提供の Idempotency-Key を Platform へ転送（二重クリック対策）
+    const platformHeaders: Record<string, string> = {};
+    const clientIdempotencyKey = c.req.header('Idempotency-Key');
+    if (clientIdempotencyKey) {
+      platformHeaders['Idempotency-Key'] = clientIdempotencyKey;
+    }
+
     const result = await callPlatformUserApi<{
       purchase_id: string;
       checkout_url: string;
       status: string;
     }>(c.env, '/v1/commerce/purchase', userJwt, {
       method: 'POST',
+      headers: platformHeaders,
       body: JSON.stringify({
         product_id: platformProduct.platform_product_id,
         price_id: platformProduct.platform_price_id,

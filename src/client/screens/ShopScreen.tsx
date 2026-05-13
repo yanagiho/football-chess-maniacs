@@ -52,6 +52,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [selectedItem, setSelectedItem] = useState<CatalogItem | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const LIMIT = 50;
@@ -288,19 +289,59 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
               </p>
             )}
 
-            {/* 購入ボタン（仮） */}
+            {/* 購入ボタン */}
             <button
-              onClick={() => {
-                setSelectedItem(null);
-                showToast('購入機能は後日実装予定です');
+              disabled={purchasing || selectedItem.is_owned}
+              onClick={async () => {
+                if (!authToken) {
+                  showToast('ログインが必要です');
+                  return;
+                }
+                if (!selectedItem) return;
+                setPurchasing(true);
+                try {
+                  const idempotencyKey = crypto.randomUUID();
+                  const data = await apiFetch<{
+                    purchase_id: string;
+                    checkout_url: string;
+                    status: string;
+                  }>('/api/shop/purchase', {
+                    method: 'POST',
+                    token: authToken,
+                    headers: { 'Idempotency-Key': idempotencyKey },
+                    body: JSON.stringify({ piece_id: selectedItem.piece_id }),
+                  });
+                  // Stripe Checkout へ遷移
+                  if (data.checkout_url) {
+                    window.location.href = data.checkout_url;
+                  }
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : 'Purchase failed';
+                  if (msg.includes('PRODUCT_NOT_CONFIGURED')) {
+                    showToast('この駒はまだ購入できません');
+                  } else if (msg.includes('ALREADY_OWNED')) {
+                    showToast('すでに所持しています');
+                    setSelectedItem({ ...selectedItem, is_owned: true });
+                  } else if (msg.includes('401') || msg.includes('Unauthorized')) {
+                    showToast('ログインが必要です');
+                  } else {
+                    showToast('購入に失敗しました');
+                  }
+                } finally {
+                  setPurchasing(false);
+                }
               }}
               style={{
                 width: '100%', marginTop: 16, padding: '12px 0', borderRadius: 8,
-                border: 'none', background: '#2563EB', color: '#fff',
-                fontSize: 15, fontWeight: 'bold', cursor: 'pointer',
+                border: 'none',
+                background: selectedItem.is_owned ? '#555' : '#2563EB',
+                color: '#fff',
+                fontSize: 15, fontWeight: 'bold',
+                cursor: purchasing || selectedItem.is_owned ? 'default' : 'pointer',
+                opacity: purchasing ? 0.6 : 1,
               }}
             >
-              購入する
+              {selectedItem.is_owned ? '所持済み' : purchasing ? '処理中...' : '購入する'}
             </button>
 
             <button

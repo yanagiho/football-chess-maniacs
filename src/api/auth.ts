@@ -48,13 +48,20 @@ export async function callPlatformUserApi<T>(
   options?: RequestInit,
 ): Promise<T> {
   const url = `${env.PLATFORM_API_BASE}${path}`;
+  const merged: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${userJwt}`,
+  };
+  // POST に Idempotency-Key を自動付与（caller が未指定の場合）
+  const incomingHeaders = options?.headers as Record<string, string> | undefined;
+  if (options?.method === 'POST' && !incomingHeaders?.['Idempotency-Key']) {
+    merged['Idempotency-Key'] = crypto.randomUUID();
+  }
+  Object.assign(merged, incomingHeaders);
+
   const res = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userJwt}`,
-      ...options?.headers,
-    },
+    headers: merged,
   });
 
   if (!res.ok) {
