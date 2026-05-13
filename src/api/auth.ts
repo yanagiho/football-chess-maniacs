@@ -59,13 +59,17 @@ export async function callPlatformUserApi<T>(
   }
   Object.assign(merged, incomingHeaders);
 
-  const res = await fetch(url, {
+  const request = new Request(url, {
     ...options,
     headers: merged,
   });
+  const res = env.PLATFORM_API
+    ? await env.PLATFORM_API.fetch(request)
+    : await fetch(request);
 
   if (!res.ok) {
-    throw new Error(`Platform API error: ${res.status} ${res.statusText}`);
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`Platform API error: ${res.status} ${res.statusText} ${path} ${errorBody.slice(0, 500)}`);
   }
 
   const body = await res.text();
@@ -83,7 +87,7 @@ export async function callPlatformGameApi<T>(
 ): Promise<T> {
   const url = `${env.PLATFORM_API_BASE}${path}`;
   const token = env.PLATFORM_GAME_SERVER_TOKEN;
-  const res = await fetch(url, {
+  const request = new Request(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -91,9 +95,13 @@ export async function callPlatformGameApi<T>(
       ...options?.headers,
     },
   });
+  const res = env.PLATFORM_API
+    ? await env.PLATFORM_API.fetch(request)
+    : await fetch(request);
 
   if (!res.ok) {
-    throw new Error(`Platform API error: ${res.status} ${res.statusText}`);
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`Platform API error: ${res.status} ${res.statusText} ${path} ${errorBody.slice(0, 500)}`);
   }
 
   const body = await res.text();

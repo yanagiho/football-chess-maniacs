@@ -37,6 +37,8 @@ export interface Env {
     MATCH_RESULT_QUEUE: Queue;
     // Workers AI
     AI: Ai;
+    // Service bindings
+    PLATFORM_API?: Fetcher;
     // Vars
     CORS_ORIGIN: string;
     PLATFORM_API_BASE: string;
@@ -48,6 +50,8 @@ export interface Env {
     PLATFORM_HMAC_SECRET: string;
     /** Game server token issued by Platform P3 Admin API (gfp_xxxx...) */
     PLATFORM_GAME_SERVER_TOKEN: string;
+    /** Platform JWT public key fallback used when JWKS fetch is unavailable. */
+    PLATFORM_JWT_PUBLIC_KEY_PEM?: string;
     /** game_id registered in Platform games table */
     PLATFORM_GAME_ID: string;
   };
@@ -86,7 +90,7 @@ app.use('*', async (c, next) => {
     contentSecurityPolicy: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
-      connectSrc: ["'self'", 'wss://manics.example.com', 'https://api.football-century.example.com'],
+      connectSrc: ["'self'", 'wss://football-chess-maniacs.yanagiho.workers.dev', 'https://fc-platform-api.yanagiho.workers.dev'],
       imgSrc: ["'self'", 'https://r2.example.com'],
     },
     xFrameOptions: 'DENY',
@@ -131,9 +135,10 @@ shopApp.use('*', async (c, next) => {
   if (auth?.startsWith('Bearer ')) {
     const token = auth.slice(7);
     try {
-      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL);
+      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL, c.env.PLATFORM_JWT_PUBLIC_KEY_PEM);
       c.set('userId', payload.sub);
-    } catch {
+    } catch (e) {
+      console.warn('[shop] Optional JWT verification failed:', e instanceof Error ? e.message : 'Unknown error');
       // JWT検証失敗でもカタログ閲覧は許可（userIdなし）
     }
   }

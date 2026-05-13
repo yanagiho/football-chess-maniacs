@@ -65,6 +65,7 @@ export class GameSession extends DurableObject<Env['Bindings']> {
           token,
           this.env.PLATFORM_JWKS_URL,
           players,
+          this.env.PLATFORM_JWT_PUBLIC_KEY_PEM,
         );
         userId = result.userId;
       } catch (e) {

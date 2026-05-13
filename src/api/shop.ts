@@ -189,6 +189,7 @@ shop.post('/purchase', async (c) => {
         product_id: platformProduct.platform_product_id,
         price_id: platformProduct.platform_price_id,
         provider: 'stripe',
+        return_url: c.env.CORS_ORIGIN,
       }),
     });
 
