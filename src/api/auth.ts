@@ -38,119 +38,78 @@ function hexToBytes(hex: string): ArrayBuffer {
 }
 
 /**
- * プラットフォームAPIを呼び出す共通ヘルパー
- * サービスAPIキー認証 + レスポンスHMAC検証
+ * ユーザー向け Platform API を呼び出す（User JWT Bearer認証）
+ * /v1/commerce/*, /v1/entitlements/*, /v1/inventory/*, /v1/users/* 等
  */
-export async function callPlatformApi<T>(
+export async function callPlatformUserApi<T>(
+  env: Env['Bindings'],
+  path: string,
+  userJwt: string,
+  options?: RequestInit,
+): Promise<T> {
+  const url = `${env.PLATFORM_API_BASE}${path}`;
+  const merged: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${userJwt}`,
+  };
+  // POST に Idempotency-Key を自動付与（caller が未指定の場合）
+  const incomingHeaders = options?.headers as Record<string, string> | undefined;
+  if (options?.method === 'POST' && !incomingHeaders?.['Idempotency-Key']) {
+    merged['Idempotency-Key'] = crypto.randomUUID();
+  }
+  Object.assign(merged, incomingHeaders);
+
+  const request = new Request(url, {
+    ...options,
+    headers: merged,
+  });
+  const res = env.PLATFORM_API
+    ? await env.PLATFORM_API.fetch(request)
+    : await fetch(request);
+
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`Platform API error: ${res.status} ${res.statusText} ${path} ${errorBody.slice(0, 500)}`);
+  }
+
+  const body = await res.text();
+  return JSON.parse(body) as T;
+}
+
+/**
+ * ゲームサーバー → Platform API を呼び出す（gfp_ game server token Bearer認証）
+ * /v1/game/* ルート専用（gameAuthMiddleware が適用されるエンドポイント）
+ */
+export async function callPlatformGameApi<T>(
   env: Env['Bindings'],
   path: string,
   options?: RequestInit,
 ): Promise<T> {
   const url = `${env.PLATFORM_API_BASE}${path}`;
-  const res = await fetch(url, {
+  const token = env.PLATFORM_GAME_SERVER_TOKEN;
+  const request = new Request(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-Service-API-Key': env.PLATFORM_SERVICE_API_KEY,
+      'Authorization': `Bearer ${token}`,
       ...options?.headers,
     },
   });
+  const res = env.PLATFORM_API
+    ? await env.PLATFORM_API.fetch(request)
+    : await fetch(request);
 
   if (!res.ok) {
-    throw new Error(`Platform API error: ${res.status} ${res.statusText}`);
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`Platform API error: ${res.status} ${res.statusText} ${path} ${errorBody.slice(0, 500)}`);
   }
 
   const body = await res.text();
-
-  // HMAC署名検証（§7-5: 署名は必須）
-  const signature = res.headers.get('X-HMAC-Signature');
-  if (!signature) {
-    throw new Error('Platform API response missing HMAC signature');
-  }
-  const valid = await verifyHmacSignature(body, signature, env.PLATFORM_HMAC_SECRET);
-  if (!valid) {
-    throw new Error('Platform API response HMAC verification failed');
-  }
-
   return JSON.parse(body) as T;
 }
 
-/**
- * 所持コマ取得（KVキャッシュ付き、§8-2）
- * TTL 1時間。プラットフォーム障害時はキャッシュフォールバック。
- */
-export interface OwnedPiece {
-  piece_master_id: string;
-  position: string;
-  cost: number;
-  rarity: string;
-}
-
-export async function getOwnedPieces(
-  env: Env['Bindings'],
-  userId: string,
-): Promise<{ pieces: OwnedPiece[]; fromCache: boolean }> {
-  const cacheKey = `owned_pieces:${userId}`;
-
-  // キャッシュ確認
-  const cached = await env.KV.get(cacheKey, 'json') as OwnedPiece[] | null;
-
-  try {
-    const pieces = await callPlatformApi<{ items: OwnedPiece[] }>(
-      env,
-      `/users/${userId}/entitlements?game=fcms`,
-    );
-
-    // ビジネスロジック整合性チェック（§7-5）
-    if (pieces.items.length > 200) {
-      throw new Error('Too many pieces returned from platform API');
-    }
-    const validated = pieces.items.filter(
-      (p) => p.cost >= 1 && p.cost <= 3,
-    );
-
-    // キャッシュ更新
-    await env.KV.put(cacheKey, JSON.stringify(validated), { expirationTtl: 3600 });
-
-    return { pieces: validated, fromCache: false };
-  } catch {
-    // プラットフォーム障害時のフォールバック（§8-2）
-    if (cached) {
-      return { pieces: cached, fromCache: true };
-    }
-    throw new Error('Platform API unavailable and no cache available');
-  }
-}
-
-// ── Webhookエンドポイント（キャッシュ即時無効化）──
-auth.post('/purchase', async (c) => {
-  const signature = c.req.header('X-HMAC-Signature');
-  if (!signature) {
-    return c.json({ error: 'Missing signature' }, 401);
-  }
-
-  const body = await c.req.text();
-  const valid = await verifyHmacSignature(body, signature, c.env.PLATFORM_HMAC_SECRET);
-  if (!valid) {
-    return c.json({ error: 'Invalid signature' }, 401);
-  }
-
-  let data: { user_id: string; event: string };
-  try {
-    data = JSON.parse(body) as { user_id: string; event: string };
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-
-  if (!data.user_id || typeof data.user_id !== 'string') {
-    return c.json({ error: 'Missing user_id' }, 400);
-  }
-
-  if (data.event === 'purchase_complete') {
-    await c.env.KV.delete(`owned_pieces:${data.user_id}`);
-  }
-
-  return c.json({ ok: true });
-});
+// NOTE: Legacy getOwnedPieces / /purchase endpoint removed.
+// Piece ownership is managed via user_pieces_v2 (D1) + Platform webhooks (webhooks.ts).
+// Polling sync uses callPlatformUserApi in pieces.ts.
 
 export default auth;

@@ -3,6 +3,11 @@ main = "worker.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
+[assets]
+directory = "../dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/match/*", "/webhook/*", "/health"]
+
 # ── Durable Objects ──
 [durable_objects]
 bindings = [
@@ -42,17 +47,24 @@ queue = "fcms-match-results"
 max_batch_size = 10
 max_batch_timeout = 30
 
+# ── Service Bindings ──
+[[services]]
+binding = "PLATFORM_API"
+service = "fc-platform-api"
+
 # ── Workers AI ──
 [ai]
 binding = "AI"
 
 # ── Environment Variables ──
 [vars]
-CORS_ORIGIN = "https://manics.example.com"
-PLATFORM_API_BASE = "https://api.football-century.example.com"
+CORS_ORIGIN = "https://football-chess-maniacs.yanagiho.workers.dev"
+PLATFORM_API_BASE = "https://fc-platform-api.yanagiho.workers.dev"
+PLATFORM_JWKS_URL = "https://fc-platform-api.yanagiho.workers.dev/.well-known/jwks.json"
+PLATFORM_GAME_ID = "football_chess_maniacs"
 AI_MODEL_ID = "@cf/google/gemma-3-12b-it"
 
 # ── Secrets (set via `wrangler secret put`) ──
-# PLATFORM_JWKS_URL
-# PLATFORM_SERVICE_API_KEY
-# PLATFORM_HMAC_SECRET
+# PLATFORM_SERVICE_API_KEY           (deprecated — kept for rollback)
+# PLATFORM_HMAC_SECRET               (webhook signature verification)
+# PLATFORM_GAME_SERVER_TOKEN         (P3 game server token: gfp_xxxx...)

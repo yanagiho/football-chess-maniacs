@@ -26,13 +26,35 @@ interface JwtPayload {
 
 /** base64url → ArrayBuffer */
 function base64UrlDecode(str: string): ArrayBuffer {
-  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    '=',
+  );
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+function pemToArrayBuffer(pem: string): ArrayBuffer {
+  const base64 = pem
+    .replace(/-----BEGIN [\w\s]+-----/, '')
+    .replace(/-----END [\w\s]+-----/, '')
+    .replace(/\s/g, '');
+  return base64UrlDecode(base64.replace(/\+/g, '-').replace(/\//g, '_'));
+}
+
+async function importPublicKeyPem(pem: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'spki',
+    pemToArrayBuffer(pem),
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['verify'],
+  );
 }
 
 /** JWKSエンドポイントから公開鍵を取得・キャッシュ */
@@ -48,7 +70,7 @@ async function fetchJwks(jwksUrl: string): Promise<Map<string, CryptoKey>> {
   fetchingPromise = (async () => {
     try {
       const res = await fetch(jwksUrl);
-      if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
+      if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status} ${jwksUrl}`);
 
       const { keys } = (await res.json()) as { keys: (JsonWebKey & { kid?: string })[] };
       const keyMap = new Map<string, CryptoKey>();
@@ -81,6 +103,7 @@ async function fetchJwks(jwksUrl: string): Promise<Map<string, CryptoKey>> {
 export async function verifyJwt(
   token: string,
   jwksUrl: string,
+  publicKeyPem?: string,
 ): Promise<JwtPayload> {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT format');
@@ -88,8 +111,19 @@ export async function verifyJwt(
   const headerJson = new TextDecoder().decode(base64UrlDecode(parts[0]));
   const header: JwtHeader = JSON.parse(headerJson);
 
-  const keys = await fetchJwks(jwksUrl);
-  const key = keys.get(header.kid);
+  let keys: Map<string, CryptoKey>;
+  try {
+    keys = await fetchJwks(jwksUrl);
+  } catch (err) {
+    if (!publicKeyPem) throw err;
+    keys = new Map([[header.kid, await importPublicKeyPem(publicKeyPem)]]);
+  }
+
+  let key = keys.get(header.kid);
+  if (!key && publicKeyPem) {
+    key = await importPublicKeyPem(publicKeyPem);
+    keys.set(header.kid, key);
+  }
   if (!key) throw new Error(`Unknown kid: ${header.kid}`);
 
   const signatureInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
@@ -126,9 +160,10 @@ export function jwtMiddleware() {
 
     const token = auth.slice(7);
     try {
-      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL);
+      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL, c.env.PLATFORM_JWT_PUBLIC_KEY_PEM);
       c.set('userId', payload.sub);
     } catch (e) {
+      console.warn('[jwt] Authentication failed:', e instanceof Error ? e.message : 'Unknown error');
       return c.json({ error: 'Authentication failed' }, 401);
     }
 
@@ -145,8 +180,9 @@ export async function verifyWebSocketToken(
   token: string,
   jwksUrl: string,
   expectedMatchPlayers?: string[],
+  publicKeyPem?: string,
 ): Promise<{ userId: string; payload: JwtPayload }> {
-  const payload = await verifyJwt(token, jwksUrl);
+  const payload = await verifyJwt(token, jwksUrl, publicKeyPem);
 
   // 最低2時間の残存期間チェック（§7-2-b）
   const now = Math.floor(Date.now() / 1000);

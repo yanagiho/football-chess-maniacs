@@ -6,6 +6,7 @@
 import React from 'react';
 import type { Page, MatchStats, MvpInfo, Team } from '../types';
 import PieceIcon from '../components/board/PieceIcon';
+import { getAchievementById } from '../../data/achievements';
 
 interface ResultScreenProps {
   scoreHome: number;
@@ -16,6 +17,7 @@ interface ResultScreenProps {
   mvp: MvpInfo | null;
   gameMode: 'ranked' | 'casual' | 'com' | 'comVsCom';
   onNavigate: (page: Page) => void;
+  newAchievements?: string[];
 }
 
 const STAT_ROWS: { label: string; key: keyof MatchStats }[] = [
@@ -39,7 +41,7 @@ function formatStat(stats: MatchStats, key: keyof MatchStats, team: 'home' | 'aw
 }
 
 export default function ResultScreen({
-  scoreHome, scoreAway, myTeam, reason, stats, mvp, gameMode, onNavigate,
+  scoreHome, scoreAway, myTeam, reason, stats, mvp, gameMode, onNavigate, newAchievements = [],
 }: ResultScreenProps) {
   const myScore = myTeam === 'home' ? scoreHome : scoreAway;
   const opScore = myTeam === 'home' ? scoreAway : scoreHome;
@@ -92,6 +94,34 @@ export default function ResultScreen({
               {mvp.tackles > 0 && `${mvp.tackles}T`}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 新規実績バッジ */}
+      {newAchievements.length > 0 && (
+        <div style={{
+          width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{ fontSize: 12, color: '#ffd700', fontWeight: 'bold', textAlign: 'center' }}>
+            ACHIEVEMENT UNLOCKED
+          </div>
+          {newAchievements.map((id) => {
+            const a = getAchievementById(id);
+            if (!a) return null;
+            return (
+              <div key={id} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.2)',
+                borderRadius: 10, padding: '10px 14px',
+              }}>
+                <span style={{ fontSize: 24 }}>{a.icon}</span>
+                <div>
+                  <div style={{ fontSize: 14, color: '#fff', fontWeight: 'bold' }}>{a.name_ja}</div>
+                  <div style={{ fontSize: 11, color: '#aaa' }}>{a.description_ja}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

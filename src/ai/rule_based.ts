@@ -18,7 +18,7 @@ import {
   type LegalAction,
 } from './legal_moves';
 import type { Difficulty } from './prompt_builder';
-import type { AiContext, DiffConfig } from './ai_context';
+import type { AiContext, DiffConfig, TeamTactics } from './ai_context';
 import { selectBallHolderOrder } from './ball_holder_ai';
 import { selectFormationOrders } from './formation_ai';
 
@@ -46,6 +46,8 @@ export interface RuleBasedInput {
   maxFieldCost?: number;
   /** COM難易度（デフォルト: regular） */
   difficulty?: Difficulty;
+  /** チーム戦術パラメータ（プリセットチーム用） */
+  teamTactics?: TeamTactics;
 }
 
 export interface RuleBasedOutput {
@@ -58,15 +60,15 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
   const {
     pieces, myTeam, scoreHome, scoreAway, turn,
     maxTurn = 36, remainingSubs, benchPieces, maxFieldCost = 16,
-    difficulty = 'regular',
+    difficulty = 'regular', teamTactics,
   } = input;
 
   const goalDiff = myTeam === 'home' ? scoreHome - scoreAway : scoreAway - scoreHome;
   const evaluation = evaluateBoard(pieces, myTeam, scoreHome, scoreAway, turn, maxTurn);
   const strategy = recommendStrategy(goalDiff, turn, maxTurn);
 
-  // ── 難易度パラメータ ──
-  const diffConfig: DiffConfig = {
+  // ── 難易度パラメータ（teamTacticsで部分オーバーライド可能） ──
+  const baseDiffConfig: DiffConfig = {
     shootRange: difficulty === 'beginner' ? 5 : difficulty === 'maniac' ? 9 : 7,
     maxPressers: difficulty === 'beginner' ? 1 : difficulty === 'maniac' ? 3 : 2,
     skipRate: difficulty === 'beginner' ? 0.25 : 0,
@@ -74,6 +76,9 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
     relayMaxDist: difficulty === 'beginner' ? 6 : difficulty === 'maniac' ? 12 : 8,
     pickBest: difficulty !== 'beginner',
   };
+  const diffConfig: DiffConfig = teamTactics?.diffOverrides
+    ? { ...baseDiffConfig, ...teamTactics.diffOverrides }
+    : baseDiffConfig;
 
   // 合法手生成
   const allLegalMoves = generateAllLegalMoves({ pieces, myTeam, remainingSubs, maxFieldCost, benchPieces });
@@ -129,6 +134,10 @@ export function generateRuleBasedOrders(input: RuleBasedInput): RuleBasedOutput 
     },
 
     getLineRange: (position: string, attacking: boolean): { min: number; max: number } => {
+      // teamTacticsにオーバーライドがあればそちらを優先
+      const override = teamTactics?.lineRanges?.[position];
+      if (override) return attacking ? override.attack : override.defense;
+
       if (position === 'GK') return { min: 0, max: 3 };
       if (position === 'DF' || position === 'SB') {
         return attacking ? { min: 3, max: 18 } : { min: 3, max: 13 };

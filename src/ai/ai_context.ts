@@ -19,6 +19,20 @@ export interface DiffConfig {
   pickBest: boolean;
 }
 
+/** ポジション別ライン行動範囲（attackDepth） */
+export interface LineRangeOverride {
+  attack: { min: number; max: number };
+  defense: { min: number; max: number };
+}
+
+/** チーム戦術パラメータ（プリセットチーム用） */
+export interface TeamTactics {
+  /** ポジション別のライン範囲オーバーライド */
+  lineRanges?: Partial<Record<string, LineRangeOverride>>;
+  /** DiffConfig への部分オーバーライド */
+  diffOverrides?: Partial<DiffConfig>;
+}
+
 /** AI関数間の共有コンテキスト */
 export interface AiContext {
   myTeam: Team;

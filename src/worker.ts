@@ -37,14 +37,23 @@ export interface Env {
     MATCH_RESULT_QUEUE: Queue;
     // Workers AI
     AI: Ai;
+    // Service bindings
+    PLATFORM_API?: Fetcher;
     // Vars
     CORS_ORIGIN: string;
     PLATFORM_API_BASE: string;
     AI_MODEL_ID: string;
     // Secrets
     PLATFORM_JWKS_URL: string;
+    /** @deprecated Use PLATFORM_GAME_SERVER_TOKEN (gfp_ Bearer token). Kept for rollback. */
     PLATFORM_SERVICE_API_KEY: string;
     PLATFORM_HMAC_SECRET: string;
+    /** Game server token issued by Platform P3 Admin API (gfp_xxxx...) */
+    PLATFORM_GAME_SERVER_TOKEN: string;
+    /** Platform JWT public key fallback used when JWKS fetch is unavailable. */
+    PLATFORM_JWT_PUBLIC_KEY_PEM?: string;
+    /** game_id registered in Platform games table */
+    PLATFORM_GAME_ID: string;
   };
   Variables: {
     userId: string;
@@ -64,7 +73,7 @@ app.use('*', async (c, next) => {
   const corsMiddleware = cors({
     origin: c.env.CORS_ORIGIN,
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     maxAge: 86400,
   });
   return corsMiddleware(c, next);
@@ -81,7 +90,7 @@ app.use('*', async (c, next) => {
     contentSecurityPolicy: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
-      connectSrc: ["'self'", 'wss://manics.example.com', 'https://api.football-century.example.com'],
+      connectSrc: ["'self'", 'wss://football-chess-maniacs.yanagiho.workers.dev', 'https://fc-platform-api.yanagiho.workers.dev'],
       imgSrc: ["'self'", 'https://r2.example.com'],
     },
     xFrameOptions: 'DENY',
@@ -126,9 +135,10 @@ shopApp.use('*', async (c, next) => {
   if (auth?.startsWith('Bearer ')) {
     const token = auth.slice(7);
     try {
-      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL);
+      const payload = await verifyJwt(token, c.env.PLATFORM_JWKS_URL, c.env.PLATFORM_JWT_PUBLIC_KEY_PEM);
       c.set('userId', payload.sub);
-    } catch {
+    } catch (e) {
+      console.warn('[shop] Optional JWT verification failed:', e instanceof Error ? e.message : 'Unknown error');
       // JWT検証失敗でもカタログ閲覧は許可（userIdなし）
     }
   }
@@ -161,7 +171,7 @@ app.route('/api', api);
 export default {
   fetch: app.fetch,
 
-  /** Queues Consumer: 試合結果をD1/R2に永続化 */
+  /** Queues Consumer: 試合結果をD1/R2に永続化 + Platform match finish API送信 */
   async queue(
     batch: MessageBatch,
     env: Env['Bindings'],
@@ -204,6 +214,62 @@ export default {
             finishedAt: data.finishedAt,
           },
         });
+
+        // Platform match finish API 送信 (P6)
+        // COM対戦の away (AI) は user_id null で送信
+        if (env.PLATFORM_GAME_SERVER_TOKEN && env.PLATFORM_API_BASE) {
+          try {
+            const isComMatch = !data.awayUserId || data.awayUserId.startsWith('com_');
+            const participants: { user_id?: string | null; side: string; stats: Record<string, number> }[] = [
+              {
+                user_id: data.homeUserId,
+                side: 'home',
+                stats: { goals: data.scoreHome },
+              },
+            ];
+            if (isComMatch) {
+              participants.push({
+                user_id: null,
+                side: 'away',
+                stats: { goals: data.scoreAway },
+              });
+            } else {
+              participants.push({
+                user_id: data.awayUserId,
+                side: 'away',
+                stats: { goals: data.scoreAway },
+              });
+            }
+
+            const winnerSide = data.scoreHome > data.scoreAway ? 'home'
+              : data.scoreAway > data.scoreHome ? 'away'
+              : null;
+
+            const finishRes = await fetch(`${env.PLATFORM_API_BASE}/v1/game/matches/finish`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${env.PLATFORM_GAME_SERVER_TOKEN}`,
+              },
+              body: JSON.stringify({
+                external_match_id: data.matchId,
+                mode: isComMatch ? 'com' : 'pvp',
+                ended_at: data.finishedAt,
+                winner_side: winnerSide,
+                score: { home: data.scoreHome, away: data.scoreAway },
+                participants,
+              }),
+            });
+
+            // 200 = duplicate (idempotent), 201 = created — both are success
+            if (!finishRes.ok && finishRes.status !== 200) {
+              console.error(`[queue] Platform match finish failed: ${finishRes.status} ${finishRes.statusText}`);
+            }
+          } catch (platformErr) {
+            // Platform failure should not block D1/R2 persistence — log and continue
+            console.error('[queue] Platform match finish error:', platformErr);
+          }
+        }
 
         msg.ack();
       } catch (e) {

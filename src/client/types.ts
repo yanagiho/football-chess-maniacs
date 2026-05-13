@@ -145,6 +145,7 @@ export type Page =
   | 'difficultySelect'
   | 'friendMatch'
   | 'presetTeams'
+  | 'opponentSelect'
   | 'replayViewer';
 
 /** 試合スタッツ（リザルト画面用） */

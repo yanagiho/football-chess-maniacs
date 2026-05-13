@@ -6,8 +6,8 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../worker';
-import { callPlatformApi } from './auth';
-import { costToDisplay, pieceIdToSku, SHELF_NAMES } from '../types/piece';
+import { callPlatformUserApi } from './auth';
+import { costToDisplay, SHELF_NAMES } from '../types/piece';
 import type { PieceMaster, ShopCatalogItem } from '../types/piece';
 
 const shop = new Hono<{
@@ -148,18 +148,48 @@ shop.post('/purchase', async (c) => {
     return c.json({ error: 'ALREADY_OWNED', message: 'You already own this piece' }, 409);
   }
 
-  // Platform API 呼び出し
+  // Platform v2 purchase (product_id + price_id + provider required)
   try {
-    const sku = pieceIdToSku(body.piece_id);
-    const result = await callPlatformApi<{
+    // piece_master から Platform product/price ID を取得
+    const platformProduct = await c.env.DB.prepare(
+      'SELECT platform_product_id, platform_price_id FROM piece_master WHERE piece_id = ?',
+    )
+      .bind(body.piece_id)
+      .first<{ platform_product_id: string | null; platform_price_id: string | null }>();
+
+    if (!platformProduct?.platform_product_id || !platformProduct?.platform_price_id) {
+      return c.json({
+        error: 'PRODUCT_NOT_CONFIGURED',
+        message: 'This piece is not yet registered on Platform. Purchase unavailable.',
+      }, 503);
+    }
+
+    // User JWT をリクエストヘッダーから取得
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return c.json({ error: 'Unauthorized', message: 'Valid JWT required for purchase' }, 401);
+    }
+    const userJwt = authHeader.slice(7);
+
+    // クライアント提供の Idempotency-Key を Platform へ転送（二重クリック対策）
+    const platformHeaders: Record<string, string> = {};
+    const clientIdempotencyKey = c.req.header('Idempotency-Key');
+    if (clientIdempotencyKey) {
+      platformHeaders['Idempotency-Key'] = clientIdempotencyKey;
+    }
+
+    const result = await callPlatformUserApi<{
       purchase_id: string;
       checkout_url: string;
       status: string;
-    }>(c.env, '/v1/commerce/purchase', {
+    }>(c.env, '/v1/commerce/purchase', userJwt, {
       method: 'POST',
+      headers: platformHeaders,
       body: JSON.stringify({
-        sku,
-        user_id: userId,
+        product_id: platformProduct.platform_product_id,
+        price_id: platformProduct.platform_price_id,
+        provider: 'stripe',
+        return_url: c.env.CORS_ORIGIN,
       }),
     });
 
