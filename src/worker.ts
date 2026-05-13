@@ -43,8 +43,13 @@ export interface Env {
     AI_MODEL_ID: string;
     // Secrets
     PLATFORM_JWKS_URL: string;
+    /** @deprecated Use PLATFORM_GAME_SERVER_TOKEN (gfp_ Bearer token). Kept for rollback. */
     PLATFORM_SERVICE_API_KEY: string;
     PLATFORM_HMAC_SECRET: string;
+    /** Game server token issued by Platform P3 Admin API (gfp_xxxx...) */
+    PLATFORM_GAME_SERVER_TOKEN: string;
+    /** game_id registered in Platform games table */
+    PLATFORM_GAME_ID: string;
   };
   Variables: {
     userId: string;
@@ -161,7 +166,7 @@ app.route('/api', api);
 export default {
   fetch: app.fetch,
 
-  /** Queues Consumer: 試合結果をD1/R2に永続化 */
+  /** Queues Consumer: 試合結果をD1/R2に永続化 + Platform match finish API送信 */
   async queue(
     batch: MessageBatch,
     env: Env['Bindings'],
@@ -204,6 +209,62 @@ export default {
             finishedAt: data.finishedAt,
           },
         });
+
+        // Platform match finish API 送信 (P6)
+        // COM対戦の away (AI) は user_id null で送信
+        if (env.PLATFORM_GAME_SERVER_TOKEN && env.PLATFORM_API_BASE) {
+          try {
+            const isComMatch = !data.awayUserId || data.awayUserId.startsWith('com_');
+            const participants: { user_id?: string | null; side: string; stats: Record<string, number> }[] = [
+              {
+                user_id: data.homeUserId,
+                side: 'home',
+                stats: { goals: data.scoreHome },
+              },
+            ];
+            if (isComMatch) {
+              participants.push({
+                user_id: null,
+                side: 'away',
+                stats: { goals: data.scoreAway },
+              });
+            } else {
+              participants.push({
+                user_id: data.awayUserId,
+                side: 'away',
+                stats: { goals: data.scoreAway },
+              });
+            }
+
+            const winnerSide = data.scoreHome > data.scoreAway ? 'home'
+              : data.scoreAway > data.scoreHome ? 'away'
+              : null;
+
+            const finishRes = await fetch(`${env.PLATFORM_API_BASE}/v1/game/matches/finish`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${env.PLATFORM_GAME_SERVER_TOKEN}`,
+              },
+              body: JSON.stringify({
+                external_match_id: data.matchId,
+                mode: isComMatch ? 'com' : 'pvp',
+                ended_at: data.finishedAt,
+                winner_side: winnerSide,
+                score: { home: data.scoreHome, away: data.scoreAway },
+                participants,
+              }),
+            });
+
+            // 200 = duplicate (idempotent), 201 = created — both are success
+            if (!finishRes.ok && finishRes.status !== 200) {
+              console.error(`[queue] Platform match finish failed: ${finishRes.status} ${finishRes.statusText}`);
+            }
+          } catch (platformErr) {
+            // Platform failure should not block D1/R2 persistence — log and continue
+            console.error('[queue] Platform match finish error:', platformErr);
+          }
+        }
 
         msg.ack();
       } catch (e) {

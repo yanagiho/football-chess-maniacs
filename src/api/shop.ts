@@ -148,19 +148,39 @@ shop.post('/purchase', async (c) => {
     return c.json({ error: 'ALREADY_OWNED', message: 'You already own this piece' }, 409);
   }
 
-  // Platform API 呼び出し
+  // Platform API 呼び出し (v2 product_id 優先、sku fallback)
   try {
     const sku = pieceIdToSku(body.piece_id);
+
+    // piece_master に platform_product_id があれば v2 flow
+    const platformProduct = await c.env.DB.prepare(
+      'SELECT platform_product_id, platform_price_id FROM piece_master WHERE piece_id = ?',
+    )
+      .bind(body.piece_id)
+      .first<{ platform_product_id: string | null; platform_price_id: string | null }>();
+
+    let purchaseBody: Record<string, string>;
+    if (platformProduct?.platform_product_id && platformProduct?.platform_price_id) {
+      // v2: product_id + price_id
+      purchaseBody = {
+        product_id: platformProduct.platform_product_id,
+        price_id: platformProduct.platform_price_id,
+      };
+    } else {
+      // v1 fallback: sku (deprecated, for pieces not yet registered on Platform)
+      purchaseBody = {
+        sku,
+        user_id: userId,
+      };
+    }
+
     const result = await callPlatformApi<{
       purchase_id: string;
       checkout_url: string;
       status: string;
     }>(c.env, '/v1/commerce/purchase', {
       method: 'POST',
-      body: JSON.stringify({
-        sku,
-        user_id: userId,
-      }),
+      body: JSON.stringify(purchaseBody),
     });
 
     return c.json(

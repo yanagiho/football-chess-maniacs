@@ -20,6 +20,10 @@ export interface PieceMaster {
   summary_ja: string | null;
   image_url: string | null;
   image_status: string;   // ready|provisional|missing
+  /** Platform v2 product UUID (null = use sku v1 fallback) */
+  platform_product_id: string | null;
+  /** Platform v2 price UUID (null = use sku v1 fallback) */
+  platform_price_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -79,11 +83,13 @@ export interface WebhookPurchasePayload {
   event_type: 'entitlement.created' | 'entitlement.revoked';
   event_id: string;
   timestamp: string;
+  game_id?: string;
   data: {
     user_id: string;
     sku: string;
     entitlement_id: string;
     state: string;
+    product_id?: string;
   };
 }
 

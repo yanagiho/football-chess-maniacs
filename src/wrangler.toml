@@ -50,9 +50,11 @@ binding = "AI"
 [vars]
 CORS_ORIGIN = "https://manics.example.com"
 PLATFORM_API_BASE = "https://api.football-century.example.com"
+PLATFORM_GAME_ID = "football_chess_maniacs"
 AI_MODEL_ID = "@cf/google/gemma-3-12b-it"
 
 # ── Secrets (set via `wrangler secret put`) ──
 # PLATFORM_JWKS_URL
-# PLATFORM_SERVICE_API_KEY
-# PLATFORM_HMAC_SECRET
+# PLATFORM_SERVICE_API_KEY           (deprecated — kept for rollback)
+# PLATFORM_HMAC_SECRET               (webhook signature verification)
+# PLATFORM_GAME_SERVER_TOKEN         (P3 game server token: gfp_xxxx...)

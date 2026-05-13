@@ -39,7 +39,7 @@ function hexToBytes(hex: string): ArrayBuffer {
 
 /**
  * プラットフォームAPIを呼び出す共通ヘルパー
- * サービスAPIキー認証 + レスポンスHMAC検証
+ * P3 game server token (gfp_...) Bearer認証
  */
 export async function callPlatformApi<T>(
   env: Env['Bindings'],
@@ -47,11 +47,12 @@ export async function callPlatformApi<T>(
   options?: RequestInit,
 ): Promise<T> {
   const url = `${env.PLATFORM_API_BASE}${path}`;
+  const token = env.PLATFORM_GAME_SERVER_TOKEN;
   const res = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-Service-API-Key': env.PLATFORM_SERVICE_API_KEY,
+      'Authorization': `Bearer ${token}`,
       ...options?.headers,
     },
   });
@@ -61,17 +62,6 @@ export async function callPlatformApi<T>(
   }
 
   const body = await res.text();
-
-  // HMAC署名検証（§7-5: 署名は必須）
-  const signature = res.headers.get('X-HMAC-Signature');
-  if (!signature) {
-    throw new Error('Platform API response missing HMAC signature');
-  }
-  const valid = await verifyHmacSignature(body, signature, env.PLATFORM_HMAC_SECRET);
-  if (!valid) {
-    throw new Error('Platform API response HMAC verification failed');
-  }
-
   return JSON.parse(body) as T;
 }
 
@@ -122,35 +112,7 @@ export async function getOwnedPieces(
   }
 }
 
-// ── Webhookエンドポイント（キャッシュ即時無効化）──
-auth.post('/purchase', async (c) => {
-  const signature = c.req.header('X-HMAC-Signature');
-  if (!signature) {
-    return c.json({ error: 'Missing signature' }, 401);
-  }
-
-  const body = await c.req.text();
-  const valid = await verifyHmacSignature(body, signature, c.env.PLATFORM_HMAC_SECRET);
-  if (!valid) {
-    return c.json({ error: 'Invalid signature' }, 401);
-  }
-
-  let data: { user_id: string; event: string };
-  try {
-    data = JSON.parse(body) as { user_id: string; event: string };
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-
-  if (!data.user_id || typeof data.user_id !== 'string') {
-    return c.json({ error: 'Missing user_id' }, 400);
-  }
-
-  if (data.event === 'purchase_complete') {
-    await c.env.KV.delete(`owned_pieces:${data.user_id}`);
-  }
-
-  return c.json({ ok: true });
-});
+// NOTE: Legacy /purchase webhook endpoint removed.
+// Entitlement webhooks are handled by webhooks.ts POST /webhook/purchase.
 
 export default auth;
