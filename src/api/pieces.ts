@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../worker';
-import { callPlatformApi } from './auth';
+import { callPlatformUserApi } from './auth';
 import { grantFoundingEleven } from '../lib/founding_eleven';
 import { skuToPieceId } from '../types/piece';
 import type { OwnedPieceDetail } from '../types/piece';
@@ -66,16 +66,22 @@ pieces.post('/sync', async (c) => {
   // 1. Founding Eleven を確保
   const { granted: foundingGranted } = await grantFoundingEleven(c.env.DB, userId);
 
-  // 2. Platform entitlements を取得
+  // 2. Platform entitlements を取得（User JWT 認証）
   let platformAdded = 0;
   try {
-    const entitlements = await callPlatformApi<{
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      throw new Error('No user JWT available for Platform sync');
+    }
+    const userJwt = authHeader.slice(7);
+
+    const entitlements = await callPlatformUserApi<{
       items: Array<{
         sku: string;
         entitlement_id: string;
         state: string;
       }>;
-    }>(c.env, `/v1/entitlements?user_id=${userId}&tag=fcms_piece`);
+    }>(c.env, `/v1/entitlements?game_id=football_chess_maniacs`, userJwt);
 
     // active な entitlement のみ処理
     const activeEntitlements = entitlements.items.filter((e) => e.state === 'active');

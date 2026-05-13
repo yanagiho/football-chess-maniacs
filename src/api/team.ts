@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../worker';
-import { callPlatformApi } from './auth';
+import { callPlatformUserApi } from './auth';
 
 const team = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 
@@ -55,17 +55,18 @@ async function getLocalOwnedPieceIds(
 }
 
 /** プレミアム判定（slots 2-10 にはエンタイトルメントが必要） */
-async function checkPremiumSlots(env: Env['Bindings'], userId: string): Promise<boolean> {
+async function checkPremiumSlots(env: Env['Bindings'], userJwt: string): Promise<boolean> {
   try {
-    const result = await callPlatformApi<{ entitled: boolean }>(
+    const result = await callPlatformUserApi<{ allowed: boolean }>(
       env,
       '/v1/entitlements/check',
+      userJwt,
       {
         method: 'POST',
-        body: JSON.stringify({ user_id: userId, sku: 'fcms_save_slots_9' }),
+        body: JSON.stringify({ sku: 'fcms_save_slots_9' }),
       },
     );
-    return result.entitled;
+    return result.allowed;
   } catch {
     // Platform障害時はスロット1のみ許可
     return false;
@@ -82,7 +83,8 @@ team.get('/', async (c) => {
     .bind(userId)
     .all<TeamComposition>();
 
-  const isPremium = await checkPremiumSlots(c.env, userId);
+  const userJwt = c.req.header('Authorization')?.slice(7) ?? '';
+  const isPremium = await checkPremiumSlots(c.env, userJwt);
 
   return c.json({
     teams: result.results.map((t) => {
@@ -174,7 +176,8 @@ team.post('/', async (c) => {
 
   // スロット2-10 はプレミアム必要
   if (slotNumber >= 2) {
-    const isPremium = await checkPremiumSlots(c.env, userId);
+    const userJwtForSlots = c.req.header('Authorization')?.slice(7) ?? '';
+    const isPremium = await checkPremiumSlots(c.env, userJwtForSlots);
     if (!isPremium) {
       return c.json({ error: 'PREMIUM_REQUIRED', message: 'Slots 2-10 require premium' }, 403);
     }
