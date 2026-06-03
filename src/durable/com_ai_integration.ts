@@ -36,6 +36,7 @@ export async function generateComOrders(
     remainingSubs: state.remainingSubs[state.awayUserId] ?? 3,
     benchPieces: [] as Piece[],
     maxFieldCost: 16,
+    difficulty,
   };
 
   // Gemma AIを試行（外側タイムアウト付き）

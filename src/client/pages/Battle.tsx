@@ -1576,26 +1576,32 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     const defenseTeam: Team = attackTeam === 'home' ? 'away' : 'home';
     const currentPieces = state.board.pieces;
 
-    // 守備側のゾーン配置をランダム生成（COM対戦）
+    // 守備側のゾーン配置を生成（COM対戦）
     const defFieldPieces = currentPieces.filter(
       p => p.team === defenseTeam && !p.isBench && p.position !== 'GK',
     );
     const defSelected = defFieldPieces
       .sort((a, b) => b.cost - a.cost)
       .slice(0, 3);
-    const defZones: Array<'near' | 'center' | 'far'> = ['near', 'center', 'far'];
-    // シャッフル
-    for (let i = defZones.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [defZones[i], defZones[j]] = [defZones[j], defZones[i]];
-    }
+    const ckZones: Array<'near' | 'center' | 'far'> = ['near', 'center', 'far'];
+    const defZones = comDifficulty === 'beginner'
+      ? ckZones
+      : [...ckZones].sort((a, b) => {
+          const aCost = data.placements.find(p => p.zone === a)
+            ? (miniGame.pieces.find(p => p.id === data.placements.find(ap => ap.zone === a)?.pieceId)?.cost ?? 0)
+            : 0;
+          const bCost = data.placements.find(p => p.zone === b)
+            ? (miniGame.pieces.find(p => p.id === data.placements.find(ap => ap.zone === b)?.pieceId)?.cost ?? 0)
+            : 0;
+          return bCost - aCost;
+        });
     const defPlacements = defSelected.map((p, i) => ({ pieceId: p.id, zone: defZones[i] }));
 
     // ゾーン対決: 各ゾーンで攻撃コマ vs 守備コマのコスト比較
     let attackWins = 0;
     const CK_ZONE_LABELS = { near: 'ニア', center: '中央', far: 'ファー' } as const;
     const zoneResults: string[] = [];
-    for (const zone of ['near', 'center', 'far'] as const) {
+    for (const zone of ckZones) {
       const atkPlacement = data.placements.find(p => p.zone === zone);
       const defPlacement = defPlacements.find(p => p.zone === zone);
       const atkCost = atkPlacement
@@ -1655,7 +1661,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     setMiniGameCountdown(MINIGAME_CK_COUNTDOWN);
     dispatch({ type: 'NEXT_TURN' });
     clearReplayTimers();
-  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers, showOverlay, pickComGkZone]);
+  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers, showOverlay, comDifficulty]);
 
   // PC: 右クリックコンテキストメニュー（§3-2）
   const handleContextMenu = useCallback(

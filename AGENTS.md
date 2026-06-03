@@ -1,4 +1,4 @@
-# Agents.md — FCMS 機能別エージェント定義
+# AGENTS.md — FCMS 機能別エージェント定義
 
 このファイルはプロジェクトを機能ドメインごとに分割し、各エージェントの担当範囲・主要ファイル・仕様書参照を定義する。
 
@@ -24,7 +24,7 @@ src/engine/
 ├── special.ts            # フェーズ3: オフサイド処理
 ├── turn_processor.ts     # processTurn — フェーズ0〜3 統合
 ├── index.ts              # 再エクスポート
-└── __tests__/            # ユニット・統合テスト（281件）
+└── __tests__/            # ユニット・統合テスト
 ```
 
 ### 仕様書
@@ -47,7 +47,10 @@ src/engine/
 src/ai/
 ├── evaluator.ts          # 局面評価（盤面スコアリング）
 ├── legal_moves.ts        # 合法手生成
-├── rule_based.ts         # フォーメーション維持型AI（3ライン制御）
+├── ai_context.ts         # AI共有コンテキスト型
+├── rule_based.ts         # ルールベースAIオーケストレーター
+├── ball_holder_ai.ts     # ボール保持コマAI
+├── formation_ai.ts       # フォーメーション制御AI
 ├── prompt_builder.ts     # 難易度別プロンプト生成
 ├── gemma_client.ts       # Workers AI (Gemma) 呼び出し
 ├── output_parser.ts      # Gemma出力パース＋検証
@@ -65,8 +68,8 @@ src/ai/
 
 ### 注意事項
 - AIの方向計算は `hexDistance`（cube座標）ベース。offset row差は禁止
-- ルールベースAI: 3ライン制御 + 2手パスルート + プレス守備
-- `selectBallHolderOrder` はクロージャ内関数
+- ルールベースAI: `rule_based.ts` が `AiContext` を作り、`ball_holder_ai.ts` / `formation_ai.ts` に委譲する
+- 難易度は `beginner` / `regular` / `maniac`。フォールバック時も必ず伝播させる
 - Gemma障害時はルールベース最善手に自動切替
 
 ---
@@ -82,6 +85,7 @@ src/client/components/board/
 ├── PieceIcon.tsx         # コマアイコンSVG（ランク表記・枠装飾・敵味方色）
 ├── Piece.tsx             # コマ表示ラッパー（PA外警告・交代マーク）
 ├── Overlay.tsx           # Canvas: 矢印・パスライン・シュート線・ZOC・ゾーン境界
+├── overlay_renderers.ts  # Canvas描画レイヤー関数
 └── Controls.tsx          # ズーム/パン（ピンチ/ホイール/中クリック）
 src/data/hex_map.json     # 22×34 flat-top HEXグリッド（748エントリ）
 ```
@@ -103,6 +107,9 @@ src/data/hex_map.json     # 22×34 flat-top HEXグリッド（748エントリ）
 ### 担当ファイル
 ```
 src/client/pages/Battle.tsx       # 対戦画面メイン
+src/client/pages/Battle/
+├── battleUtils.ts                # 対戦画面の純粋関数・定数
+└── CeremonyLayer.tsx             # 試合演出オーバーレイ
 src/client/components/
 ├── BallActionMenu.tsx            # ボールアクションメニュー
 ├── CenterOverlay.tsx             # 中央オーバーレイ演出
@@ -124,6 +131,8 @@ src/client/hooks/
 
 ### 注意事項
 - COM対戦: Battle.tsx → processTurn 直接呼び出し（サーバー不要）
+- サーバーサイドCOM: `gemma_com_` matchId は GameSession DO 経由
+- COM観戦: `comVsCom` は home/away 両方をAIが操作
 - 演出: KICK OFF / HALF TIME / SECOND HALF / FULL TIME / GOAL!
 - 実行バナー2.5秒 + 8秒安全タイムアウト
 - React.StrictMode: タイマー系useEffectでrefガード不使用
@@ -150,8 +159,8 @@ src/client/components/
 
 ### 注意事項
 - FK/PK: 6ゾーン選択、同ゾーン=GKセーブ（パワー突破可能）
-- CK: 3枚×3ゾーン、2ゾーン以上勝利で攻撃側ボール獲得
-- タイムアウト時は未選択をランダム補完して自動送信
+- CK: 3枚×3ゾーン、2ゾーン以上勝利で攻撃側ボール獲得。COM守備配置は攻撃側の高コスト配置に対応
+- タイムアウト時はランダムではなくデフォルト補完（FK/PK: 中央下、CK: 高コスト順）
 - isAttacker/isKicker: ファウルされた側が攻撃側
 
 ---
@@ -192,6 +201,12 @@ src/client/pages/
 ├── HalfTime.tsx                  # ハーフタイム
 ├── Result.tsx                    # 結果画面
 └── Replay.tsx                    # リプレイ画面
+src/client/screens/
+├── DifficultySelectScreen.tsx    # COM難易度選択
+├── ShopScreen.tsx                # ショップ
+├── CollectionScreen.tsx          # 所持コマ
+├── RankingScreen.tsx             # ランキング
+└── SettingsScreen.tsx            # 設定
 src/client/components/
 └── ConnectionBanner.tsx          # 接続状態表示
 src/client/hooks/
@@ -214,11 +229,16 @@ Hono REST API・JWT認証・レート制限・入力バリデーション。
 src/worker.ts                     # Cloudflare Workers エントリポイント（Hono）
 src/api/
 ├── auth.ts                       # プラットフォーム認証・Webhook
+├── ai.ts                         # AIデバッグ/COMターンAPI
+├── pieces.ts                     # コマ所持・マスター参照
+├── shop.ts                       # ショップ/購入
+├── webhooks.ts                   # 外部Webhook
 ├── team.ts                       # チーム編成CRUD（D1）
 ├── match.ts                      # マッチング・セッション接続
 └── replay.ts                     # リプレイ取得（R2）
 src/middleware/
 ├── jwt_verify.ts                 # JWT検証（JWKS）
+├── crypto_utils.ts               # timingSafeEqual / MATCH_ID_PATTERN
 ├── rate_limit.ts                 # レート制限（KV）
 └── validation.ts                 # 入力バリデーション（14項目）
 ```
@@ -238,6 +258,8 @@ Durable Objects によるリアルタイムゲーム状態管理。
 ```
 src/durable/
 ├── game_session.ts               # GameSession DO（Hibernation API）
+├── game_session_helpers.ts       # GameSession型・純粋関数
+├── com_ai_integration.ts         # サーバーサイドCOM AI統合
 └── matchmaking.ts                # Matchmaking DO（リージョンシャード）
 src/wrangler.toml                 # DO/D1/KV/R2/Queues バインディング
 ```
@@ -248,6 +270,7 @@ src/wrangler.toml                 # DO/D1/KV/R2/Queues バインディング
 
 ### 注意事項
 - GameSession: processTurn統合、ハーフタイム/AT/ゴールリスタート/試合終了
+- サーバーサイドCOM: Gemma 2s + 外側5sタイムアウト、失敗時は難易度付きルールベースへフォールバック
 - Matchmaking: リージョンシャード構成
 - アラーム上書き: 既存と比較して早い方を優先
 

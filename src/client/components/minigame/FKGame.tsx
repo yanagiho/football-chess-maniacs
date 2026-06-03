@@ -56,10 +56,10 @@ export default function FKGame({ isAttacker, onSubmit, isMobile, countdown, kick
     });
   }, [selectedZone, submitted, isAttacker, kickType, wallHeight, onSubmit]);
 
-  // カウントダウン0で自動送信（未選択ならランダム）
+  // カウントダウン0で自動送信（未選択なら中央下）
   useEffect(() => {
     if (countdown <= 0 && !submitted) {
-      const zone = selectedZone ?? Math.floor(Math.random() * 6);
+      const zone = selectedZone ?? 4;
       setSubmitted(true);
       onSubmit({
         zone,

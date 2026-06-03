@@ -137,9 +137,9 @@ shopApp.use('*', async (c, next) => {
 shopApp.route('/', shopRoutes);
 app.route('/api/shop', shopApp);
 
-// ── AI エンドポイント（認証なし: COM対戦 + テスト用） ──
-// JWT認証の外に配置。COM対戦はログイン不要で動作する必要がある。
-// レート制限のみ適用。
+// ── AI エンドポイント ──
+// /turn はログイン不要COM対戦用にレート制限のみ。
+// /test は api/ai.ts 内でサービスキー必須。
 const aiApp = new Hono<Env>();
 aiApp.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
 aiApp.route('/', aiRoutes);

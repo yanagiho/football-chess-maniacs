@@ -180,7 +180,7 @@ src/
 | ミニゲーム結果フィードバック | FK/PK: キッカーvsGKゾーン対比表示、CK: 3ゾーン勝敗詳細表示 | ✅ |
 | CenterOverlay改行対応 | whiteSpace:pre-lineでsubTextの\n改行をサポート | ✅ |
 | Workers AI統合 | wrangler.toml AI binding + AI_MODEL_ID env var + wrapAiBinding adapter | ✅ |
-| AI APIエンドポイント | POST /api/ai/test (デバッグ) + POST /api/ai/turn (COM対戦) | ✅ |
+| AI APIエンドポイント | POST /api/ai/test (サービスキー必須デバッグ) + POST /api/ai/turn (COM対戦) | ✅ |
 | AIモジュールユニットテスト | output_parser(20) + fallback(15) + prompt_builder(24) + com_ai(11) + evaluator(16) + rule_based(11) + legal_moves(7) = 104テスト | ✅ |
 | Gemmaプロンプトトークン計測 | 初期盤面4,854chars / 実合法手7,500-7,800chars（Gemma 12B 8192トークン上限内） | ✅ |
 | サーバーサイドCOM対戦フロー | POST /match/com → GameSession DO /init → WS接続 → COM AI生成（Gemma+フォールバック） | ✅ |
@@ -299,7 +299,7 @@ src/
 - **COM GK AI**: プレイヤーの過去ゾーン選択を`comGkHistory`に蓄積し、頻出ゾーンに重みをかけて抽選。難易度でsharpness（読み精度）が変化（beginner=0.3/regular=1.0/maniac=1.5）。最初の2回は中央寄りバイアス
 - **結果フィードバック**: FK/PK結果時にキッカーvsGKのゾーン対比を表示（「GK読み的中!」/「GKは逆方向!」）。CK結果時に3ゾーンの攻守コスト対決詳細を表示
 - **CK**: 3枚選択→ニア/中央/ファーに1枚ずつ配置。各ゾーンで攻守コスト対決。2ゾーン以上勝利で攻撃側ボール獲得
-- **共通**: タイムアウト時は未選択をランダム補完して自動送信。ミニゲーム遷移時にreplaySafetyTimerをクリア
+- **共通**: タイムアウト時はデフォルト補完して自動送信（FK/PK: 中央下、CK: 高コスト順+ニア→中央→ファー）。ミニゲーム遷移時にreplaySafetyTimerをクリア
 - **FK/PK isAttacker/isKicker**: ファウルされた側(`tacklerId`から逆算)が攻撃側
 
 ### COM AI構造（§1-1）

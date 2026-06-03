@@ -74,19 +74,16 @@ export default function CKGame({ isAttacker, availablePieces, onSubmit, isMobile
     });
   }, [submitted, placements, selectedPieces, onSubmit]);
 
-  // カウントダウン0で自動送信（未完了ならランダムで補完）
+  // カウントダウン0で自動送信（未完了なら高コスト順・ニア→中央→ファーで補完）
   useEffect(() => {
     if (countdown <= 0 && !submitted) {
-      // コマ未選択ならランダムに選択
       let finalPieces = [...selectedPieces];
       if (finalPieces.length < MAX_PIECES) {
-        const remaining = availablePieces.filter(p => !finalPieces.includes(p.id));
-        while (finalPieces.length < MAX_PIECES && remaining.length > 0) {
-          const idx = Math.floor(Math.random() * remaining.length);
-          finalPieces.push(remaining.splice(idx, 1)[0].id);
-        }
+        const remaining = availablePieces
+          .filter(p => !finalPieces.includes(p.id))
+          .sort((a, b) => b.cost - a.cost);
+        finalPieces = [...finalPieces, ...remaining.slice(0, MAX_PIECES - finalPieces.length).map(p => p.id)];
       }
-      // ゾーン未配置ならランダム配置
       const finalPlacements = new Map(placements);
       const zones: Array<'near' | 'center' | 'far'> = ['near', 'center', 'far'];
       const usedZones = new Set(finalPlacements.values());

@@ -144,11 +144,11 @@ describe('getMatchTimeLabel', () => {
 // ────────────────────────────────────────────────────────────
 describe('formationToPieces', () => {
   const starters: FormationPiece[] = [
-    { position: 'GK', cost: 1, col: 10, row: 1 },
-    { position: 'FW', cost: 2, col: 10, row: 16 },
+    { id: 'starter-gk', position: 'GK', cost: 1, col: 10, row: 1 },
+    { id: 'starter-fw', position: 'FW', cost: 2, col: 10, row: 16 },
   ];
   const bench: FormationPiece[] = [
-    { position: 'MF', cost: 1.5, col: 0, row: 0 },
+    { id: 'bench-mf', position: 'MF', cost: 1.5, col: 0, row: 0 },
   ];
 
   it('homeチームのID prefix は "h"', () => {
@@ -165,7 +165,7 @@ describe('formationToPieces', () => {
   });
 
   it('starterのrowはclampToOwnHalfが適用される', () => {
-    const highRow: FormationPiece[] = [{ position: 'FW', cost: 2, col: 10, row: 30 }];
+    const highRow: FormationPiece[] = [{ id: 'high-fw', position: 'FW', cost: 2, col: 10, row: 30 }];
     const pieces = formationToPieces(highRow, [], 'home');
     expect(pieces[0].coord.row).toBe(HALF_LINE_ROW); // homeは16以下にクランプ
   });

@@ -6,14 +6,27 @@
 // ============================================================
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Env } from '../worker';
 import { ComAi } from '../ai/com_ai';
-import { generateRuleBasedOrders } from '../ai/rule_based';
 import { wrapAiBinding } from '../ai/gemma_client';
 import type { Difficulty, Era } from '../ai/prompt_builder';
-import type { Piece, Team, Board, Order } from '../engine/types';
+import type { Piece, Team } from '../engine/types';
+import { timingSafeEqual } from '../middleware/crypto_utils';
 
 const aiRoutes = new Hono<Env>();
+
+function requireServiceApiKey(c: Context<Env>): Response | null {
+  const provided = c.req.header('X-Service-API-Key')
+    ?? c.req.header('Authorization')?.replace(/^Bearer\s+/i, '');
+  if (!provided || !c.env.PLATFORM_SERVICE_API_KEY) {
+    return c.json({ error: 'Service API key required' }, 401);
+  }
+  if (!timingSafeEqual(provided, c.env.PLATFORM_SERVICE_API_KEY)) {
+    return c.json({ error: 'Invalid service API key' }, 403);
+  }
+  return null;
+}
 
 // ================================================================
 // POST /api/ai/test — Gemma AIパイプラインのテスト
@@ -49,6 +62,9 @@ const aiRoutes = new Hono<Env>();
 // }
 
 aiRoutes.post('/test', async (c) => {
+  const authError = requireServiceApiKey(c);
+  if (authError) return authError;
+
   let body: Record<string, unknown>;
   try {
     body = await c.req.json();
