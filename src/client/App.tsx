@@ -30,6 +30,7 @@ import ReplayScreen from './screens/ReplayScreen';
 
 import type { PresetTeam } from '../data/presetTeams';
 import type { PieceData, GameEvent } from './types';
+import { MAX_ROW } from './types';
 
 /** リプレイ用ターンスナップショット */
 interface TurnSnapshot {
@@ -105,10 +106,19 @@ export default function App() {
     setComDifficulty(diff);
   }, []);
 
-  const handleSelectPresetTeam = useCallback((_team: PresetTeam) => {
-    // プリセットチームのコマをフォーメーションデータに変換
-    // Formation画面で自動配置するため、ここでは遷移のみ
-    // 将来: formationData にプリセットを注入
+  const handleSelectPresetTeam = useCallback((team: PresetTeam) => {
+    setFormationData({
+      starters: team.pieces.map((piece) => ({
+        id: `preset-${team.id}-${piece.pieceId}`,
+        position: piece.position,
+        cost: piece.cost,
+        col: piece.col,
+        row: MAX_ROW - piece.row,
+      })),
+      bench: [],
+    });
+    setGameMode('com');
+    setPage('matching');
   }, []);
 
   // ModeSelect からの遷移: COM/comVsCom時は難易度選択を挟む

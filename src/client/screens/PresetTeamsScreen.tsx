@@ -18,14 +18,11 @@ export default function PresetTeamsScreen({ onNavigate, onSelectPresetTeam }: Pr
   const [selectedTeam, setSelectedTeam] = useState<PresetTeam | null>(null);
 
   const eraTeams = PRESET_TEAMS.filter(t => t.era === selectedEra);
-  const totalCost = selectedTeam
-    ? selectedTeam.pieces.reduce((s, p) => s + p.cost, 0)
-    : 0;
+  const totalCost = selectedTeam?.totalCost ?? 0;
 
   const handleUseTeam = () => {
     if (selectedTeam) {
       onSelectPresetTeam(selectedTeam);
-      onNavigate('formation');
     }
   };
 
@@ -64,11 +61,12 @@ export default function PresetTeamsScreen({ onNavigate, onSelectPresetTeam }: Pr
                 background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                 borderRadius: 12, padding: 16, cursor: 'pointer', textAlign: 'center',
               }}>
-                <div style={{ fontSize: 28 }}>{team.emoji}</div>
+                <div style={{ fontSize: 20, color: '#cc8800', fontWeight: 'bold' }}>{team.emoji}</div>
                 <div style={{ fontSize: 14, fontWeight: 'bold', color: '#fff', marginTop: 6 }}>{team.name}</div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>{team.nameEn}</div>
                 <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>{team.formation}</div>
                 <div style={{ fontSize: 11, color: '#666' }}>
-                  Cost {team.pieces.reduce((s, p) => s + p.cost, 0)}
+                  Cost {team.totalCost}
                 </div>
               </div>
             ))}
@@ -86,9 +84,10 @@ export default function PresetTeamsScreen({ onNavigate, onSelectPresetTeam }: Pr
             background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 16, marginBottom: 12,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <span style={{ fontSize: 36 }}>{selectedTeam.emoji}</span>
+              <span style={{ fontSize: 24, color: '#cc8800', fontWeight: 'bold' }}>{selectedTeam.emoji}</span>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>{selectedTeam.name}</div>
+                <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{selectedTeam.nameEn}</div>
                 <div style={{ fontSize: 12, color: '#888' }}>
                   {selectedTeam.formation} / Cost {totalCost}
                 </div>
@@ -109,7 +108,18 @@ export default function PresetTeamsScreen({ onNavigate, onSelectPresetTeam }: Pr
                     side="ally"
                     style={{ width: 36, height: 36 }}
                   />
-                  <span style={{ color: '#fff', fontSize: 13, flex: 1 }}>{p.name}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: '#fff', fontSize: 13 }}>
+                      {p.name}
+                      <span style={{ color: '#777', fontSize: 11, marginLeft: 6 }}>#{String(p.pieceId).padStart(3, '0')}</span>
+                    </div>
+                    <div style={{
+                      color: '#888', fontSize: 11, marginTop: 2,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {p.summary}
+                    </div>
+                  </div>
                   <span style={{ color: '#888', fontSize: 11 }}>{p.position}</span>
                   <span style={{ color: '#aaa', fontSize: 11 }}>Cost {p.cost}</span>
                 </div>

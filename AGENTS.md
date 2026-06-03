@@ -203,6 +203,7 @@ src/client/pages/
 └── Replay.tsx                    # リプレイ画面
 src/client/screens/
 ├── DifficultySelectScreen.tsx    # COM難易度選択
+├── PresetTeamsScreen.tsx         # 世界観プリセットチーム選択
 ├── ShopScreen.tsx                # ショップ
 ├── CollectionScreen.tsx          # 所持コマ
 ├── RankingScreen.tsx             # ランキング
@@ -211,12 +212,16 @@ src/client/components/
 └── ConnectionBanner.tsx          # 接続状態表示
 src/client/hooks/
 └── useWebSocket.ts               # WebSocket通信（認証・自動再接続）
+src/data/
+├── npc_teams.ts                  # 世界観NPCチーム定義（away側座標）
+└── presetTeams.ts                # NPCチーム → プリセットUI/FormationData用アダプタ
 ```
 
 ### 注意事項
 - COM: ModeSelect → 1秒即マッチ → Battle
 - Online: Matching → WS接続 → MATCH_FOUND → Battle
 - gameMode / formationData / authToken は App.tsx の state で管理
+- プリセットチーム選択: NPC_TEAMS の away側 row を `33-row` に反転して home側 FormationData に注入
 
 ---
 
@@ -303,5 +308,6 @@ Battle → Board:     HEXボード描画・コマ配置
 Battle → Minigame:  ファウル時にFK/PK/CKミニゲーム起動
 Battle → Formation: formationDataからチーム初期配置
 Flow → Battle:      画面遷移・gameMode・formationData引継ぎ
+Flow → Formation:   プリセットチームをFormationDataに変換してBattleへ引継ぎ
 API → DO:           REST/WSからDurable Objectsへルーティング
 ```
