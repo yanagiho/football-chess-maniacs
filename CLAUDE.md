@@ -662,3 +662,34 @@ LIVE_E2E=1 npx vitest run src/online/__tests__/ws_e2e_live.test.ts  # Terminal 2
 - `wrangler.toml`: `[ai] binding = "AI"`, `AI_MODEL_ID = "@cf/google/gemma-3-12b-it"`, DO=`new_sqlite_classes`（Free plan必須）
 - **本番URL**: `https://football-chess-maniacs.yanagiho.workers.dev`
 - `VITE_USE_GEMMA=true`: クライアント側のGemma AI呼び出しを有効化（.env.localで設定）
+
+---
+
+## Platform認証の安全性メモ（2026-06-18 調査）
+
+Platform認証はJWT（JWKS署名検証）+ サービスAPIキー + HMAC応答/Webhookで導入済み。実装箇所: `src/middleware/jwt_verify.ts` / `src/api/auth.ts` / `src/api/webhooks.ts` / `src/worker.ts`。
+
+### 構成
+- **JWT**: `Authorization: Bearer <token>` を `jwtMiddleware` で検証。`PLATFORM_JWKS_URL` から RSA 公開鍵をkid別キャッシュ（5分・並行フェッチ抑止）。`exp` 検証あり。WS は残2時間要求＋`expectedMatchPlayers` 一致確認
+- **Platform API呼び出し**: `callPlatformApi` が `X-Service-API-Key` + レスポンス `X-HMAC-Signature` 必須検証。`hexToBytes` は不正hex拒否
+- **Webhook**: `POST /webhook/purchase` で `X-Webhook-Signature: sha256=<hex>` の HMAC-SHA256 検証 + `X-Webhook-Delivery-Id` で冪等化（`webhook_deliveries_received` テーブル）
+
+### 既知の改善余地（優先度付き）
+| 優先 | 項目 | 場所 |
+|---|---|---|
+| 🔴 | `verifyJwt` に `iss` / `aud` / `alg === 'RS256'` の明示検証を追加（現状 `alg` 未確認・`iss` 型定義のみで未検証・`aud` 完全未検証 → 別ドメイン/別サービス向けJWT受理リスク） | `middleware/jwt_verify.ts:81-114` |
+| 🔴 | Webhook冪等化を `SELECT→INSERT` から `INSERT OR IGNORE → changes()=0 なら duplicate` のレースフリー方式に変更 | `api/webhooks.ts:54-63` |
+| 🟠 | `callPlatformApi` に `AbortController` タイムアウト追加（Platformハング時のWorker詰まり防止） | `api/auth.ts:44-76` |
+| 🟠 | `/match/com` POSTは非認証 + レート制限のみ → 匿名でのDO大量生成リスク。IP単位のDO生成キャップ強化 | `worker.ts:109-111` |
+| 🟡 | Webhookにタイムスタンプ署名がある場合は5分窓のリプレイ防止を追加（現状 `delivery_id` 永続テーブル依存） | `api/webhooks.ts` |
+| 🟡 | クライアントの `authToken` 取得・保管経路をドキュメント化（postMessage受領か localStorage 保管か未確認） | `App.tsx` / `ShopScreen.tsx` |
+| 🟡 | インゴットは `entitlement.revoked` 無視（consumable仕様）→ 返金/チャージバック時に残高回収不可。運用許容か確認 | `api/webhooks.ts:82-95` |
+
+### 良好な点
+- JWKS並行フェッチ抑止（`fetchingPromise` 再利用、修正 #43）
+- `hexToBytes` の不正hex拒否（修正 #38, #50）
+- Webhook HMAC欠落時に必ずエラー（修正 #26）
+- `/match/*` の REST パスにJWT認証適用（修正 #20）
+- WS upgrade時のCORS/secureHeadersスキップ（修正 #67）
+- `timingSafeEqual` 共通化（修正 #44, #63）
+
