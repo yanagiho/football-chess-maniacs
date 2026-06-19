@@ -12,7 +12,8 @@ export interface AppSettings {
   showOffsideLine: boolean;
   showZoc: boolean;
   showPassWarning: boolean;
-  language: 'ja' | 'en';
+  // 言語(locale)は i18n モジュール(src/client/i18n)が一元管理する。
+  // 切替UIは LanguageSelect / 永続化キーは 'fcms.locale'。ここでは持たない。
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -23,7 +24,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   showOffsideLine: false,
   showZoc: false,
   showPassWarning: true,
-  language: 'ja',
 };
 
 const STORAGE_KEY = 'fcms_settings';

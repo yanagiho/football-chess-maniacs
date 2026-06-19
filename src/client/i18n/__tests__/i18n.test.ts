@@ -76,6 +76,33 @@ describe('tn() 複数形', () => {
   });
 });
 
+describe('ko: 複数形なし言語の tn() が破綻しない(教訓1の実地検証)', () => {
+  it('tn() が ko で日本語混入せず韓国語を返す(count=1/2 とも)', () => {
+    __test__.setCurrent('ko');
+    const one = tn('battle.zone_wins', 1, { wins: 1 });
+    const many = tn('battle.zone_wins', 3, { wins: 3 });
+    // ko は .one/.other 同一文字列。count に関わらず韓国語(=ja混入なし)
+    expect(one).not.toContain('ゾーン');
+    expect(many).not.toContain('ゾーン');
+    expect(one).toContain('1');
+    expect(many).toContain('3');
+    expect(one).toBe(many.replace('3', '1')); // 単複同形(数値以外は同じ)
+  });
+});
+
+describe('zh-CN: 複数形なし言語の tn() が破綻しない', () => {
+  it('tn() が zh-CN で日本語混入せず中国語を返す(count=1/2 とも)', () => {
+    __test__.setCurrent('zh-CN');
+    const one = tn('battle.zone_wins', 1, { wins: 1 });
+    const many = tn('battle.zone_wins', 3, { wins: 3 });
+    expect(one).not.toContain('ゾーン');
+    expect(many).not.toContain('ゾーン');
+    expect(one).toContain('1');
+    expect(many).toContain('3');
+    expect(one).toBe(many.replace('3', '1')); // 単複同形(数値以外は同じ)
+  });
+});
+
 describe('教訓1: lookupPlural の同一ロケール内フォールバック', () => {
   it('.one が無いロケールでも root/.other で解決し、正本(ja)へ流れて日本語混入しない', () => {
     // 複数形なし言語(ko/zh-CN)を模擬: .other のみ持つ辞書を一時注入

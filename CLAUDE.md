@@ -107,13 +107,14 @@ src/
     │   └── useDeviceType.ts   # スマホ/PC判定
     ├── utils/
     │   └── pieceAssetPath.ts  # コマPNG画像パス導出（getPieceAssetPath: position/cost/side → /assets/pieces/*.png）
-    ├── i18n/                  # 多言語化基盤（ShootOutDiceプレイブック移植）
-    │   ├── index.ts           # i18n器本体（t / tn / setLocale / detectInitialLocale / lookupPlural / 永続化）
-    │   ├── ja.ts              # 日本語辞書（正本・約400キー）
-    │   ├── en.ts              # 英語辞書（機械訳ドラフト・ja完全パリティ）
+    ├── i18n/                  # 多言語化基盤（ShootOutDiceプレイブック移植・7言語対応）
+    │   ├── index.ts           # i18n器本体（t / tn / setLocale / detectInitialLocale / lookupPlural / SUPPORTED_LOCALES / LOCALE_NATIVE_NAMES / 永続化）
+    │   ├── ja.ts              # 日本語辞書（正本・401キー）
+    │   ├── en.ts en/ko/es/pt/de/zh-CN.ts # 各言語辞書（機械訳ドラフト・ja完全パリティ401キー）
     │   ├── _new_locale.ts     # 言語追加用テンプレ（コピー元）
-    │   ├── useLocale.ts       # React結線フック（setLocaleで再レンダ・フェーズ6用）
-    │   └── __tests__/i18n.test.ts # キーパリティ + tn()複数形 + 教訓1フォールバック検証
+    │   ├── useLocale.ts       # React結線フック（setLocaleで再レンダ）
+    │   ├── LanguageSelect.tsx # 言語切替プルダウン（SUPPORTED_LOCALESから自動生成・即反映）
+    │   └── __tests__/i18n.test.ts # 全7言語キーパリティ + tn()複数形 + ko/zh-CN tn検証 + 教訓1フォールバック
     └── data/
         └── hex_map.json       # HEX座標マップ（コピー）
 scripts/
@@ -142,7 +143,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n | ✅ 606 tests passing |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n | ✅ 608 tests passing |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -225,6 +226,7 @@ public/
 | GOAL演出スコア表示修正+タメ/退場（2026-06-11） | 演出中に加点前スコアが表示される回帰を修正（`goalCelebration` state でスナップショット伝播、型は `GoalCelebrationInfo`）。タメ（暗転320ms→着弾、歓声スウェルも同期）と退場アニメ（終了220ms前に文字フレームアウト）を追加 | ✅ |
 | タックル着弾バースト（2026-06-11） | `board/ImpactBurst.tsx` 新規（中イベント層）。タックル成功=白リング+金スパーク(impact)、競合=灰の土煙(dust)。`phaseEffects` に `burst?: 'impact'\|'dust'` を追加し、HexBoardがOverlay(Canvas)とは別にDOMで該当HEX位置に約0.6秒再生。flipY対応はdisplayPhaseEffects経由で自動。`prefers-reduced-motion` 時は非表示 | ✅ |
 | 多言語化i18n基盤 フェーズ1/3/4（2026-06-18） | ShootOutDiceプレイブック移植。`src/client/i18n/`設置（`STORAGE_KEY='fcms.locale'`）。クライアント全画面のベタ書き日本語 約400文字列を`t()`/`tn()`でキー化（表示は日本語で不変）。en辞書を完全パリティ(401キー)で作成、複数形14キーを`tn()`の`.one/.other`対応。回帰テスト10件追加。詳細は下記「多言語化（i18n）」参照 | ✅ |
+| 多言語化i18n フェーズ6/7（2026-06-19） | フェーズ6: `LanguageSelect.tsx`新規（`SUPPORTED_LOCALES`から自動生成、`setLocale`即反映、`SettingsScreen`の言語選択置換、`SettingsContext.language`削除でlocale一元化）。フェーズ7: ko→es/pt/de/zh-CNの順で残り5言語追加（計7言語）、全辞書ja完全パリティ401キー（機械訳ドラフト注記付き）、複数形なし言語(ko/zh-CN)は`.one/.other`同一文字列。`LOCALE_NATIVE_NAMES`追加。テスト+2（ko/zh-CN tn検証）+全言語プレースホルダ照合。詳細は下記「多言語化（i18n）」参照 | ✅ |
 
 ---
 
@@ -496,25 +498,26 @@ public/
 - サーバー側は全て実装済み（Matchmaking DO / GameSession DO / API）
 - `wrangler dev --local` + `npm run dev` の並列起動でオンライン対戦テスト可能
 
-### 多言語化（i18n）（2026-06-18 フェーズ1/3/4完了）
-- **基盤**: `src/client/i18n/`（ShootOutDiceの「i18n移植プレイブック v1.0」を移植）。前提構成 React+TS。Steam想定7言語（ja/en/es/pt/de/zh-CN/ko）対応を目標
-- **i18n器**: `index.ts` — `t(key, params?)` / `tn(key, count, params?)`（複数形）/ `setLocale` / `getLocale` / `addLocaleListener` / `detectInitialLocale`（localStorage→ブラウザ言語→ja）/ `initLocale`（`main.tsx`で起動時呼出）。永続化キー `STORAGE_KEY='fcms.locale'`。`Dict = Record<string,string>`（フラットなキー→文字列）
+### 多言語化（i18n）（2026-06-18 フェーズ1/3/4 → 2026-06-19 フェーズ6/7完了）
+- **基盤**: `src/client/i18n/`（ShootOutDiceの「i18n移植プレイブック v1.0」を移植）。前提構成 React+TS。**Steam想定7言語（ja/en/ko/es/pt/de/zh-CN）対応済み**
+- **i18n器**: `index.ts` — `t(key, params?)` / `tn(key, count, params?)`（複数形）/ `setLocale` / `getLocale` / `addLocaleListener` / `detectInitialLocale`（localStorage→ブラウザ言語→ja）/ `initLocale`（`main.tsx`で起動時呼出）。永続化キー `STORAGE_KEY='fcms.locale'`。`Dict = Record<string,string>`（フラットなキー→文字列）。`SUPPORTED_LOCALES` + `LOCALE_NATIVE_NAMES`（自称表記マップ: 日本語/English/한국어/Español/Português/Deutsch/简体中文）で言語を一元管理（言語追加時は import + `SUPPORTED_LOCALES` + `DICTS` + `LOCALE_NATIVE_NAMES` + `detectInitialLocale`のprefix分岐の5箇所追記）
 - **教訓1（最重要）**: `lookupPlural()` は「同一ロケール内で `.variant → .other → root` まで試し切ってから初めて FALLBACK_LOCALE(ja) に落ちる」。これにより複数形なし言語(ko/zh-CN)への日本語混入を防ぐ。**この順序を崩さないこと**
 - **キー命名**: 画面・機能でプレフィックス分割（`common.*` / `course.*`（ゴール方向ラベル共通化）/ `action.*` / `mode.*` / `difficulty.*` / `rank.*` / `title.*` / `battle.*` / `formation.*` / `fk.* pk.* ck.*` 等）。補間は `{var}` 形式
 - **複数形**: countable名詞×数値は `tn('key', count, params)` を使用。辞書は `.one`/`.other` を持つ（ja は単複同形）。14キーが対象（例 `battle.opponent_disconnected` / `sub.remaining_players_post` / `*.countdown`）
-- **原語固定（除外）**: 選手名・ポジション略称（ラテン文字でそもそも非対象）・`era: '現代'`（API送信値、Battle.tsx/Matching.tsx）・設定画面の言語自称名 `'日本語'`（将来`LanguageSelect`へ）
-- **辞書**: `ja.ts`（正本・約400キー、NATIVE-REVIEWED相当=原文）/ `en.ts`（**機械訳ドラフト**・ja完全パリティ401キー、公開前ネイティブレビュー必須）。`_new_locale.ts` が言語追加テンプレ
-- **React結線**: `useLocale.ts`（`useSyncExternalStore`でsetLocale購読→再レンダ）。フェーズ6のプルダウン化で使用予定。現状は各コンポーネントが`t()`直接呼び（既定ja固定のため再レンダ不要）
+- **原語固定（除外）**: 選手名・ポジション略称（ラテン文字でそもそも非対象）・`era: '現代'`（API送信値、Battle.tsx/Matching.tsx）。言語自称名は `LOCALE_NATIVE_NAMES` で管理（除外対象から外れた）
+- **辞書**: `ja.ts`（正本・401キー、NATIVE-REVIEWED相当=原文）/ `en.ts` `ko.ts` `es.ts` `pt.ts` `de.ts` `zh-CN.ts`（いずれも**機械訳ドラフト**・ja完全パリティ401キー、各ファイル冒頭に `MACHINE-TRANSLATED DRAFT` 注記、公開前ネイティブレビュー必須）。`_new_locale.ts` が言語追加テンプレ。**複数形なし言語(ko/zh-CN)は `.one`/`.other` を同一文字列にしてキーパリティを維持**（教訓1の安全網はFAKEロケールでテスト）
+- **言語切替UI（フェーズ6）**: `LanguageSelect.tsx`（`SUPPORTED_LOCALES`を`.map()`で自動生成するプルダウン、ラベルは`LOCALE_NATIVE_NAMES`）。`useLocale()`購読 → `onChange`で`setLocale()` → **リロード不要で全画面即反映** + localStorage永続化。`SettingsScreen.tsx`の言語選択を置換。**locale管理はi18nモジュールに一元化**（`SettingsContext`から`language`フィールドを削除。二重ソース解消）
+- **React結線**: `useLocale.ts`（`useSyncExternalStore`でsetLocale購読→再レンダ）。`LanguageSelect`が使用
 - **翻訳非依存ロジック**: バナー色等は翻訳文字列の `.includes()` 判定を禁止。Battle.tsxの切断バナー色は `disconnectBannerPositive` フラグで判定（`.includes('復帰')` から変更）
-- **テスト**: `i18n/__tests__/i18n.test.ts`（10件）= ja/en キーパリティ / 複数形キーの`.one/.other`存在 / `tn()`単複選択 / 教訓1フォールバック（複数形なし言語を模擬し日本語混入しないこと）
-- **未実施（今後）**: フェーズ5（shared層のerror code化、`error_codes_pattern.md`参照）/ フェーズ6（`LanguageSelect`プルダウン、`SUPPORTED_LOCALES`を`.map()`で自動生成）/ フェーズ7（ko→検証→es/pt/de/zh-CN 一括追加。**最初に非欧州言語koを1つ入れて`tn()`検証**してから残りを流すのが鉄則）
+- **テスト**: `i18n/__tests__/i18n.test.ts`（12件）= ja/en キーパリティ / **全7 SUPPORTED_LOCALESのja基準パリティ（401キー）** / 複数形キーの`.one/.other`存在 / `tn()`単複選択 / **ko・zh-CN（複数形なし言語）の`tn()`で日本語混入しない実地検証** / 教訓1フォールバック（FAKEロケール模擬）。全7言語×全キーの`{var}`プレースホルダ照合もja基準でパス
+- **未実施（今後）**: フェーズ5（shared層のerror code化、`error_codes_pattern.md`参照。shared層が薄いため優先度低）。全辞書のネイティブレビュー（機械訳ドラフト→公開前必須）
 
 ---
 
 ## テスト
 
 ```bash
-npm test              # vitest run（全606テスト + 10 E2Eスキップ）
+npm test              # vitest run（全608テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）

@@ -15,8 +15,11 @@
 
 import ja from './ja';
 import en from './en';
-// 言語を足すたびここに import を1行追加:
-// import ko from './ko';
+import ko from './ko';
+import es from './es';
+import pt from './pt';
+import de from './de';
+import zhCN from './zh-CN';
 // import es from './es';
 // import pt from './pt';
 // import de from './de';
@@ -25,15 +28,31 @@ import en from './en';
 export type Dict = Record<string, string>;
 
 // --- 対応言語(ここを増やすとプルダウンにも自動で並ぶ) ---
-export const SUPPORTED_LOCALES = ['ja', 'en'] as const;
+export const SUPPORTED_LOCALES = ['ja', 'en', 'ko', 'es', 'pt', 'de', 'zh-CN'] as const;
 //   足すときの例: ['ja', 'en', 'ko', 'es', 'pt', 'de', 'zh-CN'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
+
+// --- 各言語の自称表記(言語切替プルダウンのラベル) ---
+// SUPPORTED_LOCALES に言語を足したら、ここにも自称表記を1行追加する。
+export const LOCALE_NATIVE_NAMES: Record<Locale, string> = {
+  ja: '日本語',
+  en: 'English',
+  ko: '한국어',
+  es: 'Español',
+  pt: 'Português',
+  de: 'Deutsch',
+  'zh-CN': '简体中文',
+};
 
 // --- 辞書登録(言語を足すたびここに1行追加) ---
 const DICTS: Record<string, Dict> = {
   ja,
   en,
-  // ko, es, pt, de, 'zh-CN': zhCN,
+  ko,
+  es,
+  pt,
+  de,
+  'zh-CN': zhCN,
 };
 
 // 正本言語(キーが引けない最後の砦)。原文を書く言語にする。
@@ -147,11 +166,11 @@ export function detectInitialLocale(): Locale {
   // prefix 分岐(言語を足したらここにも追加する)
   if (browser.startsWith('ja')) return 'ja' as Locale;
   if (browser.startsWith('en')) return 'en' as Locale;
-  // if (browser.startsWith('ko')) return 'ko' as Locale;
-  // if (browser.startsWith('es')) return 'es' as Locale;
-  // if (browser.startsWith('pt')) return 'pt' as Locale;
-  // if (browser.startsWith('de')) return 'de' as Locale;
-  // if (browser.startsWith('zh')) return 'zh-CN' as Locale;
+  if (browser.startsWith('ko')) return 'ko' as Locale;
+  if (browser.startsWith('es')) return 'es' as Locale;
+  if (browser.startsWith('pt')) return 'pt' as Locale;
+  if (browser.startsWith('de')) return 'de' as Locale;
+  if (browser.startsWith('zh')) return 'zh-CN' as Locale;
   return FALLBACK_LOCALE;
 }
 

@@ -6,6 +6,7 @@ import React from 'react';
 import type { Page } from '../types';
 import { useSettings, type AppSettings } from '../contexts/SettingsContext';
 import { t } from '../i18n';
+import LanguageSelect from '../i18n/LanguageSelect';
 
 interface SettingsScreenProps {
   onNavigate: (page: Page) => void;
@@ -70,13 +71,10 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
         <Section title={t('settings.other')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ color: '#888', fontSize: 13, flex: 1 }}>{t('settings.language')}</span>
-            <select value={settings.language} onChange={e => update({ language: e.target.value as 'ja' | 'en' })} style={{
+            <LanguageSelect style={{
               background: '#1a1a3e', color: '#aaa', border: '1px solid rgba(255,255,255,0.1)',
               borderRadius: 4, padding: '4px 8px', fontSize: 13,
-            }}>
-              <option value="ja">日本語</option>
-              <option value="en">English</option>
-            </select>
+            }} />
           </div>
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#555' }}>
             <span>{t('settings.terms')}</span>
