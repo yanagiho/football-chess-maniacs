@@ -30,6 +30,7 @@ import type { PresetTeam } from '../data/presetTeams';
 import type { PieceData, GameEvent } from './types';
 import { MAX_ROW } from './types';
 import { loadLastSetup, saveLastSetup, type LastSetup } from './utils/lastSetup';
+import { useLocale } from './i18n/useLocale';
 
 /** リプレイ用ターンスナップショット */
 interface TurnSnapshot {
@@ -56,6 +57,8 @@ function emptyStats(): MatchStats {
 }
 
 export default function App() {
+  useLocale(); // ロケール変更時にルートから再描画し、全画面の t()/tn() 表示を更新する
+
   const [page, setPage] = useState<Page>('title');
   const [matchId, setMatchId] = useState<string | null>(null);
   const [gameMode, setGameMode] = useState<GameMode>('com');

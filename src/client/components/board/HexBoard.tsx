@@ -102,7 +102,7 @@ interface HexBoardProps {
   shootRangeHexes?: HexCoord[];
   /** パス可能な味方コマのHEX（パスモード時） */
   passTargetHexes?: HexCoord[];
-  /** スルーパス可能な空きHEX（パスモード時） */
+  /** スペース指定可能な空きHEX */
   throughPassHexes?: HexCoord[];
   /** ロングパス警告 */
   longPassWarnings?: Map<string, number>;
@@ -118,6 +118,10 @@ interface HexBoardProps {
   onActionPass?: () => void;
   /** ドリブルボタン押下 */
   onActionDribble?: () => void;
+  /** スペースボタン押下 */
+  onActionSpace?: () => void;
+  /** シュートボタン押下 */
+  onActionShoot?: () => void;
   /** キャンセル */
   onActionCancel?: () => void;
   /** ボール飛行アニメーションデータ */
@@ -152,6 +156,8 @@ export default function HexBoard({
   ballActionMenu,
   onActionPass,
   onActionDribble,
+  onActionSpace,
+  onActionShoot,
   onActionCancel,
   flyingBall,
   onFlyingBallComplete,
@@ -529,23 +535,44 @@ export default function HexBoard({
           });
         })()}
 
-        {/* ボールアクションメニュー（選択コマの近くに表示） */}
+        {/* ボールアクションメニュー（選択コマの周囲に放射状表示） */}
         {ballActionMenu && (() => {
           const piece = displayPieces.find(p => p.id === ballActionMenu);
           if (!piece) return null;
           const cell = cellLookup.get(`${piece.coord.col},${piece.coord.row}`);
           if (!cell) return null;
-          const placeBelow = cell.y - 96 < 10;
-          const menuY = placeBelow ? cell.y + 64 : cell.y - 96; // 上端はみ出し→下に
-          const menuX = Math.max(140, Math.min(cell.x, BOARD_WIDTH - 140)); // 左右はみ出し防止
-          const btnStyle = (from: string, to: string): React.CSSProperties => ({
-            minWidth: 116, minHeight: 58, padding: '10px 20px', borderRadius: 14, border: '2px solid rgba(255,255,255,0.85)',
-            background: `linear-gradient(135deg, ${from}, ${to})`, color: '#fff',
-            fontSize: 19, fontWeight: 'bold', cursor: 'pointer', lineHeight: 1.15,
-            boxShadow: '0 5px 18px rgba(0,0,0,0.6)',
-          });
+          const menuScale = 1 / Math.max(transform.scale, 0.1);
+          const radius = 86 * menuScale;
+          const margin = 58 * menuScale;
+          const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+          const items = [
+            { key: 'dribble', label: t('action.dribble'), color: '#16A34A', angle: 135, onAction: onActionDribble },
+            { key: 'pass', label: t('action.pass'), color: '#2563EB', angle: -135, onAction: onActionPass },
+            { key: 'space', label: t('action.through_pass'), color: '#0891B2', angle: 45, onAction: onActionSpace },
+            { key: 'shoot', label: t('action.shoot'), color: '#DC2626', angle: -45, onAction: onActionShoot },
+          ];
           return (
             <React.Fragment>
+              <style>{`
+                @keyframes fcms-radial-command-pop {
+                  0% {
+                    opacity: 0;
+                    transform: translate(-50%, -50%) translate(0, 0) scale(calc(var(--menu-scale) * 0.55));
+                  }
+                  72% {
+                    opacity: 1;
+                    transform: translate(-50%, -50%) translate(calc(var(--dx) * 1.08), calc(var(--dy) * 1.08)) scale(calc(var(--menu-scale) * 1.04));
+                  }
+                  100% {
+                    opacity: 1;
+                    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(var(--menu-scale));
+                  }
+                }
+                @keyframes fcms-radial-ring-pulse {
+                  0%, 100% { transform: translate(-50%, -50%) scale(var(--menu-scale)); opacity: 0.9; }
+                  50% { transform: translate(-50%, -50%) scale(calc(var(--menu-scale) * 1.14)); opacity: 1; }
+                }
+              `}</style>
               {/* 対象コマを示すハイライトリング */}
               <div
                 style={{
@@ -554,26 +581,56 @@ export default function HexBoard({
                   borderRadius: '50%', border: '3px solid #FACC15',
                   boxShadow: '0 0 16px rgba(250,204,21,0.95)',
                   zIndex: 199, pointerEvents: 'none',
-                }}
+                  animation: 'fcms-radial-ring-pulse 1.1s ease-in-out infinite',
+                  ['--menu-scale' as string]: menuScale,
+                } as React.CSSProperties}
               />
-              <div
-                style={{
-                  position: 'absolute', left: menuX, top: menuY,
-                  transform: 'translate(-50%, -50%)',
-                  display: 'flex', gap: 10, zIndex: 200, pointerEvents: 'auto',
-                }}
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => e.stopPropagation()}
-              >
-                <button
-                  onPointerDown={(e) => { e.stopPropagation(); onActionPass?.(); }}
-                  style={btnStyle('#2563EB', '#3B82F6')}
-                >⚽<br />{t('hexboard.pass')}</button>
-                <button
-                  onPointerDown={(e) => { e.stopPropagation(); onActionDribble?.(); }}
-                  style={btnStyle('#16A34A', '#22C55E')}
-                >🏃<br />{t('hexboard.dribble')}</button>
-              </div>
+              {items.map((item, index) => {
+                const rad = (item.angle * Math.PI) / 180;
+                const targetX = clamp(cell.x + Math.cos(rad) * radius, margin, BOARD_WIDTH - margin);
+                const targetY = clamp(cell.y + Math.sin(rad) * radius, margin, BOARD_HEIGHT - margin);
+                const dx = targetX - cell.x;
+                const dy = targetY - cell.y;
+                return (
+                  <button
+                    key={item.key}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      item.onAction?.();
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute',
+                      left: cell.x,
+                      top: cell.y,
+                      width: 78,
+                      height: 52,
+                      borderRadius: 14,
+                      border: `2px solid ${item.color}`,
+                      background: `linear-gradient(135deg, ${item.color}, ${item.color}cc)`,
+                      color: '#fff',
+                      fontSize: 13,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      lineHeight: 1.05,
+                      zIndex: 210,
+                      pointerEvents: 'auto',
+                      boxShadow: `0 6px 18px rgba(0,0,0,0.55), 0 0 16px ${item.color}77`,
+                      opacity: 0,
+                      transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(${menuScale})`,
+                      transformOrigin: '50% 50%',
+                      animation: 'fcms-radial-command-pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+                      animationDelay: `${index * 35}ms`,
+                      ['--dx' as string]: `${dx}px`,
+                      ['--dy' as string]: `${dy}px`,
+                      ['--menu-scale' as string]: menuScale,
+                    } as React.CSSProperties}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </React.Fragment>
           );
         })()}

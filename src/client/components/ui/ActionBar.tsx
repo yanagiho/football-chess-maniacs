@@ -132,30 +132,35 @@ export default function ActionBar({
             onClick={() => onSetMode(actionMode === 'move' ? null : 'move')}
             disabled={!hasSelection || hasBall}
             active={moveActive}
+            accent="#64748B"
           />
           <ActionButton
             label={t('action.dribble')}
             onClick={() => onSetMode(actionMode === 'dribble' ? null : 'dribble')}
             disabled={!hasBall}
             active={actionMode === 'dribble'}
+            accent="#16A34A"
           />
           <ActionButton
             label={t('action.pass')}
             onClick={() => onSetMode(actionMode === 'pass' ? null : 'pass')}
             disabled={!hasBall}
             active={actionMode === 'pass'}
+            accent="#2563EB"
           />
           <ActionButton
             label={t('action.through_pass')}
             onClick={() => onSetMode(actionMode === 'throughPass' ? null : 'throughPass')}
             disabled={!hasBall}
             active={actionMode === 'throughPass'}
+            accent="#0891B2"
           />
           <ActionButton
             label={t('action.shoot')}
             onClick={() => onSetMode(actionMode === 'shoot' ? null : 'shoot')}
             disabled={!hasBall}
             active={actionMode === 'shoot'}
+            accent="#DC2626"
           />
           <ActionButton
             label={t('action.sub')}
@@ -177,6 +182,7 @@ function ActionButton({
   active = false,
   primary = false,
   danger = false,
+  accent,
 }: {
   label: string;
   onClick: () => void;
@@ -184,7 +190,10 @@ function ActionButton({
   active?: boolean;
   primary?: boolean;
   danger?: boolean;
+  accent?: string;
 }) {
+  const accentBg = accent && !disabled ? `${accent}${active ? '' : '30'}` : undefined;
+
   return (
     <button
       onClick={onClick}
@@ -193,7 +202,7 @@ function ActionButton({
         flex: 1,
         height: 42,
         minWidth: 0,
-        border: 'none',
+        border: accent && !disabled ? `1px solid ${accent}${active ? '' : '99'}` : '1px solid transparent',
         borderRadius: 8,
         fontSize: 10,
         fontWeight: 'bold',
@@ -205,12 +214,15 @@ function ActionButton({
           ? '#44aa44'
           : danger && !disabled
           ? 'rgba(220,60,60,0.25)'
+          : accentBg
+          ? accentBg
           : active
           ? '#4488cc'
           : disabled
           ? 'rgba(255,255,255,0.05)'
           : 'rgba(255,255,255,0.12)',
         color: disabled ? 'rgba(255,255,255,0.3)' : danger ? '#f88' : '#fff',
+        boxShadow: active && accent ? `0 0 0 2px ${accent}55, 0 0 14px ${accent}66` : undefined,
         transition: 'background 0.15s',
       }}
     >

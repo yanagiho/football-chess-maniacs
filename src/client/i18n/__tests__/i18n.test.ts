@@ -61,6 +61,26 @@ describe('t() 基本動作', () => {
   });
 });
 
+describe('対戦コマンドの多言語ラベル', () => {
+  const expectedCommandLabels = {
+    ja: ['移動', 'ドリブル', 'パス', 'スペース', 'シュート', '交代'],
+    en: ['Move', 'Dribble', 'Pass', 'Space', 'Shoot', 'Sub'],
+    ko: ['이동', '드리블', '패스', '공간', '슛', '교체'],
+    es: ['Mover', 'Regate', 'Pase', 'Espacio', 'Tiro', 'Cambio'],
+    pt: ['Mover', 'Drible', 'Passe', 'Espaço', 'Chute', 'Substituir'],
+    de: ['Bewegen', 'Dribbling', 'Pass', 'Raum', 'Schuss', 'Wechsel'],
+    'zh-CN': ['移动', '盘带', '传球', '空当', '射门', '换人'],
+  } as const;
+
+  it('Move/Dribble/Pass/Space/Shoot/Sub が各ロケールの action.* で引ける', () => {
+    const keys = ['action.move', 'action.dribble', 'action.pass', 'action.through_pass', 'action.shoot', 'action.sub'];
+    for (const loc of SUPPORTED_LOCALES) {
+      __test__.setCurrent(loc);
+      expect(keys.map((key) => t(key))).toEqual([...expectedCommandLabels[loc]]);
+    }
+  });
+});
+
 describe('tn() 複数形', () => {
   it('en: count=1 は .one、count=2 は .other を選ぶ', () => {
     __test__.setCurrent('en');

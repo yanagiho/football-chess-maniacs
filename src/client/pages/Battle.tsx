@@ -55,14 +55,6 @@ import {
   getMatchTimeLabel, computeStats, computeMvp,
 } from './Battle/battleUtils';
 
-/** 初回3ターンチュートリアル（issue #3）: ターン番号 → ガイド文言 */
-const TUTORIAL_STEPS: Record<number, { text: string; subText: string }> = {
-  1: { text: t('battle.tutorial_move_title'), subText: t('battle.tutorial_move_sub') },
-  2: { text: t('battle.tutorial_pass_title'), subText: t('battle.tutorial_pass_sub') },
-  3: { text: t('battle.tutorial_shoot_title'), subText: t('battle.tutorial_shoot_sub') },
-};
-const TUTORIAL_LAST_TURN = 3;
-
 interface BattleProps {
   onNavigate: (page: Page) => void;
   matchId?: string;
@@ -438,15 +430,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (phaseTimeoutRef.current) { clearTimeout(phaseTimeoutRef.current); phaseTimeoutRef.current = null; }
   }, []);
 
-  // ── 初回3ターンチュートリアル（issue #3） ──
-  // COM対戦の初回プレイのみ。localStorage で既読管理し2回目以降スキップ。
-  const tutorialActiveRef = useRef(
-    isCom && !isComVsCom && (() => {
-      try { return localStorage.getItem('fcms_tutorial_done') !== '1'; } catch { return true; }
-    })(),
-  );
-
-  // TURN_START → INPUT（1秒後、安全弁2秒）
+  // TURN_START → INPUT
   useEffect(() => {
     if (state.turnPhase !== 'TURN_START' || state.status !== 'playing') return;
     clearPhaseTimeout();
@@ -454,27 +438,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (state.turn > 0 && !isComVsCom) {
       showOverlay(`Turn ${state.turn}`, { duration: 800, fontSize: 36 });
     }
-    // 初回3ターンチュートリアル（Turn 1=移動 / 2=パス / 3=シュート）
-    const tutorialStep = tutorialActiveRef.current ? TUTORIAL_STEPS[state.turn] : undefined;
-    if (tutorialStep) {
-      setTimeout(() => {
-        showOverlay(tutorialStep.text, {
-          subText: tutorialStep.subText,
-          duration: 2800, fontSize: 24,
-        });
-      }, 1000);
-      if (state.turn >= TUTORIAL_LAST_TURN) {
-        tutorialActiveRef.current = false;
-        try { localStorage.setItem('fcms_tutorial_done', '1'); } catch { /* ignore */ }
-      }
-    }
-    const isTutorialTurn = !!tutorialStep;
-    const normalDelay = isComVsCom ? 500 : (state.turn === 1 ? 4000 : isTutorialTurn ? 2800 : 1000); // COM vs COMは高速化、チュートリアル中は猶予
+    const normalDelay = isComVsCom ? 500 : (state.turn === 1 ? KICKOFF_CEREMONY_MS : 1000);
     phaseTimeoutRef.current = setTimeout(() => {
       dispatch({ type: 'SAVE_SNAPSHOT' });
       dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
     }, normalDelay);
-    // 安全弁: 通常の2倍（Turn 1は8秒、それ以外は2秒）
+    // 安全弁: 通常の2倍
     const safetyDelay = normalDelay * 2;
     const safety = setTimeout(() => {
       if (state.turnPhase === 'TURN_START') dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
@@ -789,7 +758,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       if (pieceId) {
         const p = state.board.pieces.find(pp => pp.id === pieceId);
 
-        // ボール保持者も通常選択。行動は下部/右クリックメニューから明示選択する。
+        // ボール保持者も通常選択。行動はコマ周囲のラジアルメニューから明示選択する。
         if (p?.hasBall && p.team === state.myTeam && !state.orders.has(pieceId)) {
           dispatch({ type: 'SELECT_PIECE', pieceId });
           if (isMobile && navigator.vibrate) navigator.vibrate(30);
@@ -1828,29 +1797,34 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return state.board.pieces;
   }, [state.board.pieces, flyingBall]);
 
-  // ── アクションガイドテキスト ──
-  const actionGuide = useMemo(() => {
-    if (state.board.freeBallHex) return t('battle.guide_free_ball');
-    if (!selectedPiece) return t('battle.guide_select_piece');
-    // パス済みコマを選択
-    if (state.orders.has(selectedPiece.id)) {
-      const order = state.orders.get(selectedPiece.id);
-      if (order?.action === 'pass') return t('battle.guide_already_passed');
-      return t('battle.guide_ordered_cancelable');
+  // ── 選択中コマの状態表示（操作説明ではなく、現在の状態だけを表示） ──
+  const selectedOrder = selectedPiece ? state.orders.get(selectedPiece.id) : undefined;
+  const selectedAction = selectedOrder?.action ?? state.actionMode;
+  const selectedActionLabel = (() => {
+    switch (selectedAction) {
+      case 'move': return t('action.move');
+      case 'dribble': return t('action.dribble');
+      case 'pass': return t('action.pass');
+      case 'throughPass': return t('action.through_pass');
+      case 'shoot': return t('action.shoot');
+      case 'substitute': return t('action.sub');
+      default: return null;
     }
-    const hasBall = selectedPiece.hasBall;
-    switch (state.actionMode) {
-      case 'pass': return t('battle.guide_pass_mode');
-      case 'throughPass': return t('battle.guide_through_pass_target');
-      case 'shoot': return t('battle.guide_shoot_target');
-      case 'dribble': return t('battle.guide_dribble_target');
-      case 'move': return hasBall ? t('battle.guide_ball_holder_default') : t('battle.guide_move_target');
-      case 'substitute': return t('battle.guide_sub_target');
-      default:
-        if (hasBall) return t('battle.guide_ball_holder_default');
-        return t('battle.guide_move_target');
-    }
-  }, [selectedPiece, state.actionMode, state.orders, state.board.freeBallHex]);
+  })();
+  const selectedStatusLabel = selectedOrder
+    ? t('battle.status_ordered')
+    : selectedPiece?.hasBall
+    ? t('battle.status_holding_ball')
+    : selectedPiece
+    ? t('battle.status_selected')
+    : null;
+  const radialBallActionPieceId = state.turnPhase === 'INPUT'
+    && selectedPiece?.hasBall
+    && selectedPiece.team === state.myTeam
+    && state.actionMode === null
+    && !state.orders.has(selectedPiece.id)
+    ? selectedPiece.id
+    : null;
 
   // ── A10: フェーズ別ラベル ──
   const phaseLabels = [t('action.move'), t('battle.phase_collision'), t('battle.phase_foul'), t('battle.phase_ball_move'), t('battle.phase_passcut_offside')];
@@ -2048,7 +2022,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
             freeBallHex={state.board.freeBallHex}
-            ballActionMenu={null}
+            ballActionMenu={radialBallActionPieceId}
+            onActionDribble={() => handleSetMode('dribble')}
+            onActionPass={() => handleSetMode('pass')}
+            onActionSpace={() => handleSetMode('throughPass')}
+            onActionShoot={() => handleSetMode('shoot')}
+            onActionCancel={() => dispatch({ type: 'SELECT_PIECE', pieceId: null })}
             flyingBall={flyingBall}
             onFlyingBallComplete={handleFlyingBallComplete}
           />
@@ -2132,54 +2111,59 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           )}
         </div>
 
-        {/* §2-5 選択状態 + 操作ガイド */}
-        <div style={{
-          minHeight: 50,
-          display: 'flex',
-          alignItems: 'center',
-          padding: '6px 12px',
-          background: 'rgba(15, 23, 42, 0.96)',
-          borderTop: '1px solid rgba(255,255,255,0.1)',
-          fontSize: 13,
-          gap: 10,
-          flexShrink: 0,
-        }}>
-          {selectedPiece ? (
-            <>
-              <div style={{
-                minWidth: 76,
-                padding: '5px 8px',
-                borderRadius: 8,
-                border: `1px solid ${POSITION_COLORS[selectedPiece.position]}99`,
-                background: `${POSITION_COLORS[selectedPiece.position]}22`,
-                color: POSITION_COLORS[selectedPiece.position],
-                fontWeight: 900,
-                textAlign: 'center',
-                lineHeight: 1.1,
+        {/* §2-5 選択状態 */}
+        {selectedPiece && (
+          <div style={{
+            minHeight: 42,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '5px 10px',
+            background: 'rgba(15, 23, 42, 0.96)',
+            borderTop: '1px solid rgba(255,255,255,0.1)',
+            fontSize: 12,
+            gap: 8,
+            flexShrink: 0,
+          }}>
+            <div style={{
+              minWidth: 70,
+              padding: '4px 8px',
+              borderRadius: 8,
+              border: `1px solid ${POSITION_COLORS[selectedPiece.position]}99`,
+              background: `${POSITION_COLORS[selectedPiece.position]}22`,
+              color: POSITION_COLORS[selectedPiece.position],
+              fontWeight: 900,
+              textAlign: 'center',
+              lineHeight: 1.1,
+            }}>
+              <div style={{ fontSize: 14 }}>{selectedPiece.position}</div>
+              <div style={{ fontSize: 10, color: '#facc15', marginTop: 1 }}>★{selectedPiece.cost}</div>
+            </div>
+            {selectedStatusLabel && (
+              <span style={{
+                padding: '5px 9px',
+                borderRadius: 999,
+                background: selectedPiece.hasBall ? 'rgba(37,99,235,0.22)' : 'rgba(255,255,255,0.08)',
+                color: selectedPiece.hasBall ? '#93c5fd' : '#cbd5e1',
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
               }}>
-                <div style={{ fontSize: 15 }}>{selectedPiece.position}</div>
-                <div style={{ fontSize: 11, color: '#facc15', marginTop: 2 }}>★{selectedPiece.cost}</div>
-              </div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ color: '#e5e7eb', fontSize: 13, fontWeight: 700 }}>
-                  {selectedPiece.hasBall ? t('battle.status_holding_ball') : state.orders.has(selectedPiece.id) ? t('battle.status_ordered') : t('battle.status_selected')}
-                </div>
-                <div style={{
-                  color: '#94a3b8',
-                  fontSize: 12,
-                  marginTop: 3,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {actionGuide}
-                </div>
-              </div>
-            </>
-          ) : (
-            <span style={{ color: '#94a3b8' }}>{actionGuide}</span>
-          )}
-        </div>
+                {selectedStatusLabel}
+              </span>
+            )}
+            {selectedActionLabel && (
+              <span style={{
+                padding: '5px 9px',
+                borderRadius: 999,
+                background: 'rgba(250,204,21,0.15)',
+                color: '#fde68a',
+                fontWeight: 900,
+                whiteSpace: 'nowrap',
+              }}>
+                {selectedActionLabel}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* §2-4 アクションバー — 交代時ベンチスライドアップ付き */}
         <ActionBar
@@ -2267,7 +2251,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             phaseEffects={phaseEffects}
             ballTrails={ballTrails}
             freeBallHex={state.board.freeBallHex}
-            ballActionMenu={null}
+            ballActionMenu={radialBallActionPieceId}
+            onActionDribble={() => handleSetMode('dribble')}
+            onActionPass={() => handleSetMode('pass')}
+            onActionSpace={() => handleSetMode('throughPass')}
+            onActionShoot={() => handleSetMode('shoot')}
+            onActionCancel={() => dispatch({ type: 'SELECT_PIECE', pieceId: null })}
             flyingBall={flyingBall}
             onFlyingBallComplete={handleFlyingBallComplete}
           />
@@ -2289,17 +2278,17 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               }}
             >
               {[
-                { label: t('action.move'), mode: 'move' as ActionMode, key: '' },
-                { label: t('battle.ctx_dribble'), mode: 'dribble' as ActionMode, key: 'D', needsBall: true },
-                { label: t('battle.ctx_pass'), mode: 'pass' as ActionMode, key: 'Q', needsBall: true },
-                { label: t('action.through_pass'), mode: 'throughPass' as ActionMode, key: 'T', needsBall: true },
-                { label: t('battle.ctx_shoot'), mode: 'shoot' as ActionMode, key: 'W', needsBall: true },
-                { label: t('battle.ctx_sub'), mode: 'substitute' as ActionMode, key: 'E' },
+                { label: t('action.move'), mode: 'move' as ActionMode, shortcut: '' },
+                { label: t('action.dribble'), mode: 'dribble' as ActionMode, shortcut: 'D', needsBall: true },
+                { label: t('action.pass'), mode: 'pass' as ActionMode, shortcut: 'Q', needsBall: true },
+                { label: t('action.through_pass'), mode: 'throughPass' as ActionMode, shortcut: 'T', needsBall: true },
+                { label: t('action.shoot'), mode: 'shoot' as ActionMode, shortcut: 'W', needsBall: true },
+                { label: t('action.sub'), mode: 'substitute' as ActionMode, shortcut: 'E' },
               ].map((item) => {
                 const disabled = (item.needsBall && !selectedPiece?.hasBall) || (item.mode === 'move' && !!selectedPiece?.hasBall);
                 return (
                   <button
-                    key={item.label}
+                    key={item.mode}
                     onClick={() => {
                       if (!disabled) dispatch({ type: 'SET_ACTION_MODE', mode: item.mode });
                       setContextMenu(null);
@@ -2318,9 +2307,9 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                       cursor: disabled ? 'default' : 'pointer',
                       textAlign: 'left',
                     }}
-                  >
+                    >
                     <span>{item.label}</span>
-                    {item.key && <span style={{ fontSize: 11, color: '#666' }}>{item.key}</span>}
+                    {item.shortcut && <span style={{ fontSize: 11, color: '#666' }}>{item.shortcut}</span>}
                   </button>
                 );
               })}
@@ -2431,10 +2420,49 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         {/* スペーサー */}
         <div style={{ flex: 1 }} />
 
-        {/* アクションガイド + ショートカットヒント */}
-        <span style={{ fontSize: 11, color: selectedPiece ? '#94a3b8' : '#555' }}>
-          {selectedPiece ? actionGuide : t('battle.shortcut_hint')}
-        </span>
+        {/* 選択中コマの行動ボタン */}
+        {selectedPiece && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {[
+              { label: t('action.move'), mode: 'move' as ActionMode, color: '#64748B', disabled: selectedPiece.hasBall },
+              { label: t('action.dribble'), shortcut: 'D', mode: 'dribble' as ActionMode, color: '#16A34A', disabled: !selectedPiece.hasBall },
+              { label: t('action.pass'), shortcut: 'Q', mode: 'pass' as ActionMode, color: '#2563EB', disabled: !selectedPiece.hasBall },
+              { label: t('action.through_pass'), shortcut: 'T', mode: 'throughPass' as ActionMode, color: '#0891B2', disabled: !selectedPiece.hasBall },
+              { label: t('action.shoot'), shortcut: 'W', mode: 'shoot' as ActionMode, color: '#DC2626', disabled: !selectedPiece.hasBall },
+              { label: t('action.sub'), shortcut: 'E', mode: 'substitute' as ActionMode, color: '#7C3AED', disabled: false },
+            ].map((item) => {
+              const disabled = isInputDisabled || item.disabled;
+              const active = state.actionMode === item.mode;
+              return (
+                <button
+                  key={item.mode}
+                  onClick={() => {
+                    if (!disabled) handleSetMode(active ? null : item.mode);
+                  }}
+                  disabled={disabled}
+                  style={{
+                    height: 28,
+                    padding: '0 9px',
+                    borderRadius: 6,
+                    border: disabled ? '1px solid transparent' : `1px solid ${item.color}${active ? '' : '88'}`,
+                    background: disabled ? 'rgba(255,255,255,0.04)' : active ? item.color : `${item.color}24`,
+                    color: disabled ? '#555' : '#fff',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: disabled ? 'default' : 'pointer',
+                    boxShadow: active ? `0 0 12px ${item.color}66` : undefined,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>{item.label}</span>
+                  {item.shortcut && (
+                    <span style={{ marginLeft: 5, fontSize: 9, opacity: 0.72 }}>{item.shortcut}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* ターン確定ボタン */}
         <button
