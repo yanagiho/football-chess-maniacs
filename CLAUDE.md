@@ -237,6 +237,7 @@ public/
 | リプレイ録画→再生の配線（2026-06-28, `66076cb`） | ReplayScreen/結果画面「リプレイを見る」は実装済だが録画データが`App.replayTurns`に未セット(常にno_data)だった欠落を解消。`TurnSnapshot`をtypes.ts共通化、`MatchEndData.replayTurns`追加、Battleが各ターン解決後をrefに録画(INIT_MATCHでリセット)→onMatchEnd注入→App結線。COM対戦で全ターン再生可。オンラインは未録画 | ✅ |
 | コード分割（2026-06-28, `b47ec02`） | App.tsxの画面を`React.lazy`+`Suspense`で遅延ロード。単一735kB→画面別チャンク(初期97kB gzip/Battle44.7kB/HexBoard14.7kB…)。タイトル初回ロード約45%削減、>500kB警告解消 | ✅ |
 | ショップ購入テスト（2026-06-28, `a5fcea7`） | `POST /api/shop/purchase`のマネー経路をHono app.request+フェイクD1で検証(7件): ガード付き減算/残高不足402/二重購入409/購入不可400/未認証401 | ✅ |
+| Cloudflare再デプロイ（2026-06-28） | 本セッションのサーバー変更(対人3ブロッカー/選手交代DO/`/api/ranking`新設/レーティング永続化/shop) を Worker(`wrangler deploy`)で本番反映。新規D1マイグレーションなし(既存テーブルのみ)。クライアント(Vite)はPages別運用 | ✅ |
 
 ---
 
