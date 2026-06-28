@@ -6,7 +6,6 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 
-import authRoutes from './api/auth';
 import teamRoutes from './api/team';
 import matchRoutes from './api/match';
 import replayRoutes from './api/replay';
