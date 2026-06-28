@@ -230,6 +230,8 @@ public/
 | Unity版3ルール移植（2026-06-28, `3481b1a`） | `BATTLE_DELAY`(自陣3ターン保持→相手GKへ強制移譲) / `PASSIVE_TACTICS`(自陣深部9枚以上→翌ターンのpass/tackleに+10) / freeBall offside(スルーパス由来フリーボールのOS追跡)。エンジン〜クライアント〜i18n結線。ペナルティ"効果"テスト3件追加。**閾値(9/3)・補正(+10)は出典欠如の暫定値**。`docs/unity_football_chess_rules.md`は参照資料 | ✅ |
 | 対人対戦3ブロッカー修正（2026-06-28, `f2e11c8`/`e5f55ef`） | ①Hibernationで手消失: `turnInputs`をインメモリMap→`GameState`永続化。②編成未反映: `createBoardFromFormation`新設、`handleInit`がD1 `teams.field_pieces`をロードしコスト/座標を盤面反映(awayミラー)、得点/HT再生成にも使用、未指定は4-4-2フォールバック。③レーティング未永続: 孤立していた`server/rating.ts`を結線、queueで`persistRatings`(Elo+W/L/D UPSERT)、matchmakingはD1の`getRating`(サーバー権威)。テスト計19件追加 | ✅ |
 | ShopScreen価格ロジック統一（2026-06-28, `3481b1a`） | `pieceCostToIngots`/`costToDisplay`をローカル再定義から正本(`types/piece.ts`)importに統一（サーバー`api/shop.ts`とのドリフト防止） | ✅ |
+| オンライン最後の1マイル（2026-06-28, `8fc5c94`） | Matching: JOIN_QUEUEで実teamId送信(resolveActiveTeamId)→編成反映が完結。rating申告は0(サーバーD1値で上書き)。game_session: player_idを`attachment.userId`で上書き(なりすまし防止+空player_id解消) | ✅ |
+| 選手交代の実装（2026-06-28, `d4becd7`） | `substitute`を型のみ→実処理化。エンジンに`Order.benchPieceId`/`Board.bench`/`SubstitutionEvent`/`applySubstitutions`(フェーズ-1,座標・ボール継承)追加(テスト4件)。クライアントCOMで機能(bench配線/isBench再構築/回数ガード`MAX_SUBSTITUTIONS`/SidePanelログ7言語)。DO経路はbench読込が残課題 | ✅ |
 
 ---
 
@@ -738,7 +740,7 @@ Platform認証はJWT（JWKS署名検証）+ サービスAPIキー + HMAC応答/W
 | 🟠 | クライアントが `JOIN_QUEUE` で `teamId='default'` 固定送信。実teamIdを送れば編成反映が完結する（サーバー側は対応済み） | `client/pages/Matching.tsx:37-38` |
 | 🟠 | オンライン対戦のWS送信が `player_id=''` / `client_hash=''`（盤面ハッシュ未実装）。サーバー統合とE2Eが未完 | `client/pages/Battle.tsx:1419-1423` |
 | 🟠 | リプレイ視聴のデータ配線欠落（`setReplayTurns` 未呼出で常に空配列）。`/replays/:id/turn/:turn` は誰も書かず実質stub | `client/App.tsx:77` / `api/replay.ts` |
-| 🟡 | 選手交代が全経路 `benchPieces:[]` 固定で実戦発火不能（COM/対人共通） | `com_ai_integration.ts:38` 他 |
+| ✅ | 選手交代: エンジン(applySubstitutions)+クライアントCOM経路で実装済み(`d4becd7`)。残: GameSession DOへの`teams.bench_pieces`読込 + remainingSubs減算 + 得点後リスタートの交代保持(DO/PvPはE2E未検証) | `game_session.ts` |
 | 🟡 | Collection/Ranking/FriendMatch がモックデータ（API未接続） | `client/screens/*` |
 | 🟡 | デッドコード整理: `pages/Result.tsx`・`pages/HalfTime.tsx`（到達不能）、`api/auth.ts` の `/purchase`（未マウント） | — |
 | 🟡 | `public/assets/characters/`（PK/FKスプライト9枚）がgit未追跡・未参照。配線時に追加 | — |
