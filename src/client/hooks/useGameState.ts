@@ -25,7 +25,18 @@ type GameAction =
   | { type: 'NEXT_TURN' }
   | { type: 'RESUME_SECOND_HALF'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
   | { type: 'APPLY_TURN_RESULT'; board: GameState['board']; turn: number; scoreHome: number; scoreAway: number }
-  | { type: 'APPLY_ENGINE_RESULT'; pieces: PieceData[]; scoreHome: number; scoreAway: number; freeBallHex?: import('../types').HexCoord | null }
+  | {
+      type: 'APPLY_ENGINE_RESULT';
+      pieces: PieceData[];
+      scoreHome: number;
+      scoreAway: number;
+      freeBallHex?: import('../types').HexCoord | null;
+      freeBallLastTouchedTeam?: Team | null;
+      freeBallLastTouchedPieceId?: string | null;
+      freeBallSource?: import('../types').FreeBallSource | null;
+      possessionDelay?: GameState['board']['possessionDelay'];
+      passiveTacticsTeams?: Team[];
+    }
   | { type: 'SET_TURN_PHASE'; phase: TurnPhase }
   | { type: 'SAVE_SNAPSHOT' }
   | { type: 'SET_DISPLAY_PIECES'; pieces: PieceData[] }
@@ -183,7 +194,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const resolved = applyOrders(state.board.pieces, state.orders);
       return {
         ...state,
-        board: { pieces: resolved },
+        board: { ...state.board, pieces: resolved },
         status: 'resolving',
         turnStartedAt: null, // タイマー停止
         selectedPieceId: null,
@@ -211,7 +222,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         return {
           ...state,
           turn: nextTurn,
-          board: { pieces: movedPieces },
+          board: { ...state.board, pieces: movedPieces },
           orders: new Map(),
           selectedPieceId: null,
           actionMode: null,
@@ -231,7 +242,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         turn: nextTurn,
-        board: { pieces: movedPieces },
+        board: { ...state.board, pieces: movedPieces },
         orders: new Map(),
         selectedPieceId: null,
         actionMode: null,
@@ -263,7 +274,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const engineBall = setBallHolder(action.pieces, engineHolderId, action.freeBallHex ?? null);
       return {
         ...state,
-        board: { pieces: engineBall.pieces, freeBallHex: engineBall.freeBallHex },
+        board: {
+          pieces: engineBall.pieces,
+          freeBallHex: engineBall.freeBallHex,
+          freeBallLastTouchedTeam: engineBall.freeBallHex ? action.freeBallLastTouchedTeam ?? null : null,
+          freeBallLastTouchedPieceId: engineBall.freeBallHex ? action.freeBallLastTouchedPieceId ?? null : null,
+          freeBallSource: engineBall.freeBallHex ? action.freeBallSource ?? null : null,
+          possessionDelay: action.possessionDelay ?? null,
+          passiveTacticsTeams: action.passiveTacticsTeams ?? [],
+        },
         scoreHome: action.scoreHome,
         scoreAway: action.scoreAway,
         status: 'resolving',
@@ -311,7 +330,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         orders: newOrders,
-        board: { ...state.board, pieces: ball.pieces, freeBallHex: null },
+        board: {
+          ...state.board,
+          pieces: ball.pieces,
+          freeBallHex: null,
+          freeBallLastTouchedTeam: null,
+          freeBallLastTouchedPieceId: null,
+          freeBallSource: null,
+        },
         selectedPieceId: null,
         actionMode: null,
       };
@@ -327,7 +353,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         orders: newOrders,
-        board: { ...state.board, pieces: ball.pieces, freeBallHex: ball.freeBallHex },
+        board: {
+          ...state.board,
+          pieces: ball.pieces,
+          freeBallHex: ball.freeBallHex,
+          freeBallLastTouchedTeam: state.board.pieces.find(p => p.id === action.fromPieceId)?.team ?? null,
+          freeBallLastTouchedPieceId: action.fromPieceId,
+          freeBallSource: 'throughPass',
+        },
         selectedPieceId: null,
         actionMode: null,
       };

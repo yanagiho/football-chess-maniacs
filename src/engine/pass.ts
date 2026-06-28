@@ -49,6 +49,8 @@ export interface Cut1Input {
   interceptor: Piece;
   passer: Piece;
   zoc: ZocAdjacency;
+  /** 消極的戦術ペナルティなど、守備側成功率へ直接加算する補正 */
+  defenseBonusMod?: number;
 }
 
 /**
@@ -58,7 +60,7 @@ export interface Cut1Input {
  * 守備側ZOC隣接: 1体につき +10（味方が多いとカットしやすい）
  */
 export function passCut1(input: Cut1Input) {
-  const { interceptor, passer, zoc } = input;
+  const { interceptor, passer, zoc, defenseBonusMod = 0 } = input;
   const omega = 15;
 
   const posMod =
@@ -67,7 +69,7 @@ export function passCut1(input: Cut1Input) {
 
   const zocMod = calcZocModifier(zoc, -5, +10);
 
-  const prob = calcProbability(interceptor.cost, passer.cost, omega, posMod, zocMod);
+  const prob = calcProbability(interceptor.cost, passer.cost, omega, posMod + defenseBonusMod, zocMod);
   return { ...judge(prob), interceptor };
 }
 
@@ -84,6 +86,8 @@ export interface Cut2Input {
    * → 呼び出し元で interceptor を除いた残りのコマ数を渡すこと。
    */
   zoc: ZocAdjacency;
+  /** 消極的戦術ペナルティなど、守備側成功率へ直接加算する補正 */
+  defenseBonusMod?: number;
 }
 
 /**
@@ -94,7 +98,7 @@ export interface Cut2Input {
  * ※ トリガーとなった守備コマ1体目はZOC隣接に含めない
  */
 export function passCut2(input: Cut2Input) {
-  const { interceptor, receiver, zoc } = input;
+  const { interceptor, receiver, zoc, defenseBonusMod = 0 } = input;
   const omega = 10;
 
   const posMod =
@@ -103,7 +107,7 @@ export function passCut2(input: Cut2Input) {
 
   const zocMod = calcZocModifier(zoc, -5, +20);
 
-  const prob = calcProbability(interceptor.cost, receiver.cost, omega, posMod, zocMod);
+  const prob = calcProbability(interceptor.cost, receiver.cost, omega, posMod + defenseBonusMod, zocMod);
   return { ...judge(prob), interceptor };
 }
 
@@ -114,6 +118,8 @@ export function passCut2(input: Cut2Input) {
 export interface PassResolveInput {
   passer: Piece;
   receiver: Piece;
+  /** パサー側が消極的戦術ペナルティ中の場合など、カットされやすくする補正 */
+  passerPenaltyMod?: number;
   /** コースを横切る守備コマ（ZOC/ZOC2内）。最初の1体のみパスカット1対象 */
   cut1Interceptor: Piece | null;
   cut1Zoc: ZocAdjacency;
@@ -133,11 +139,11 @@ export interface PassResolveInput {
  * 処理順: パスカット1 → パスカット2 → 配送成功
  */
 export function resolvePass(input: PassResolveInput): PassCutResult {
-  const { passer, receiver, cut1Interceptor, cut1Zoc, cut2Defenders, cut2Zoc } = input;
+  const { passer, receiver, passerPenaltyMod = 0, cut1Interceptor, cut1Zoc, cut2Defenders, cut2Zoc } = input;
 
   // パスカット1
   if (cut1Interceptor) {
-    const c1 = passCut1({ interceptor: cut1Interceptor, passer, zoc: cut1Zoc });
+    const c1 = passCut1({ interceptor: cut1Interceptor, passer, zoc: cut1Zoc, defenseBonusMod: passerPenaltyMod });
     if (c1.success) {
       return { cut1: c1, outcome: 'cut1' };
     }
@@ -146,7 +152,7 @@ export function resolvePass(input: PassResolveInput): PassCutResult {
   // パスカット2（トリガー: 受け手ZOC内の守備コマの最初の1体）
   const cut2Trigger = cut2Defenders[0] ?? null;
   if (cut2Trigger) {
-    const c2 = passCut2({ interceptor: cut2Trigger, receiver, zoc: cut2Zoc });
+    const c2 = passCut2({ interceptor: cut2Trigger, receiver, zoc: cut2Zoc, defenseBonusMod: passerPenaltyMod });
     if (c2.success) {
       return { cut2: c2, outcome: 'cut2' };
     }

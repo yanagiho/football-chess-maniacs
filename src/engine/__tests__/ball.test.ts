@@ -124,7 +124,7 @@ describe('パス命令', () => {
 
     const acquired = result.events.find(e => e.type === 'BALL_ACQUIRED');
     expect((acquired as any).pieceId).toBe('fw2');
-    expect(result.deliveredPass).toEqual({ passerId: 'mf1', receiverId: 'fw2' });
+    expect(result.deliveredPass).toEqual({ passerId: 'mf1', receiverId: 'fw2', kind: 'pass' });
 
     // ボール所有権が移転していること
     const updatedPasser = result.pieces.find(p => p.id === 'mf1');
@@ -258,6 +258,10 @@ describe('スルーパス敵取得', () => {
     const looseBall = result.events.find(e => e.type === 'LOOSE_BALL');
     expect(looseBall).toBeDefined();
     expect(result.pieces.find(p => p.id === 'mf1')?.hasBall).toBe(false);
+    expect(result.freeBallHex).toBeDefined();
+    expect(result.freeBallLastTouchedTeam).toBe('home');
+    expect(result.freeBallLastTouchedPieceId).toBe('mf1');
+    expect(result.freeBallSource).toBe('throughPass');
 
     randomSpy.mockRestore();
   });

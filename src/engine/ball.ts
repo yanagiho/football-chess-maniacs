@@ -22,6 +22,7 @@ import {
 import type {
   BallAcquiredEvent,
   BoardContext,
+  FreeBallSource,
   GameEvent,
   HexCoord,
   Order,
@@ -45,6 +46,7 @@ const GOAL_CENTER_COL = 10;
 
 /** 正確パス距離 */
 const BASE_ACCURATE_PASS_RANGE = 6;
+const PASSIVE_TACTICS_PASS_CUT_BONUS = 10;
 
 /** ロングパスのズレ処理 */
 function resolvePassDeviation(
@@ -157,13 +159,23 @@ export interface BallResult {
   pieces: Piece[];
   events: GameEvent[];
   /** フェーズ3のオフサイド判定で参照するパス配送情報 */
-  deliveredPass: { passerId: string; receiverId: string } | null;
+  deliveredPass: { passerId: string; receiverId: string; kind?: 'pass' | 'throughPass' } | null;
+  /** このフェーズで新しく発生したフリーボール */
+  freeBallHex: HexCoord | null;
+  freeBallLastTouchedTeam: Team | null;
+  freeBallLastTouchedPieceId: string | null;
+  freeBallSource: FreeBallSource | null;
+}
+
+export interface BallOptions {
+  passivePenaltyTeams?: Team[];
 }
 
 export function processBall(
   piecesIn: Piece[],
   orders: Order[],
   context: BoardContext,
+  options: BallOptions = {},
 ): BallResult {
   const events: GameEvent[] = [];
   const pieces: Piece[] = piecesIn.map(p => ({ ...p, coord: { ...p.coord } }));
@@ -171,6 +183,11 @@ export function processBall(
   const orderMap  = new Map(orders.map(o => [o.pieceId, o]));
 
   let deliveredPass: BallResult['deliveredPass'] = null;
+  let freeBallHex: HexCoord | null = null;
+  let freeBallLastTouchedTeam: Team | null = null;
+  let freeBallLastTouchedPieceId: string | null = null;
+  let freeBallSource: FreeBallSource | null = null;
+  const passivePenaltyTeams = new Set(options.passivePenaltyTeams ?? []);
 
   // ────────────────────────────────────────────────────────
   // ステップ6: シュート判定チェーン
@@ -305,6 +322,7 @@ export function processBall(
         const passResult = resolvePass({
           passer,
           receiver,
+          passerPenaltyMod: passivePenaltyTeams.has(passer.team) ? PASSIVE_TACTICS_PASS_CUT_BONUS : 0,
           cut1Interceptor,
           cut1Zoc,
           cut2Defenders,
@@ -314,7 +332,7 @@ export function processBall(
         if (passResult.outcome === 'delivered') {
           passer.hasBall   = false;
           receiver.hasBall = true;
-          deliveredPass = { passerId: passer.id, receiverId: receiver.id };
+          deliveredPass = { passerId: passer.id, receiverId: receiver.id, kind: 'pass' };
           events.push({
             type: 'PASS_DELIVERED',
             phase: 2,
@@ -379,13 +397,19 @@ export function processBall(
         };
 
         const passResult = resolvePass({
-          passer, receiver, cut1Interceptor, cut1Zoc, cut2Defenders, cut2Zoc,
+          passer,
+          receiver,
+          passerPenaltyMod: passivePenaltyTeams.has(passer.team) ? PASSIVE_TACTICS_PASS_CUT_BONUS : 0,
+          cut1Interceptor,
+          cut1Zoc,
+          cut2Defenders,
+          cut2Zoc,
         });
 
         if (passResult.outcome === 'delivered') {
           passer.hasBall = false;
           receiver.hasBall = true;
-          deliveredPass = { passerId: passer.id, receiverId: receiver.id };
+          deliveredPass = { passerId: passer.id, receiverId: receiver.id, kind: 'throughPass' };
           events.push({
             type: 'PASS_DELIVERED', phase: 2,
             passerId: passer.id, receiverId: receiver.id,
@@ -421,11 +445,23 @@ export function processBall(
         } else {
           // 誰もいない → フリーボール
           passer.hasBall = false;
+          freeBallHex = targetCoord;
+          freeBallLastTouchedTeam = passer.team;
+          freeBallLastTouchedPieceId = passer.id;
+          freeBallSource = 'throughPass';
           events.push({ type: 'LOOSE_BALL', phase: 2, coord: targetCoord, acquiredBy: null } as LooseBallEvent);
         }
       }
     }
   }
 
-  return { pieces, events, deliveredPass };
+  return {
+    pieces,
+    events,
+    deliveredPass,
+    freeBallHex,
+    freeBallLastTouchedTeam,
+    freeBallLastTouchedPieceId,
+    freeBallSource,
+  };
 }

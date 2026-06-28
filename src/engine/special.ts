@@ -36,7 +36,7 @@ export function processSpecial(
   /** フェーズ0 スナップショット（移動前の全コマ位置） */
   snapshot: Piece[],
   /** フェーズ2で確定したパス配送情報（null なら判定スキップ） */
-  deliveredPass: { passerId: string; receiverId: string } | null,
+  deliveredPass: { passerId: string; receiverId: string; kind?: 'pass' | 'throughPass' } | null,
 ): SpecialResult {
   const events: GameEvent[] = [];
   const pieces: Piece[] = piecesIn.map(p => ({ ...p, coord: { ...p.coord } }));
@@ -79,6 +79,7 @@ export function processSpecial(
       phase: 3,
       receiverId: receiver.id,
       passerId: passer.id,
+      source: deliveredPass.kind ?? 'pass',
       result: osResult,
     } as OffsideEvent);
 

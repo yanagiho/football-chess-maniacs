@@ -366,6 +366,8 @@ function formatEvent(event: GameEvent): string {
     case 'PASS_DELIVERED': return t('sidepanel.event_pass_delivered');
     case 'PASS_CUT': return t('sidepanel.event_pass_cut');
     case 'OFFSIDE': return t('sidepanel.event_offside');
+    case 'BATTLE_DELAY': return t('sidepanel.event_battle_delay');
+    case 'PASSIVE_TACTICS': return t('sidepanel.event_passive_tactics');
     case 'COLLISION': return t('sidepanel.event_collision');
     case 'BALL_ACQUIRED': return t('sidepanel.event_ball_acquired');
     default: return event.type;
@@ -379,6 +381,8 @@ function eventColor(type: string): string {
     case 'PASS_DELIVERED': return '#8cf';
     case 'PASS_CUT': return '#f80';
     case 'OFFSIDE': return '#ff0';
+    case 'BATTLE_DELAY': return '#facc15';
+    case 'PASSIVE_TACTICS': return '#fb7185';
     case 'TACKLE': return '#fc8';
     case 'COLLISION': return '#c8f';
     default: return '#aaa';

@@ -947,7 +947,19 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         }
 
         // 3. エンジン Board 構築
-        const board: EngineBoard = { pieces: enginePieces, snapshot: [], freeBallHex: state.board.freeBallHex ?? null };
+        // THROUGH_PASS入力時のfreeBallHexはUI仮表示なので、エンジンには渡さない。
+        // 前ターンから残った本物のフリーボールだけをPhase1.5で争奪させる。
+        const hasPendingThroughPass = [...state.orders.values()].some(o => o.action === 'throughPass');
+        const board: EngineBoard = {
+          pieces: enginePieces,
+          snapshot: [],
+          freeBallHex: hasPendingThroughPass ? null : state.board.freeBallHex ?? null,
+          freeBallLastTouchedTeam: hasPendingThroughPass ? null : state.board.freeBallLastTouchedTeam ?? null,
+          freeBallLastTouchedPieceId: hasPendingThroughPass ? null : state.board.freeBallLastTouchedPieceId ?? null,
+          freeBallSource: hasPendingThroughPass ? null : state.board.freeBallSource ?? null,
+          possessionDelay: state.board.possessionDelay ?? null,
+          passiveTacticsTeams: state.board.passiveTacticsTeams ?? [],
+        };
 
         // 4. processTurn 実行（Phase0〜3: 移動→タックル→ファウル→シュート→パスカット→オフサイド）
         const turnResult = processTurn(board, homeOrders, awayOrders, boardContext);
@@ -1009,6 +1021,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             scoreHome: newScoreHome,
             scoreAway: newScoreAway,
             freeBallHex: turnResult.board.freeBallHex ?? null,
+            freeBallLastTouchedTeam: turnResult.board.freeBallLastTouchedTeam ?? null,
+            freeBallLastTouchedPieceId: turnResult.board.freeBallLastTouchedPieceId ?? null,
+            freeBallSource: turnResult.board.freeBallSource ?? null,
+            possessionDelay: turnResult.board.possessionDelay ?? null,
+            passiveTacticsTeams: turnResult.board.passiveTacticsTeams ?? [],
           });
           await wait(800); // CSS transition完了を待つ
 
@@ -1166,6 +1183,18 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             if (ev.type === 'LOOSE_BALL') {
               showOverlay('LOOSE BALL!', { duration: 1000, fontSize: 40 });
               await wait(400);
+            }
+          }
+
+          // 遅延行為 / 消極的戦術
+          for (const ev of evts) {
+            if (ev.type === 'BATTLE_DELAY') {
+              showOverlay('DELAY!', { duration: 1200, color: '#FACC15', fontSize: 44 });
+              await wait(500);
+            }
+            if (ev.type === 'PASSIVE_TACTICS') {
+              showOverlay('PASSIVE TACTICS!', { duration: 1200, color: '#FB7185', fontSize: 38 });
+              await wait(500);
             }
           }
 

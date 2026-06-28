@@ -11,6 +11,9 @@ export type Cost = 1 | 1.5 | 2 | 2.5 | 3;
 /** 所属チーム */
 export type Team = 'home' | 'away';
 
+/** フリーボールの発生元 */
+export type FreeBallSource = 'throughPass' | 'loose';
+
 /** HEX座標 */
 export interface HexCoord {
   col: number;
@@ -51,6 +54,16 @@ export interface Board {
   snapshot: Piece[];
   /** フリーボール位置（誰も持っていない場合のHEX座標） */
   freeBallHex?: HexCoord | null;
+  /** フリーボールを最後に触ったチーム（スペースパス後のオフサイド判定用） */
+  freeBallLastTouchedTeam?: Team | null;
+  /** フリーボールを最後に触ったコマID（スペースパス後のオフサイド判定用） */
+  freeBallLastTouchedPieceId?: string | null;
+  /** フリーボール発生元 */
+  freeBallSource?: FreeBallSource | null;
+  /** 自陣保持による遅延行為カウント */
+  possessionDelay?: PossessionDelayState | null;
+  /** 消極的戦術ペナルティ中のチーム */
+  passiveTacticsTeams?: Team[];
 }
 
 // ============================================================
@@ -120,6 +133,12 @@ export interface OffsideResult {
   isGrayZone: boolean;
   /** グレーゾーン判定（50%）の結果 */
   grayZoneRoll?: number;
+}
+
+/** 自陣保持による遅延行為カウント */
+export interface PossessionDelayState {
+  team: Team | null;
+  count: number;
 }
 
 // ============================================================
@@ -220,7 +239,25 @@ export interface OffsideEvent {
   receiverId: string;
   /** パスを出したコマID */
   passerId: string;
+  /** スペース/フリーボール取得時に発生したオフサイドか */
+  source?: 'pass' | 'throughPass' | 'freeBall';
   result: OffsideResult;
+}
+
+export interface BattleDelayEvent {
+  type: 'BATTLE_DELAY';
+  phase: 3;
+  team: Team;
+  count: number;
+  coord: HexCoord;
+  awardedToPieceId?: string;
+}
+
+export interface PassiveTacticsEvent {
+  type: 'PASSIVE_TACTICS';
+  phase: 3;
+  team: Team;
+  pieceCount: number;
 }
 
 export interface BallAcquiredEvent {
@@ -247,6 +284,8 @@ export type GameEvent =
   | PassDeliveredEvent
   | PassCutEvent
   | OffsideEvent
+  | BattleDelayEvent
+  | PassiveTacticsEvent
   | BallAcquiredEvent
   | LooseBallEvent;
 

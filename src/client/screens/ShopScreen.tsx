@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import type { Page, Position, Cost } from '../types';
+import { pieceCostToIngots, costToDisplay } from '../../types/piece';
 import PieceIcon from '../components/board/PieceIcon';
 import { t } from '../i18n';
 
@@ -15,19 +16,8 @@ interface ShopScreenProps {
 
 const ALL_POSITIONS: Position[] = ['GK', 'DF', 'SB', 'VO', 'MF', 'OM', 'WG', 'FW'];
 
-/** コスト帯 → インゴット価格（ランク帯: 低=1, 中=2, 高=3） */
-function ingotPrice(cost: Cost): number {
-  if (cost >= 3) return 3;
-  if (cost >= 2) return 2;
-  return 1;
-}
-
-function costDisplay(cost: Cost): string {
-  if (cost === 3) return 'SS';
-  if (cost === 2.5) return '2+';
-  if (cost === 1.5) return '1+';
-  return String(cost);
-}
+// 価格・表示変換は src/types/piece.ts の正本（pieceCostToIngots / costToDisplay）を使用する。
+// クライアントで再定義するとサーバー（api/shop.ts）と乖離するため import する。
 
 interface CatalogItem {
   pieceId: number;
@@ -57,7 +47,7 @@ function buildFallbackCatalog(): CatalogItem[] {
     for (const cost of costs) {
       items.push({
         pieceId: id++,
-        name: `${pos} ${costDisplay(cost)}`,
+        name: `${pos} ${costToDisplay(cost)}`,
         position: pos,
         cost,
         owned: false,
@@ -133,7 +123,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
       setToast(t('shop.login_required'));
       return;
     }
-    const price = ingotPrice(item.cost);
+    const price = pieceCostToIngots(item.cost);
     if (balance !== null && balance < price) {
       setToast(t('shop.insufficient_ingots'));
       return;
@@ -252,7 +242,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
         gap: 10, width: '100%', maxWidth: 460,
       }}>
         {visible.map((item) => {
-          const price = ingotPrice(item.cost);
+          const price = pieceCostToIngots(item.cost);
           const isSS = item.cost >= 2.5;
           const isBuying = buyingId === item.pieceId;
           const affordable = balance === null || balance >= price;
@@ -269,7 +259,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
                 {item.name}
               </div>
               <div style={{ fontSize: 11, color: isSS ? '#ffd700' : '#8aa', }}>
-                {item.position} · {costDisplay(item.cost)}
+                {item.position} · {costToDisplay(item.cost)}
               </div>
               {item.owned ? (
                 <div style={{

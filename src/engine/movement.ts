@@ -244,12 +244,20 @@ export interface MovementResult {
   freeBallHex: HexCoord | null;
 }
 
+export interface MovementOptions {
+  passivePenaltyTeams?: Team[];
+}
+
+const PASSIVE_TACTICS_TACKLE_BONUS = 10;
+
 export function processMovement(
   piecesIn: Piece[],
   orders: Order[],
   context: BoardContext,
+  options: MovementOptions = {},
 ): MovementResult {
   const events: GameEvent[] = [];
+  const passivePenaltyTeams = new Set(options.passivePenaltyTeams ?? []);
 
   // ── コマのディープコピー（フェーズ内で状態を変更するため）
   const pieces: Piece[] = piecesIn.map(p => ({ ...p, coord: { ...p.coord } }));
@@ -335,7 +343,12 @@ export function processMovement(
       const dribbler = pieceA.hasBall ? pieceA : pieceB;
       const tackler  = pieceA.hasBall ? pieceB : pieceA;
       const adj = getZocAdjacency(coord, dribbler.team, pieces);
-      const tackleResult = resolveTackle({ tackler, dribbler, zoc: adj });
+      const tackleResult = resolveTackle({
+        tackler,
+        dribbler,
+        zoc: adj,
+        defenseBonusMod: passivePenaltyTeams.has(dribbler.team) ? PASSIVE_TACTICS_TACKLE_BONUS : 0,
+      });
 
       events.push({ type: 'TACKLE', phase: 1, coord, result: tackleResult } as TackleEvent);
 
@@ -378,7 +391,12 @@ export function processMovement(
 
     const coord = intent.finalCoord;
     const adj   = getZocAdjacency(coord, dribbler.team, pieces);
-    const tackleResult = resolveTackle({ tackler, dribbler, zoc: adj });
+    const tackleResult = resolveTackle({
+      tackler,
+      dribbler,
+      zoc: adj,
+      defenseBonusMod: passivePenaltyTeams.has(dribbler.team) ? PASSIVE_TACTICS_TACKLE_BONUS : 0,
+    });
 
     events.push({ type: 'TACKLE', phase: 1, coord, result: tackleResult } as TackleEvent);
 

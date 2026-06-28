@@ -42,6 +42,8 @@ export interface TackleInput {
    * 攻撃側ZOC隣接: 1体につき -10
    */
   zoc: ZocAdjacency;
+  /** ドリブラー側が消極的戦術ペナルティ中の場合など、守備側成功率へ直接加算する補正 */
+  defenseBonusMod?: number;
 }
 
 /**
@@ -51,7 +53,7 @@ export interface TackleInput {
  * 攻撃側ZOC隣接: 1体につき -10
  */
 export function resolveTackle(input: TackleInput): TackleResult {
-  const { tackler, dribbler, zoc } = input;
+  const { tackler, dribbler, zoc, defenseBonusMod = 0 } = input;
   const omega = 18;
 
   const posMod =
@@ -61,7 +63,7 @@ export function resolveTackle(input: TackleInput): TackleResult {
   // 守備側ZOC隣接: +5 / 攻撃側ZOC隣接: -10
   const zocMod = calcZocModifier(zoc, -10, +5);
 
-  const prob = calcProbability(tackler.cost, dribbler.cost, omega, posMod, zocMod);
+  const prob = calcProbability(tackler.cost, dribbler.cost, omega, posMod + defenseBonusMod, zocMod);
   const result = judge(prob);
 
   return {

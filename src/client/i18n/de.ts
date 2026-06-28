@@ -343,6 +343,8 @@ const de: Dict = {
   'sidepanel.event_pass_delivered': 'Pass angekommen',
   'sidepanel.event_pass_cut': 'Pass unterbrochen',
   'sidepanel.event_offside': 'Abseits',
+  'sidepanel.event_battle_delay': 'Zeitspiel',
+  'sidepanel.event_passive_tactics': 'Passive Taktik',
   'sidepanel.event_collision': 'Kollision',
   'sidepanel.event_ball_acquired': 'Ball erobert',
 
