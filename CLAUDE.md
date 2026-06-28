@@ -231,7 +231,8 @@ public/
 | 対人対戦3ブロッカー修正（2026-06-28, `f2e11c8`/`e5f55ef`） | ①Hibernationで手消失: `turnInputs`をインメモリMap→`GameState`永続化。②編成未反映: `createBoardFromFormation`新設、`handleInit`がD1 `teams.field_pieces`をロードしコスト/座標を盤面反映(awayミラー)、得点/HT再生成にも使用、未指定は4-4-2フォールバック。③レーティング未永続: 孤立していた`server/rating.ts`を結線、queueで`persistRatings`(Elo+W/L/D UPSERT)、matchmakingはD1の`getRating`(サーバー権威)。テスト計19件追加 | ✅ |
 | ShopScreen価格ロジック統一（2026-06-28, `3481b1a`） | `pieceCostToIngots`/`costToDisplay`をローカル再定義から正本(`types/piece.ts`)importに統一（サーバー`api/shop.ts`とのドリフト防止） | ✅ |
 | オンライン最後の1マイル（2026-06-28, `8fc5c94`） | Matching: JOIN_QUEUEで実teamId送信(resolveActiveTeamId)→編成反映が完結。rating申告は0(サーバーD1値で上書き)。game_session: player_idを`attachment.userId`で上書き(なりすまし防止+空player_id解消) | ✅ |
-| 選手交代の実装（2026-06-28, `d4becd7`） | `substitute`を型のみ→実処理化。エンジンに`Order.benchPieceId`/`Board.bench`/`SubstitutionEvent`/`applySubstitutions`(フェーズ-1,座標・ボール継承)追加(テスト4件)。クライアントCOMで機能(bench配線/isBench再構築/回数ガード`MAX_SUBSTITUTIONS`/SidePanelログ7言語)。DO経路はbench読込が残課題 | ✅ |
+| 選手交代の実装（2026-06-28, `d4becd7`/`a03b243`） | `substitute`を型のみ→実処理化。エンジンに`Order.benchPieceId`/`Board.bench`/`SubstitutionEvent`/`applySubstitutions`(フェーズ-1,座標・ボール継承)追加(テスト4件)。クライアントCOMで機能(bench配線/isBench再構築/回数ガード`MAX_SUBSTITUTIONS`/SidePanelログ7言語)。DO/PvP経路も完成(teams.bench_pieces読込/remainingSubs減算/boardToPieceInfosにbench、テスト3件) | ✅ |
+| CollectionScreen実データ化（2026-06-28, `c44ed82`） | モック→`/api/shop/catalog`(piece_master 200枚+所持フラグ)。era_shelf(1-7)表示、総数=実カタログ件数、API失敗時フォールバック。authToken伝播 | ✅ |
 
 ---
 
@@ -740,8 +741,8 @@ Platform認証はJWT（JWKS署名検証）+ サービスAPIキー + HMAC応答/W
 | 🟠 | クライアントが `JOIN_QUEUE` で `teamId='default'` 固定送信。実teamIdを送れば編成反映が完結する（サーバー側は対応済み） | `client/pages/Matching.tsx:37-38` |
 | 🟠 | オンライン対戦のWS送信が `player_id=''` / `client_hash=''`（盤面ハッシュ未実装）。サーバー統合とE2Eが未完 | `client/pages/Battle.tsx:1419-1423` |
 | 🟠 | リプレイ視聴のデータ配線欠落（`setReplayTurns` 未呼出で常に空配列）。`/replays/:id/turn/:turn` は誰も書かず実質stub | `client/App.tsx:77` / `api/replay.ts` |
-| ✅ | 選手交代: エンジン(applySubstitutions)+クライアントCOM経路で実装済み(`d4becd7`)。残: GameSession DOへの`teams.bench_pieces`読込 + remainingSubs減算 + 得点後リスタートの交代保持(DO/PvPはE2E未検証) | `game_session.ts` |
-| 🟡 | Collection/Ranking/FriendMatch がモックデータ（API未接続） | `client/screens/*` |
+| ✅ | 選手交代: エンジン(applySubstitutions)+クライアントCOM(`d4becd7`)+DO/PvP・サーバーCOM(`a03b243`)で実装済み。残: COM AIへのbench供給(現状AIは交代提案せず) / 得点後リスタートでDOは交代がリセット(クライアントは保持)の挙動差 / オンラインE2E未検証 | `game_session.ts` |
+| 🟡 | Ranking/FriendMatch がモックデータ（API未接続）。Collectionは実データ化済(`c44ed82`)。RankingはPvP対戦が無いと空になる点に注意 | `client/screens/*` |
 | 🟡 | デッドコード整理: `pages/Result.tsx`・`pages/HalfTime.tsx`（到達不能）、`api/auth.ts` の `/purchase`（未マウント） | — |
 | 🟡 | `public/assets/characters/`（PK/FKスプライト9枚）がgit未追跡・未参照。配線時に追加 | — |
 
