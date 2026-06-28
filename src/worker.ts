@@ -11,6 +11,7 @@ import matchRoutes from './api/match';
 import replayRoutes from './api/replay';
 import aiRoutes from './api/ai';
 import piecesRoutes from './api/pieces';
+import rankingRoutes from './api/ranking';
 import shopRoutes from './api/shop';
 import webhookRoutes from './api/webhooks';
 import { jwtMiddleware, verifyJwt } from './middleware/jwt_verify';
@@ -163,6 +164,7 @@ api.use('*', rateLimitMiddleware(RATE_LIMITS.restApi));
 api.route('/teams', teamRoutes);
 api.route('/replays', replayRoutes);
 api.route('/pieces', piecesRoutes);
+api.route('/ranking', rankingRoutes);
 
 app.route('/api', api);
 

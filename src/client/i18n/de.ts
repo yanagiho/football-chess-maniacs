@@ -228,6 +228,8 @@ const de: Dict = {
   'ranking.tab_overall': 'Gesamt',
   'ranking.tab_weekly': 'Diese Woche',
   'ranking.tab_friends': 'Freunde',
+  'ranking.coming_soon': 'Demnächst',
+  'ranking.empty': 'Noch keine gewerteten Spiele',
 
   // ----- 設定画面(settings.*) -----
   'settings.speed_slow': 'Langsam',

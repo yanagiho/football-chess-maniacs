@@ -238,7 +238,7 @@ export default function App() {
           <Replay onNavigate={navigate} matchId={matchId ?? undefined} />
         )}
         {page === 'shop' && <ShopScreen onNavigate={navigate} authToken={authToken} />}
-        {page === 'ranking' && <RankingScreen onNavigate={navigate} />}
+        {page === 'ranking' && <RankingScreen onNavigate={navigate} authToken={authToken} />}
         {page === 'collection' && <CollectionScreen onNavigate={navigate} authToken={authToken} />}
         {page === 'profile' && <ProfileScreen onNavigate={navigate} />}
         {page === 'settings' && <SettingsScreen onNavigate={navigate} />}

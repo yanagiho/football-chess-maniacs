@@ -228,6 +228,8 @@ const en: Dict = {
   'ranking.tab_overall': 'Overall',
   'ranking.tab_weekly': 'Weekly',
   'ranking.tab_friends': 'Friends',
+  'ranking.coming_soon': 'Coming soon',
+  'ranking.empty': 'No ranked matches yet',
 
   // ----- settings (settings.*) -----
   'settings.speed_slow': 'Slow',

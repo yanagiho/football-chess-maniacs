@@ -229,6 +229,8 @@ const ko: Dict = {
   'ranking.tab_overall': '종합',
   'ranking.tab_weekly': '이번 주',
   'ranking.tab_friends': '친구',
+  'ranking.coming_soon': '준비 중',
+  'ranking.empty': '아직 랭킹 전적이 없습니다',
 
   // ----- 設定画面(settings.*) -----
   'settings.speed_slow': '느림',

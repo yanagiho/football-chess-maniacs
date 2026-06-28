@@ -228,6 +228,8 @@ const pt: Dict = {
   'ranking.tab_overall': 'Geral',
   'ranking.tab_weekly': 'Semanal',
   'ranking.tab_friends': 'Amigos',
+  'ranking.coming_soon': 'Em breve',
+  'ranking.empty': 'Ainda não há partidas ranqueadas',
 
   // ----- settings (settings.*) -----
   'settings.speed_slow': 'Lenta',

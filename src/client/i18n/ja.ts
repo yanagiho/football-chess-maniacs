@@ -229,6 +229,8 @@ const ja: Dict = {
   'ranking.tab_overall': '総合',
   'ranking.tab_weekly': '今週',
   'ranking.tab_friends': 'フレンド',
+  'ranking.coming_soon': '準備中',
+  'ranking.empty': 'まだ対戦記録がありません',
 
   // ----- 設定画面(settings.*) -----
   'settings.speed_slow': '遅い',

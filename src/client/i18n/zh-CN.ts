@@ -229,6 +229,8 @@ const zhCN: Dict = {
   'ranking.tab_overall': '总榜',
   'ranking.tab_weekly': '本周',
   'ranking.tab_friends': '好友',
+  'ranking.coming_soon': '敬请期待',
+  'ranking.empty': '暂无排位记录',
 
   // ----- 設定画面(settings.*) -----
   'settings.speed_slow': '慢',
