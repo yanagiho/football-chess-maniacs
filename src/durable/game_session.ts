@@ -12,12 +12,13 @@ import { processTurn, hasGoal, getFoulEvent } from '../engine/turn_processor';
 import type { Order, Team } from '../engine/types';
 import type { Difficulty, Era } from '../ai/prompt_builder';
 import {
-  type GameState, type WsAttachment, type FormationFieldPiece,
+  type GameState, type WsAttachment, type FormationFieldPiece, type BenchFieldPiece,
   TURN_TIMEOUT_MS, DISCONNECT_GRACE_MS, MAX_NONCE_HISTORY,
   TURNS_PER_HALF, MAX_AT,
   boardContext, boardToPieceInfos, rawOrderToEngine,
-  createBoardFromFormation, createEmptyTurnInput, isValidField,
+  createBoardFromFormation, createEmptyTurnInput, isValidField, isValidBench,
 } from './game_session_helpers';
+import type { SubstitutionEvent } from '../engine/types';
 import { generateComOrders } from './com_ai_integration';
 import { timingSafeEqual } from '../middleware/crypto_utils';
 
@@ -127,8 +128,12 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     // 各チームの編成を D1 から読み込む（未指定/不正時は null → 固定4-4-2にフォールバック）
-    const homeField = await this.loadTeamField(body.homeTeamId);
-    const awayField = await this.loadTeamField(body.awayTeamId);
+    const homeTeam = await this.loadTeam(body.homeTeamId);
+    const awayTeam = await this.loadTeam(body.awayTeamId);
+    const homeField = homeTeam.field;
+    const awayField = awayTeam.field;
+    const homeBench = homeTeam.bench;
+    const awayBench = awayTeam.bench;
 
     const kickoffTeam: Team = Math.random() < 0.5 ? 'home' : 'away';
     const firstHalfAT = Math.floor(Math.random() * MAX_AT) + 1;
@@ -141,9 +146,11 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       homeUserId: body.homeUserId,
       awayUserId: body.awayUserId,
       turn: 1,
-      board: createBoardFromFormation(homeField, awayField, kickoffTeam),
+      board: createBoardFromFormation(homeField, awayField, kickoffTeam, homeBench, awayBench),
       homeField,
       awayField,
+      homeBench,
+      awayBench,
       scoreHome: 0,
       scoreAway: 0,
       status: 'playing',
@@ -173,21 +180,28 @@ export class GameSession extends DurableObject<Env['Bindings']> {
   }
 
   /**
-   * D1 teams.field_pieces からチーム編成を読み込む。
-   * teamId 未指定/存在しない/不正JSON/盤面化不能なら null（→ 固定4-4-2にフォールバック）。
+   * D1 teams から編成（field_pieces）とベンチ（bench_pieces）を読み込む。
+   * teamId 未指定/存在しない/不正JSON/盤面化不能なら null（→ 固定4-4-2にフォールバック / ベンチなし）。
    */
-  private async loadTeamField(teamId?: string): Promise<FormationFieldPiece[] | null> {
-    if (!teamId || typeof teamId !== 'string') return null;
+  private async loadTeam(teamId?: string): Promise<{
+    field: FormationFieldPiece[] | null;
+    bench: BenchFieldPiece[] | null;
+  }> {
+    if (!teamId || typeof teamId !== 'string') return { field: null, bench: null };
     try {
       const row = await this.env.DB
-        .prepare('SELECT field_pieces FROM teams WHERE id = ?')
+        .prepare('SELECT field_pieces, bench_pieces FROM teams WHERE id = ?')
         .bind(teamId)
-        .first<{ field_pieces: string }>();
-      if (!row?.field_pieces) return null;
-      const parsed = JSON.parse(row.field_pieces);
-      return isValidField(parsed) ? parsed : null;
+        .first<{ field_pieces: string; bench_pieces: string }>();
+      if (!row?.field_pieces) return { field: null, bench: null };
+      const parsedField = JSON.parse(row.field_pieces);
+      const parsedBench = row.bench_pieces ? JSON.parse(row.bench_pieces) : null;
+      return {
+        field: isValidField(parsedField) ? parsedField : null,
+        bench: isValidBench(parsedBench) ? parsedBench : null,
+      };
     } catch {
-      return null;
+      return { field: null, bench: null };
     }
   }
 
@@ -372,9 +386,19 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     state.turn++;
     state.turnStartedAt = Date.now();
 
+    // 交代成立分だけ remainingSubs を減算（チーム→userId）
+    for (const ev of events) {
+      if (ev.type !== 'SUBSTITUTION') continue;
+      const uid = (ev as SubstitutionEvent).team === 'home' ? state.homeUserId : state.awayUserId;
+      if (state.remainingSubs[uid] != null) {
+        state.remainingSubs[uid] = Math.max(0, state.remainingSubs[uid] - 1);
+      }
+    }
+
     if (goalScoredBy) {
       const kickoffTeam: Team = goalScoredBy === 'home' ? 'away' : 'home';
-      state.board = createBoardFromFormation(state.homeField, state.awayField, kickoffTeam);
+      // 注: 得点後リスタートは編成テンプレートに戻すため、ハーフ内の交代は元に戻る（既存仕様）
+      state.board = createBoardFromFormation(state.homeField, state.awayField, kickoffTeam, state.homeBench, state.awayBench);
     }
 
     state.turnLog.push({
@@ -416,7 +440,7 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       state.half = 2;
       state.status = 'halftime';
       const secondHalfKickoff: Team = state.kickoffTeam === 'home' ? 'away' : 'home';
-      state.board = createBoardFromFormation(state.homeField, state.awayField, secondHalfKickoff);
+      state.board = createBoardFromFormation(state.homeField, state.awayField, secondHalfKickoff, state.homeBench, state.awayBench);
       state.status = 'playing';
 
       this.broadcast(JSON.stringify({

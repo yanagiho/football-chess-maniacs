@@ -9,6 +9,8 @@ import {
   createBoardFromFormation,
   createInitialBoard,
   isValidField,
+  isValidBench,
+  boardToPieceInfos,
   type FormationFieldPiece,
 } from '../game_session_helpers';
 
@@ -108,5 +110,35 @@ describe('createInitialBoard（フォールバック経路）', () => {
     const withBall = board.pieces.filter(p => p.hasBall);
     expect(withBall).toHaveLength(1);
     expect(withBall[0].team).toBe('home');
+  });
+});
+
+describe('ベンチ（交代の投入元）', () => {
+  it('isValidBench: position/cost を持つ配列なら有効', () => {
+    expect(isValidBench([{ position: 'FW', cost: 3 }])).toBe(true);
+    expect(isValidBench([])).toBe(true);
+    expect(isValidBench(null)).toBe(false);
+    expect(isValidBench([{ position: 'FW' }])).toBe(false);
+  });
+
+  it('createBoardFromFormation がベンチを盤面と別IDで生成', () => {
+    const bench = [{ position: 'FW' as const, cost: 3 }, { position: 'MF' as const, cost: 2 }];
+    const board = createBoardFromFormation(makeField(), makeField(), 'home', bench, []);
+    expect(board.bench).toHaveLength(2);
+    // ベンチIDは 12 番以降で盤面(01-11)と衝突しない
+    expect(board.bench!.map(p => p.id)).toEqual(['h12', 'h13']);
+    expect(board.bench!.every(p => p.team === 'home')).toBe(true);
+    // 盤面コマとIDが重複しない
+    const fieldIds = new Set(board.pieces.map(p => p.id));
+    expect(board.bench!.some(p => fieldIds.has(p.id))).toBe(false);
+  });
+
+  it('boardToPieceInfos がベンチを isBench:true で含む', () => {
+    const bench = [{ position: 'FW' as const, cost: 3 }];
+    const board = createBoardFromFormation(makeField(), makeField(), 'home', bench, []);
+    const infos = boardToPieceInfos(board);
+    const benchInfos = infos.filter(p => p.isBench);
+    expect(benchInfos).toHaveLength(1);
+    expect(benchInfos[0].id).toBe('h12');
   });
 });
