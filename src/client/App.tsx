@@ -3,28 +3,31 @@
 // ページ遷移管理。ゲームモード追跡。
 // ============================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import type { Page, GameMode, Team, FormationData, ComDifficulty, MatchEndData, MatchStats, MvpInfo, TurnSnapshot } from './types';
 
 import { SettingsProvider } from './contexts/SettingsContext';
 
+// 初回描画に必要なタイトル/モード選択は同期import。
+// それ以外（特に重い Battle + エンジン/ボード/ミニゲーム）は遅延ロードして初期バンドルを削減。
 import Title from './pages/Title';
 import ModeSelect from './pages/ModeSelect';
-import Formation from './pages/Formation';
-import Matching from './pages/Matching';
-import Battle from './pages/Battle';
-import HalfTime from './pages/HalfTime';
-import Replay from './pages/Replay';
 
-import ResultScreen from './screens/ResultScreen';
-import ShopScreen from './screens/ShopScreen';
-import RankingScreen from './screens/RankingScreen';
-import CollectionScreen from './screens/CollectionScreen';
-import ProfileScreen from './screens/ProfileScreen';
-import SettingsScreen from './screens/SettingsScreen';
-import FriendMatchScreen from './screens/FriendMatchScreen';
-import PresetTeamsScreen from './screens/PresetTeamsScreen';
-import ReplayScreen from './screens/ReplayScreen';
+const Formation = lazy(() => import('./pages/Formation'));
+const Matching = lazy(() => import('./pages/Matching'));
+const Battle = lazy(() => import('./pages/Battle'));
+const HalfTime = lazy(() => import('./pages/HalfTime'));
+const Replay = lazy(() => import('./pages/Replay'));
+
+const ResultScreen = lazy(() => import('./screens/ResultScreen'));
+const ShopScreen = lazy(() => import('./screens/ShopScreen'));
+const RankingScreen = lazy(() => import('./screens/RankingScreen'));
+const CollectionScreen = lazy(() => import('./screens/CollectionScreen'));
+const ProfileScreen = lazy(() => import('./screens/ProfileScreen'));
+const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
+const FriendMatchScreen = lazy(() => import('./screens/FriendMatchScreen'));
+const PresetTeamsScreen = lazy(() => import('./screens/PresetTeamsScreen'));
+const ReplayScreen = lazy(() => import('./screens/ReplayScreen'));
 
 import type { PresetTeam } from '../data/presetTeams';
 import { MAX_ROW } from './types';
@@ -170,6 +173,17 @@ export default function App() {
       `}</style>
 
       <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
+        <Suspense fallback={
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
+          }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%',
+              border: '4px solid rgba(255,255,255,0.1)', borderTopColor: '#44aa44',
+              animation: 'spin 1s linear infinite',
+            }} />
+          </div>
+        }>
         {page === 'title' && (
           <Title onNavigate={navigate} lastSetup={lastSetup} onQuickMatch={handleQuickMatch} />
         )}
@@ -241,6 +255,7 @@ export default function App() {
         {page === 'replayViewer' && (
           <ReplayScreen onNavigate={navigate} turns={replayTurns} myTeam={matchEndData.myTeam} />
         )}
+        </Suspense>
       </div>
     </SettingsProvider>
   );
