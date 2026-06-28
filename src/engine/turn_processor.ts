@@ -37,6 +37,7 @@ import type {
   PassiveTacticsEvent,
   Piece,
   PossessionDelayState,
+  SubstitutionEvent,
   Team,
   TurnResult,
 } from './types';
@@ -65,24 +66,33 @@ export function processTurn(
 ): TurnResult {
   const allEvents: GameEvent[] = [];
 
+  // 両チームの指示を結合
+  const allOrders: Order[] = [...homeOrders, ...awayOrders];
+
+  // ──────────────────────────────────────────────────────────
+  // フェーズ-1: 選手交代（スナップショット前に適用）
+  // 交代はターン開始時に行われるため、以降の全フェーズは交代後の配置で処理する。
+  // ──────────────────────────────────────────────────────────
+  const sub = applySubstitutions(board.pieces, board.bench ?? [], allOrders);
+  allEvents.push(...sub.events);
+  const activePieces = sub.pieces;
+  const benchAfter = sub.bench;
+
   // ──────────────────────────────────────────────────────────
   // フェーズ0: スナップショット
   // ターン開始時の全コマ位置を記録（オフサイド判定用）
   // ──────────────────────────────────────────────────────────
-  const snapshot: Piece[] = board.pieces.map(p => ({
+  const snapshot: Piece[] = activePieces.map(p => ({
     ...p,
     coord: { ...p.coord },
   }));
-  const turnStartHolderTeam = board.pieces.find(p => p.hasBall)?.team ?? null;
-
-  // 両チームの指示を結合
-  const allOrders: Order[] = [...homeOrders, ...awayOrders];
+  const turnStartHolderTeam = activePieces.find(p => p.hasBall)?.team ?? null;
 
   // ──────────────────────────────────────────────────────────
   // フェーズ1: コマ移動
   // ──────────────────────────────────────────────────────────
   const passivePenaltyTeams = board.passiveTacticsTeams ?? [];
-  const phase1 = processMovement(board.pieces, allOrders, context, { passivePenaltyTeams });
+  const phase1 = processMovement(activePieces, allOrders, context, { passivePenaltyTeams });
   allEvents.push(...phase1.events);
 
   // ──────────────────────────────────────────────────────────
@@ -170,9 +180,66 @@ export function processTurn(
     freeBallSource,
     possessionDelay: delayResult.possessionDelay,
     passiveTacticsTeams: passiveResult.passiveTacticsTeams,
+    bench: benchAfter,
   };
 
   return { board: newBoard, events: allEvents };
+}
+
+// ============================================================
+// 選手交代（フェーズ-1）
+// ============================================================
+
+/**
+ * substitute 命令を適用し、盤面コマとベンチコマを入れ替える。
+ * 投入コマは退場コマの座標とボール保持を引き継ぐ。
+ * 交代回数の上限（機会数・総数・コスト）は呼び出し側で検証済みとする（validation.ts rule12）。
+ *
+ * @returns 入れ替え後の pieces / bench（いずれも新配列）と SUBSTITUTION イベント
+ */
+function applySubstitutions(
+  pieces: Piece[],
+  bench: Piece[],
+  orders: Order[],
+): { pieces: Piece[]; bench: Piece[]; events: GameEvent[] } {
+  const subOrders = orders.filter(o => o.type === 'substitute' && o.benchPieceId);
+  if (subOrders.length === 0) {
+    return { pieces, bench, events: [] };
+  }
+
+  const events: GameEvent[] = [];
+  let field = pieces;
+  let benched = bench;
+
+  for (const order of subOrders) {
+    const outPiece = field.find(p => p.id === order.pieceId);
+    const inPiece = benched.find(p => p.id === order.benchPieceId);
+    // 退場/投入のどちらかが見つからない、または別チーム同士は無効（スキップ）
+    if (!outPiece || !inPiece || outPiece.team !== inPiece.team) continue;
+
+    // 投入コマ: 退場コマの座標とボール保持を引き継いで盤面へ
+    const swappedIn: Piece = {
+      ...inPiece,
+      coord: { ...outPiece.coord },
+      hasBall: outPiece.hasBall,
+    };
+    // 退場コマ: ボールを手放してベンチへ
+    const swappedOut: Piece = { ...outPiece, hasBall: false };
+
+    field = field.map(p => (p.id === outPiece.id ? swappedIn : p));
+    benched = benched.map(p => (p.id === inPiece.id ? swappedOut : p));
+
+    events.push({
+      type: 'SUBSTITUTION',
+      phase: 0,
+      team: outPiece.team,
+      outPieceId: outPiece.id,
+      inPieceId: inPiece.id,
+      coord: { ...outPiece.coord },
+    } as SubstitutionEvent);
+  }
+
+  return { pieces: field, bench: benched, events };
 }
 
 // ============================================================

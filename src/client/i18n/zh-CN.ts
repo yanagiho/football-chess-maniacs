@@ -346,6 +346,7 @@ const zhCN: Dict = {
   'sidepanel.event_offside': '越位',
   'sidepanel.event_battle_delay': '拖延比赛',
   'sidepanel.event_passive_tactics': '消极战术',
+  'sidepanel.event_substitution': '换人',
   'sidepanel.event_collision': '争抢',
   'sidepanel.event_ball_acquired': '获得球权',
 

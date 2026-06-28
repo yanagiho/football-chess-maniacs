@@ -64,6 +64,8 @@ export interface Board {
   possessionDelay?: PossessionDelayState | null;
   /** 消極的戦術ペナルティ中のチーム */
   passiveTacticsTeams?: Team[];
+  /** ベンチ控えコマ（交代の投入元）。盤面上には存在しない */
+  bench?: Piece[];
 }
 
 // ============================================================
@@ -78,6 +80,8 @@ export interface Order {
   target?: HexCoord; // 移動先 / パス先(受け手の移動前座標) / シュート先
   /** パス受け手のコマID（座標がフェーズ1移動でずれても確実に特定するため） */
   targetPieceId?: string;
+  /** 交代で投入するベンチコマのID（type==='substitute' のとき必須） */
+  benchPieceId?: string;
 }
 
 // ============================================================
@@ -266,6 +270,18 @@ export interface BallAcquiredEvent {
   pieceId: string;
 }
 
+export interface SubstitutionEvent {
+  type: 'SUBSTITUTION';
+  phase: 0;
+  team: Team;
+  /** 退場する（盤面→ベンチ）コマID */
+  outPieceId: string;
+  /** 投入する（ベンチ→盤面）コマID */
+  inPieceId: string;
+  /** 交代が行われた盤面座標 */
+  coord: HexCoord;
+}
+
 export interface LooseBallEvent {
   type: 'LOOSE_BALL';
   phase: 1 | 2;
@@ -287,6 +303,7 @@ export type GameEvent =
   | BattleDelayEvent
   | PassiveTacticsEvent
   | BallAcquiredEvent
+  | SubstitutionEvent
   | LooseBallEvent;
 
 // ============================================================

@@ -145,6 +145,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   const [halftimeSubsUsed, setHalftimeSubsUsed] = useState(0);
   const [halftimeCountdown, setHalftimeCountdown] = useState(30);
   const [halftimeReady, setHalftimeReady] = useState(false);
+  // インゲーム交代の使用数（ハーフタイム交代と合算で MAX_SUBSTITUTIONS を上限とする）
+  const [inGameSubsUsed, setInGameSubsUsed] = useState(0);
 
   // ── リプレイタイマー管理（cleanup用） ──
   const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -950,9 +952,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         // THROUGH_PASS入力時のfreeBallHexはUI仮表示なので、エンジンには渡さない。
         // 前ターンから残った本物のフリーボールだけをPhase1.5で争奪させる。
         const hasPendingThroughPass = [...state.orders.values()].some(o => o.action === 'throughPass');
+        // ベンチコマもエンジンに渡す（交代命令の投入元）
+        const benchEnginePieces = state.board.pieces.filter(p => p.isBench).map(toEnginePiece);
         const board: EngineBoard = {
           pieces: enginePieces,
           snapshot: [],
+          bench: benchEnginePieces,
           freeBallHex: hasPendingThroughPass ? null : state.board.freeBallHex ?? null,
           freeBallLastTouchedTeam: hasPendingThroughPass ? null : state.board.freeBallLastTouchedTeam ?? null,
           freeBallLastTouchedPieceId: hasPendingThroughPass ? null : state.board.freeBallLastTouchedPieceId ?? null,
@@ -982,10 +987,17 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         }
         goalScoredRef.current = { scored: goalScored, scorerTeam };
 
-        // 6. エンジン結果をクライアント形式に変換（ベンチコマを保持）
-        const newFieldPieces = enginePiecesToClient(turnResult.board.pieces, state.board.pieces);
-        const benchPieces = state.board.pieces.filter(p => p.isBench);
-        const newPieces = [...newFieldPieces, ...benchPieces];
+        // 6. エンジン結果をクライアント形式に変換
+        // 交代でベンチ↔盤面が入れ替わり得るため、isBench は結果のfield/benchで上書きする。
+        const newFieldPieces = enginePiecesToClient(turnResult.board.pieces, state.board.pieces)
+          .map(p => ({ ...p, isBench: false }));
+        const newBenchPieces = enginePiecesToClient(turnResult.board.bench ?? [], state.board.pieces)
+          .map(p => ({ ...p, isBench: true }));
+        const newPieces = [...newFieldPieces, ...newBenchPieces];
+
+        // 実際に成立した交代数を使用済みに加算（試合通算の予算）
+        const appliedSubs = turnResult.events.filter(e => e.type === 'SUBSTITUTION').length;
+        if (appliedSubs > 0) setInGameSubsUsed(n => n + appliedSubs);
 
         // 7. イベントログ保存
         setEvents(turnResult.events as unknown as GameEvent[]);
@@ -1455,8 +1467,18 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     [dispatch],
   );
 
+  // 交代の残り回数: 上限(MAX_SUBSTITUTIONS) − ハーフタイム使用 − インゲーム使用 − 今ターンの保留交代命令
+  const pendingSubOrders = [...state.orders.values()].filter(o => o.action === 'substitute').length;
+  const remainingSubs = Math.max(
+    0,
+    MAX_SUBSTITUTIONS - halftimeSubsUsed - inGameSubsUsed - pendingSubOrders,
+  );
+  const remainingSubsRef = useRef(remainingSubs);
+  remainingSubsRef.current = remainingSubs;
+
   const handleSubstitute = useCallback(
     (fieldPieceId: string, benchPieceId: string) => {
+      if (remainingSubsRef.current <= 0) return; // 上限到達 → 交代命令を追加しない
       dispatch({
         type: 'ADD_ORDER',
         order: { pieceId: fieldPieceId, action: 'substitute', benchPieceId },
@@ -2201,7 +2223,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           hasOrders={state.orders.size > 0}
           selectedHasOrder={selectedPiece ? state.orders.has(selectedPiece.id) : false}
           orderCount={state.orders.size}
-          remainingSubs={MAX_SUBSTITUTIONS}
+          remainingSubs={remainingSubs}
           benchPieces={myBenchPieces}
           onCancelSelection={() => {
             dispatch({ type: 'SELECT_PIECE', pieceId: null });

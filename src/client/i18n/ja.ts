@@ -346,6 +346,7 @@ const ja: Dict = {
   'sidepanel.event_offside': 'オフサイド',
   'sidepanel.event_battle_delay': '遅延行為',
   'sidepanel.event_passive_tactics': '消極的戦術',
+  'sidepanel.event_substitution': '交代',
   'sidepanel.event_collision': '競合',
   'sidepanel.event_ball_acquired': 'ボール獲得',
 

@@ -345,6 +345,7 @@ const pt: Dict = {
   'sidepanel.event_offside': 'Impedimento',
   'sidepanel.event_battle_delay': 'Cera',
   'sidepanel.event_passive_tactics': 'Tática passiva',
+  'sidepanel.event_substitution': 'Substituição',
   'sidepanel.event_collision': 'Colisão',
   'sidepanel.event_ball_acquired': 'Bola recuperada',
 

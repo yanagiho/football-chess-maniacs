@@ -346,6 +346,7 @@ const ko: Dict = {
   'sidepanel.event_offside': '오프사이드',
   'sidepanel.event_battle_delay': '지연 행위',
   'sidepanel.event_passive_tactics': '소극적 전술',
+  'sidepanel.event_substitution': '교체',
   'sidepanel.event_collision': '경합',
   'sidepanel.event_ball_acquired': '볼 획득',
 

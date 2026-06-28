@@ -345,6 +345,7 @@ const es: Dict = {
   'sidepanel.event_offside': 'Fuera de juego',
   'sidepanel.event_battle_delay': 'Pérdida de tiempo',
   'sidepanel.event_passive_tactics': 'Táctica pasiva',
+  'sidepanel.event_substitution': 'Sustitución',
   'sidepanel.event_collision': 'Choque',
   'sidepanel.event_ball_acquired': 'Balón recuperado',
 

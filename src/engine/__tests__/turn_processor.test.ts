@@ -29,6 +29,7 @@ import type {
   Piece,
   PieceMovedEvent,
   ShootEvent,
+  SubstitutionEvent,
   TackleEvent,
   Team,
 } from '../types';
@@ -586,6 +587,81 @@ describe('PASSIVE_TACTICS ペナルティ効果', () => {
     const base = runPassCutProb(undefined);
     const penalized = runPassCutProb(['home']);
     expect(penalized).toBe(base + PENALTY);
+  });
+});
+
+// ============================================================
+// 選手交代（substitute）— フェーズ-1でベンチコマと入れ替え
+// ============================================================
+describe('選手交代 (substitute)', () => {
+  it('盤面コマとベンチコマを入れ替え、座標を引き継ぎ SUBSTITUTION を発行', () => {
+    const onField = makePiece({ id: 'h05', team: 'home', position: 'MF', cost: 1, coord: { col: 7, row: 12 } });
+    const benchP = makePiece({ id: 'b01', team: 'home', position: 'MF', cost: 2.5, coord: { col: 0, row: 0 } });
+    const board: Board = { pieces: [onField], snapshot: [], bench: [benchP] };
+
+    const { board: nb, events } = processTurn(
+      board,
+      [{ pieceId: 'h05', type: 'substitute', benchPieceId: 'b01' }],
+      [],
+      makeContext(),
+    );
+
+    const subs = eventsOfType<SubstitutionEvent>(events, 'SUBSTITUTION');
+    expect(subs).toHaveLength(1);
+    expect(subs[0].outPieceId).toBe('h05');
+    expect(subs[0].inPieceId).toBe('b01');
+
+    // 投入コマが退場コマの座標で盤面に、退場コマがベンチに移動
+    expect(nb.pieces.find(p => p.id === 'b01')?.coord).toEqual({ col: 7, row: 12 });
+    expect(nb.pieces.find(p => p.id === 'h05')).toBeUndefined();
+    expect(nb.bench?.find(p => p.id === 'h05')).toBeDefined();
+    expect(nb.bench?.find(p => p.id === 'b01')).toBeUndefined();
+  });
+
+  it('退場コマがボール保持なら投入コマへ継承', () => {
+    const onField = makePiece({ id: 'h09', team: 'home', position: 'FW', cost: 2, coord: { col: 10, row: 19 }, hasBall: true });
+    const benchP = makePiece({ id: 'b02', team: 'home', position: 'FW', cost: 3, coord: { col: 0, row: 0 } });
+    const board: Board = { pieces: [onField], snapshot: [], bench: [benchP] };
+
+    const { board: nb } = processTurn(
+      board,
+      [{ pieceId: 'h09', type: 'substitute', benchPieceId: 'b02' }],
+      [],
+      makeContext(),
+    );
+
+    expect(nb.pieces.find(p => p.id === 'b02')?.hasBall).toBe(true);
+    expect(nb.bench?.find(p => p.id === 'h09')?.hasBall).toBe(false);
+  });
+
+  it('ベンチに該当IDが無ければ交代不成立（イベントなし）', () => {
+    const onField = makePiece({ id: 'h05', team: 'home', position: 'MF', cost: 1, coord: { col: 7, row: 12 } });
+    const board: Board = { pieces: [onField], snapshot: [], bench: [] };
+
+    const { board: nb, events } = processTurn(
+      board,
+      [{ pieceId: 'h05', type: 'substitute', benchPieceId: 'nope' }],
+      [],
+      makeContext(),
+    );
+
+    expect(eventsOfType<SubstitutionEvent>(events, 'SUBSTITUTION')).toHaveLength(0);
+    expect(nb.pieces.find(p => p.id === 'h05')).toBeDefined();
+  });
+
+  it('別チームのベンチコマとは交代できない', () => {
+    const onField = makePiece({ id: 'h05', team: 'home', position: 'MF', cost: 1, coord: { col: 7, row: 12 } });
+    const enemyBench = makePiece({ id: 'b99', team: 'away', position: 'MF', cost: 3, coord: { col: 0, row: 0 } });
+    const board: Board = { pieces: [onField], snapshot: [], bench: [enemyBench] };
+
+    const { events } = processTurn(
+      board,
+      [{ pieceId: 'h05', type: 'substitute', benchPieceId: 'b99' }],
+      [],
+      makeContext(),
+    );
+
+    expect(eventsOfType<SubstitutionEvent>(events, 'SUBSTITUTION')).toHaveLength(0);
   });
 });
 

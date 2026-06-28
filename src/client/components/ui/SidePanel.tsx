@@ -368,6 +368,7 @@ function formatEvent(event: GameEvent): string {
     case 'OFFSIDE': return t('sidepanel.event_offside');
     case 'BATTLE_DELAY': return t('sidepanel.event_battle_delay');
     case 'PASSIVE_TACTICS': return t('sidepanel.event_passive_tactics');
+    case 'SUBSTITUTION': return t('sidepanel.event_substitution');
     case 'COLLISION': return t('sidepanel.event_collision');
     case 'BALL_ACQUIRED': return t('sidepanel.event_ball_acquired');
     default: return event.type;
@@ -383,6 +384,7 @@ function eventColor(type: string): string {
     case 'OFFSIDE': return '#ff0';
     case 'BATTLE_DELAY': return '#facc15';
     case 'PASSIVE_TACTICS': return '#fb7185';
+    case 'SUBSTITUTION': return '#6ee7b7';
     case 'TACKLE': return '#fc8';
     case 'COLLISION': return '#c8f';
     default: return '#aaa';

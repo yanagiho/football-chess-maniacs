@@ -107,6 +107,7 @@ export function rawOrderToEngine(raw: RawOrder): Order {
       ? { col: raw.target_hex[0], row: raw.target_hex[1] }
       : undefined,
     targetPieceId: raw.target_piece,
+    benchPieceId: raw.bench_piece,
   };
 }
 

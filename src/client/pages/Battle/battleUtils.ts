@@ -228,6 +228,13 @@ export function clientOrderToEngine(order: import('../../types').OrderData, piec
       target: order.targetHex,
     };
   }
+  if (order.action === 'substitute') {
+    return {
+      pieceId: order.pieceId,
+      type: 'substitute',
+      benchPieceId: order.benchPieceId,
+    };
+  }
   return {
     pieceId: order.pieceId,
     type: (order.action ?? 'stay') as EngineOrder['type'],
