@@ -143,7 +143,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n・DO helpers・rating・ranking | ✅ 647 tests passing (+10 skip: ライブE2E) |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n・DO helpers・rating・ranking・shop購入 | ✅ 654 tests passing (+10 skip: ライブE2E) |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -235,6 +235,8 @@ public/
 | CollectionScreen実データ化（2026-06-28, `c44ed82`） | モック→`/api/shop/catalog`(piece_master 200枚+所持フラグ)。era_shelf(1-7)表示、総数=実カタログ件数、API失敗時フォールバック。authToken伝播 | ✅ |
 | RankingScreen実データ化（2026-06-28, `7d58a51`） | 新API `GET /api/ranking`(user_ratings上位50+自分の順位、COM除外、純ヘルパーテスト6件)。モック撤去→fetch、自分の行ハイライト、未対戦は空表示、weekly/friendsは準備中。i18n 2キー×7言語。※レーティングはPvP(E2E未検証)でのみ蓄積=現状実質空 | ✅ |
 | リプレイ録画→再生の配線（2026-06-28, `66076cb`） | ReplayScreen/結果画面「リプレイを見る」は実装済だが録画データが`App.replayTurns`に未セット(常にno_data)だった欠落を解消。`TurnSnapshot`をtypes.ts共通化、`MatchEndData.replayTurns`追加、Battleが各ターン解決後をrefに録画(INIT_MATCHでリセット)→onMatchEnd注入→App結線。COM対戦で全ターン再生可。オンラインは未録画 | ✅ |
+| コード分割（2026-06-28, `b47ec02`） | App.tsxの画面を`React.lazy`+`Suspense`で遅延ロード。単一735kB→画面別チャンク(初期97kB gzip/Battle44.7kB/HexBoard14.7kB…)。タイトル初回ロード約45%削減、>500kB警告解消 | ✅ |
+| ショップ購入テスト（2026-06-28, `a5fcea7`） | `POST /api/shop/purchase`のマネー経路をHono app.request+フェイクD1で検証(7件): ガード付き減算/残高不足402/二重購入409/購入不可400/未認証401 | ✅ |
 
 ---
 
