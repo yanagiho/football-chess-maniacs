@@ -12,18 +12,19 @@ import { processTurn, hasGoal, getFoulEvent } from '../engine/turn_processor';
 import type { Order, Team } from '../engine/types';
 import type { Difficulty, Era } from '../ai/prompt_builder';
 import {
-  type GameState, type WsAttachment,
+  type GameState, type WsAttachment, type FormationFieldPiece,
   TURN_TIMEOUT_MS, DISCONNECT_GRACE_MS, MAX_NONCE_HISTORY,
   TURNS_PER_HALF, MAX_AT,
   boardContext, boardToPieceInfos, rawOrderToEngine,
-  createInitialBoard, createEmptyTurnInput,
+  createBoardFromFormation, createEmptyTurnInput, isValidField,
 } from './game_session_helpers';
 import { generateComOrders } from './com_ai_integration';
 import { timingSafeEqual } from '../middleware/crypto_utils';
 
 export class GameSession extends DurableObject<Env['Bindings']> {
   private rateLimiters = new Map<string, WebSocketRateLimiter>();
-  private turnInputs = new Map<string, TurnInput>();
+  // 注: ターン入力はインメモリではなく GameState.turnInputs に永続化する
+  // （Hibernation で相手待ちの手が消えるのを防ぐため）。
 
   // ── HTTP fetch ハンドラ ──
   async fetch(request: Request): Promise<Response> {
@@ -112,6 +113,8 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       matchId: string;
       homeUserId: string;
       awayUserId: string;
+      homeTeamId?: string;
+      awayTeamId?: string;
       isComMatch?: boolean;
       comSessionToken?: string;
       comDifficulty?: Difficulty;
@@ -122,6 +125,10 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     if (existingState) {
       return new Response(JSON.stringify({ error: 'Already initialized' }), { status: 409 });
     }
+
+    // 各チームの編成を D1 から読み込む（未指定/不正時は null → 固定4-4-2にフォールバック）
+    const homeField = await this.loadTeamField(body.homeTeamId);
+    const awayField = await this.loadTeamField(body.awayTeamId);
 
     const kickoffTeam: Team = Math.random() < 0.5 ? 'home' : 'away';
     const firstHalfAT = Math.floor(Math.random() * MAX_AT) + 1;
@@ -134,13 +141,16 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       homeUserId: body.homeUserId,
       awayUserId: body.awayUserId,
       turn: 1,
-      board: createInitialBoard(kickoffTeam),
+      board: createBoardFromFormation(homeField, awayField, kickoffTeam),
+      homeField,
+      awayField,
       scoreHome: 0,
       scoreAway: 0,
       status: 'playing',
       turnStartedAt: Date.now(),
       lastSequences: {},
       usedNonces: [],
+      turnInputs: {},
       remainingSubs: { [body.homeUserId]: 3, [body.awayUserId]: 3 },
       disconnectedPlayers: {},
       turnLog: [],
@@ -160,6 +170,25 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     await this.ctx.storage.setAlarm(Date.now() + TURN_TIMEOUT_MS);
 
     return new Response(JSON.stringify({ ok: true, matchId: body.matchId }), { status: 200 });
+  }
+
+  /**
+   * D1 teams.field_pieces からチーム編成を読み込む。
+   * teamId 未指定/存在しない/不正JSON/盤面化不能なら null（→ 固定4-4-2にフォールバック）。
+   */
+  private async loadTeamField(teamId?: string): Promise<FormationFieldPiece[] | null> {
+    if (!teamId || typeof teamId !== 'string') return null;
+    try {
+      const row = await this.env.DB
+        .prepare('SELECT field_pieces FROM teams WHERE id = ?')
+        .bind(teamId)
+        .first<{ field_pieces: string }>();
+      if (!row?.field_pieces) return null;
+      const parsed = JSON.parse(row.field_pieces);
+      return isValidField(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   // ── WebSocket Hibernation ハンドラ ──
@@ -275,16 +304,17 @@ export class GameSession extends DurableObject<Env['Bindings']> {
         state.usedNonces = state.usedNonces.slice(-MAX_NONCE_HISTORY);
       }
 
-      this.turnInputs.set(attachment.userId, input);
+      state.turnInputs[attachment.userId] = input;
       ws.send(JSON.stringify({ type: 'INPUT_ACCEPTED', turn: state.turn }));
 
       const requiredInputs = state.isComMatch ? 1 : 2;
-      if (this.turnInputs.size >= requiredInputs) {
+      if (Object.keys(state.turnInputs).length >= requiredInputs) {
         // resolveTurnはトランザクション外で実行（外部API呼び出しを含むため）
         shouldResolve = true;
         stateForResolve = state;
         // stateはresolveTurn内でputされるので、ここではputしない
       } else {
+        // 相手待ち: ここで永続化することで Hibernation しても入力が残る
         await this.ctx.storage.put('gameState', state);
       }
     });
@@ -300,8 +330,8 @@ export class GameSession extends DurableObject<Env['Bindings']> {
   private async resolveTurn(state: GameState): Promise<void> {
     const currentTurn = state.turn;
 
-    const homeInput = this.turnInputs.get(state.homeUserId);
-    const awayInput = this.turnInputs.get(state.awayUserId);
+    const homeInput = state.turnInputs[state.homeUserId];
+    const awayInput = state.turnInputs[state.awayUserId];
     const homeOrders: Order[] = (homeInput?.orders ?? []).map(rawOrderToEngine);
     let awayOrders: Order[];
 
@@ -312,7 +342,8 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     if (!state.board) {
-      this.turnInputs.clear();
+      state.turnInputs = {};
+      await this.ctx.storage.put('gameState', state);
       return;
     }
     const turnResult = processTurn(state.board, homeOrders, awayOrders, boardContext);
@@ -339,18 +370,18 @@ export class GameSession extends DurableObject<Env['Bindings']> {
 
     if (goalScoredBy) {
       const kickoffTeam: Team = goalScoredBy === 'home' ? 'away' : 'home';
-      state.board = createInitialBoard(kickoffTeam);
+      state.board = createBoardFromFormation(state.homeField, state.awayField, kickoffTeam);
     }
 
     state.turnLog.push({
       turn: currentTurn,
-      inputs: Object.fromEntries(this.turnInputs),
+      inputs: { ...state.turnInputs },
       events: events,
       goalScoredBy,
       timestamp: Date.now(),
     });
 
-    this.turnInputs.clear();
+    state.turnInputs = {};
 
     const resultMsg = {
       type: 'TURN_RESULT',
@@ -381,7 +412,7 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       state.half = 2;
       state.status = 'halftime';
       const secondHalfKickoff: Team = state.kickoffTeam === 'home' ? 'away' : 'home';
-      state.board = createInitialBoard(secondHalfKickoff);
+      state.board = createBoardFromFormation(state.homeField, state.awayField, secondHalfKickoff);
       state.status = 'playing';
 
       this.broadcast(JSON.stringify({
@@ -417,12 +448,12 @@ export class GameSession extends DurableObject<Env['Bindings']> {
     }
 
     const requiredInputs = state.isComMatch ? 1 : 2;
-    if (this.turnInputs.size < requiredInputs) {
-      if (!this.turnInputs.has(state.homeUserId)) {
-        this.turnInputs.set(state.homeUserId, createEmptyTurnInput(state.matchId, state.turn, state.homeUserId));
+    if (Object.keys(state.turnInputs).length < requiredInputs) {
+      if (!state.turnInputs[state.homeUserId]) {
+        state.turnInputs[state.homeUserId] = createEmptyTurnInput(state.matchId, state.turn, state.homeUserId);
       }
-      if (!state.isComMatch && !this.turnInputs.has(state.awayUserId)) {
-        this.turnInputs.set(state.awayUserId, createEmptyTurnInput(state.matchId, state.turn, state.awayUserId));
+      if (!state.isComMatch && !state.turnInputs[state.awayUserId]) {
+        state.turnInputs[state.awayUserId] = createEmptyTurnInput(state.matchId, state.turn, state.awayUserId);
       }
       await this.resolveTurn(state);
     }
