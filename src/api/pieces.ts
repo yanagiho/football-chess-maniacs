@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../worker';
-import { callPlatformApi } from './auth';
+import { callPlatformApi, getBearerToken, getPlatformGameId } from './auth';
 import { grantFoundingEleven } from '../lib/founding_eleven';
 import { skuToPieceId } from '../types/piece';
 import type { OwnedPieceDetail } from '../types/piece';
@@ -62,6 +62,7 @@ pieces.get('/count', async (c) => {
  */
 pieces.post('/sync', async (c) => {
   const userId = c.get('userId');
+  const userToken = getBearerToken(c.req.header('Authorization'));
 
   // 1. Founding Eleven を確保
   const { granted: foundingGranted } = await grantFoundingEleven(c.env.DB, userId);
@@ -69,13 +70,22 @@ pieces.post('/sync', async (c) => {
   // 2. Platform entitlements を取得
   let platformAdded = 0;
   try {
+    if (!userToken) throw new Error('Missing user token');
+    const params = new URLSearchParams({
+      game_id: getPlatformGameId(c.env),
+      tag: 'fcms_piece',
+      state: 'active',
+    });
     const entitlements = await callPlatformApi<{
       items: Array<{
         sku: string;
         entitlement_id: string;
         state: string;
       }>;
-    }>(c.env, `/v1/entitlements?user_id=${userId}&tag=fcms_piece`);
+    }>(c.env, `/v1/entitlements?${params.toString()}`, {
+      authMode: 'user',
+      userToken,
+    });
 
     // active な entitlement のみ処理
     const activeEntitlements = entitlements.items.filter((e) => e.state === 'active');

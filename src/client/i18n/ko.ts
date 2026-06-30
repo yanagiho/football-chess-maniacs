@@ -262,6 +262,7 @@ const ko: Dict = {
   'shop.filter_all': '전체',
   'shop.owned': '보유 완료',
   'shop.buying': '구매 중…',
+  'shop.unavailable': '판매 준비 중',
   'shop.loading': '말을 불러오는 중…',
   'shop.tap_to_close': '탭하여 닫기',
 

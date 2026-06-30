@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../worker';
-import { callPlatformApi } from './auth';
+import { callPlatformApi, getBearerToken } from './auth';
 
 const team = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 
@@ -55,17 +55,21 @@ async function getLocalOwnedPieceIds(
 }
 
 /** プレミアム判定（slots 2-10 にはエンタイトルメントが必要） */
-async function checkPremiumSlots(env: Env['Bindings'], userId: string): Promise<boolean> {
+async function checkPremiumSlots(env: Env['Bindings'], userToken: string | null): Promise<boolean> {
+  if (!userToken) return false;
   try {
-    const result = await callPlatformApi<{ entitled: boolean }>(
+    const result = await callPlatformApi<{ allowed: boolean }>(
       env,
       '/v1/entitlements/check',
       {
         method: 'POST',
-        body: JSON.stringify({ user_id: userId, sku: 'fcms_save_slots_9' }),
+        authMode: 'user',
+        userToken,
+        idempotencyKey: crypto.randomUUID(),
+        body: JSON.stringify({ sku: 'fcms_save_slots_9' }),
       },
     );
-    return result.entitled;
+    return result.allowed;
   } catch {
     // Platform障害時はスロット1のみ許可
     return false;
@@ -75,6 +79,7 @@ async function checkPremiumSlots(env: Env['Bindings'], userId: string): Promise<
 // ── チーム一覧取得 ──
 team.get('/', async (c) => {
   const userId = c.get('userId');
+  const userToken = getBearerToken(c.req.header('Authorization'));
 
   const result = await c.env.DB.prepare(
     'SELECT id, name, slot_number, is_active, formation_preset, field_pieces, bench_pieces, updated_at FROM teams WHERE user_id = ? ORDER BY slot_number ASC',
@@ -82,7 +87,7 @@ team.get('/', async (c) => {
     .bind(userId)
     .all<TeamComposition>();
 
-  const isPremium = await checkPremiumSlots(c.env, userId);
+  const isPremium = await checkPremiumSlots(c.env, userToken);
 
   return c.json({
     teams: result.results.map((t) => {
@@ -145,6 +150,7 @@ team.get('/:teamId', async (c) => {
 // ── チーム作成（slot_number指定） ──
 team.post('/', async (c) => {
   const userId = c.get('userId');
+  const userToken = getBearerToken(c.req.header('Authorization'));
   const body = await c.req.json<{
     name: string;
     slot_number?: number;
@@ -174,7 +180,7 @@ team.post('/', async (c) => {
 
   // スロット2-10 はプレミアム必要
   if (slotNumber >= 2) {
-    const isPremium = await checkPremiumSlots(c.env, userId);
+    const isPremium = await checkPremiumSlots(c.env, userToken);
     if (!isPremium) {
       return c.json({ error: 'PREMIUM_REQUIRED', message: 'Slots 2-10 require premium' }, 403);
     }

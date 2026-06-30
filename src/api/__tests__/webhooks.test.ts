@@ -61,8 +61,13 @@ class MockStatement {
 
     if (this.sql.includes('INSERT INTO user_wallets')) {
       const userId = String(this.args[0]);
-      const amount = Number(this.args[1]);
-      this.db.wallets.set(userId, (this.db.wallets.get(userId) ?? 0) + amount);
+      if (this.sql.includes('MAX(ingots - ?')) {
+        const amount = Number(this.args[2]);
+        this.db.wallets.set(userId, Math.max((this.db.wallets.get(userId) ?? 0) - amount, 0));
+      } else {
+        const amount = Number(this.args[1]);
+        this.db.wallets.set(userId, (this.db.wallets.get(userId) ?? 0) + amount);
+      }
       return { success: true, meta: { changes: 1 } } as D1Result;
     }
 
@@ -184,6 +189,37 @@ describe('webhook purchase idempotency', () => {
     await signedRequest(payload, 'ingot-1', bindings);
 
     expect(db.wallets.get('u1')).toBe(12);
+  });
+
+  it('currency.granted でINGOTウォレットが加算される', async () => {
+    const db = new MockD1Database();
+    const bindings = env(db);
+    const payload = {
+      event_type: 'currency.granted',
+      game_id: 'football_chess_maniacs',
+      data: { user_id: 'u1', currency_code: 'INGOT', amount: 5, ledger_id: 'ledger-1' },
+    };
+
+    const res = await signedRequest(payload, 'currency-1', bindings);
+
+    expect(res.status).toBe(200);
+    expect(db.wallets.get('u1')).toBe(5);
+  });
+
+  it('currency.revoked でINGOTウォレットが0未満にならない', async () => {
+    const db = new MockD1Database();
+    db.wallets.set('u1', 3);
+    const bindings = env(db);
+    const payload = {
+      event_type: 'currency.revoked',
+      game_id: 'football_chess_maniacs',
+      data: { user_id: 'u1', currency_code: 'INGOT', amount: 5, ledger_id: 'ledger-1' },
+    };
+
+    const res = await signedRequest(payload, 'currency-revoke-1', bindings);
+
+    expect(res.status).toBe(200);
+    expect(db.wallets.get('u1')).toBe(0);
   });
 
   it('piece SKU の同一 Delivery-Id 二重送信でuser_pieces_v2が1回しか変わらない', async () => {

@@ -7,6 +7,36 @@ import type { Env } from '../worker';
 
 const auth = new Hono<{ Bindings: Env['Bindings']; Variables: { userId: string } }>();
 const DEFAULT_PLATFORM_API_TIMEOUT_MS = 15_000;
+const DEFAULT_PLATFORM_GAME_ID = 'football_chess_maniacs';
+
+export type PlatformAuthMode = 'game' | 'user' | 'none';
+
+export interface PlatformApiOptions extends RequestInit {
+  timeoutMs?: number;
+  authMode?: PlatformAuthMode;
+  userToken?: string;
+  idempotencyKey?: string;
+}
+
+export class PlatformApiError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, statusText: string, body: string) {
+    super(`Platform API error: ${status} ${statusText}`);
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export function getPlatformGameId(env: Env['Bindings']): string {
+  return env.PLATFORM_GAME_ID || DEFAULT_PLATFORM_GAME_ID;
+}
+
+export function getBearerToken(authorization: string | undefined | null): string | null {
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
 
 /**
  * HMAC-SHA256署名を検証（§7-5）
@@ -40,12 +70,16 @@ function hexToBytes(hex: string): ArrayBuffer {
 
 /**
  * プラットフォームAPIを呼び出す共通ヘルパー
- * サービスAPIキー認証 + レスポンスHMAC検証
+ * 現行Platform仕様:
+ * - User操作は Authorization: Bearer <Platform JWT>
+ * - Game server操作は Authorization: Bearer <gfp_...>
+ * - POSTは Idempotency-Key 必須
+ * - Platform APIレスポンスはHMAC署名しない（WebhookのみHMAC検証）
  */
 export async function callPlatformApi<T>(
   env: Env['Bindings'],
   path: string,
-  options?: RequestInit & { timeoutMs?: number },
+  options?: PlatformApiOptions,
 ): Promise<T> {
   const url = buildPlatformApiUrl(env, path);
   const controller = new AbortController();
@@ -62,16 +96,31 @@ export async function callPlatformApi<T>(
     }
   }
 
+  const { timeoutMs: _timeoutMs, authMode = 'game', userToken, idempotencyKey, ...fetchOptions } = options ?? {};
+  const headers = new Headers(fetchOptions.headers);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+  if (fetchOptions.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (authMode === 'user') {
+    if (!userToken) throw new Error('Platform user token is required');
+    headers.set('Authorization', `Bearer ${userToken}`);
+  } else if (authMode === 'game') {
+    if (!env.PLATFORM_GAME_SERVER_TOKEN) throw new Error('PLATFORM_GAME_SERVER_TOKEN is not configured');
+    headers.set('Authorization', `Bearer ${env.PLATFORM_GAME_SERVER_TOKEN}`);
+  }
+
+  if (idempotencyKey) {
+    headers.set('Idempotency-Key', idempotencyKey);
+  }
+
   let res: Response;
   try {
     res = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Service-API-Key': env.PLATFORM_SERVICE_API_KEY,
-        ...options?.headers,
-      },
+      headers,
     });
   } catch (e) {
     if (controller.signal.aborted && controller.signal.reason === 'Platform API timeout') {
@@ -85,23 +134,12 @@ export async function callPlatformApi<T>(
     }
   }
 
-  if (!res.ok) {
-    throw new Error(`Platform API error: ${res.status} ${res.statusText}`);
-  }
-
   const body = await res.text();
-
-  // HMAC署名検証（§7-5: 署名は必須）
-  const signature = res.headers.get('X-HMAC-Signature');
-  if (!signature) {
-    throw new Error('Platform API response missing HMAC signature');
-  }
-  const valid = await verifyHmacSignature(body, signature, env.PLATFORM_HMAC_SECRET);
-  if (!valid) {
-    throw new Error('Platform API response HMAC verification failed');
+  if (!res.ok) {
+    throw new PlatformApiError(res.status, res.statusText, body);
   }
 
-  return JSON.parse(body) as T;
+  return (body ? JSON.parse(body) : {}) as T;
 }
 
 function buildPlatformApiUrl(env: Env['Bindings'], path: string): string {
@@ -136,6 +174,7 @@ function buildPlatformApiUrl(env: Env['Bindings'], path: string): string {
  * TTL 1時間。プラットフォーム障害時はキャッシュフォールバック。
  */
 export interface OwnedPiece {
+  sku?: string;
   piece_master_id: string;
   position: string;
   cost: number;
@@ -145,6 +184,7 @@ export interface OwnedPiece {
 export async function getOwnedPieces(
   env: Env['Bindings'],
   userId: string,
+  userToken?: string,
 ): Promise<{ pieces: OwnedPiece[]; fromCache: boolean }> {
   const cacheKey = `owned_pieces:${userId}`;
 
@@ -152,9 +192,11 @@ export async function getOwnedPieces(
   const cached = await env.KV.get(cacheKey, 'json') as OwnedPiece[] | null;
 
   try {
+    if (!userToken) throw new Error('Missing Platform user token');
     const pieces = await callPlatformApi<{ items: OwnedPiece[] }>(
       env,
-      `/users/${userId}/entitlements?game=fcms`,
+      `/v1/entitlements?game_id=${encodeURIComponent(getPlatformGameId(env))}&tag=fcms_piece`,
+      { authMode: 'user', userToken },
     );
 
     // ビジネスロジック整合性チェック（§7-5）

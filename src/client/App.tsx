@@ -3,7 +3,7 @@
 // ページ遷移管理。ゲームモード追跡。
 // ============================================================
 
-import React, { useState, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import type { Page, GameMode, Team, FormationData, ComDifficulty, MatchEndData, MatchStats, MvpInfo, TurnSnapshot } from './types';
 
 import { SettingsProvider } from './contexts/SettingsContext';
@@ -50,6 +50,51 @@ function emptyStats(): MatchStats {
   };
 }
 
+function readLocalStorage(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function base64UrlDecode(input: string): string {
+  const base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function consumeUniversoSsoFragment(): { accessToken: string; refreshToken?: string } | null {
+  if (typeof window === 'undefined') return null;
+  const rawHash = window.location.hash.replace(/^#/, '');
+  if (!rawHash) return null;
+
+  const params = new URLSearchParams(rawHash);
+  const encoded = params.get('uf_sso');
+  if (!encoded) return null;
+
+  params.delete('uf_sso');
+  const nextHash = params.toString();
+  const nextUrl = `${window.location.pathname}${window.location.search}${nextHash ? `#${nextHash}` : ''}`;
+  window.history.replaceState(null, '', nextUrl);
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encoded)) as {
+      access_token?: unknown;
+      refresh_token?: unknown;
+    };
+    if (typeof payload.access_token !== 'string' || payload.access_token.length === 0) return null;
+    return {
+      accessToken: payload.access_token,
+      refreshToken: typeof payload.refresh_token === 'string' ? payload.refresh_token : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   useLocale(); // ロケール変更時にルートから再描画し、全画面の t()/tn() 表示を更新する
 
@@ -59,8 +104,20 @@ export default function App() {
   const [myTeam, setMyTeam] = useState<Team>('home');
   const [formationData, setFormationData] = useState<FormationData | null>(null);
   const [comDifficulty, setComDifficulty] = useState<ComDifficulty>('regular');
-  // JWT認証トークン（ログインフロー実装後にセット。localStorageフォールバック）
-  const [authToken] = useState<string>(() => localStorage.getItem('fcms_token') ?? '');
+  // JWT認証トークン（Universo SSO fragment → localStorage フォールバック）
+  const [authToken, setAuthToken] = useState<string>(() => readLocalStorage('fcms_token'));
+
+  useEffect(() => {
+    const sso = consumeUniversoSsoFragment();
+    if (!sso) return;
+    try {
+      localStorage.setItem('fcms_token', sso.accessToken);
+      if (sso.refreshToken) localStorage.setItem('fcms_refresh_token', sso.refreshToken);
+    } catch {
+      // Storage unavailable; keep token in memory for this session.
+    }
+    setAuthToken(sso.accessToken);
+  }, []);
 
   // 試合結果データ（Battle → Result 引継ぎ）
   const [matchEndData, setMatchEndData] = useState<MatchEndData>({

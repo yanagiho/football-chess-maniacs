@@ -5,22 +5,10 @@ import type { Env } from '../../worker';
 function env(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
   return {
     PLATFORM_API_BASE: 'https://platform.example.test/api',
-    PLATFORM_SERVICE_API_KEY: 'service-key',
+    PLATFORM_GAME_SERVER_TOKEN: 'gfp-token',
     PLATFORM_HMAC_SECRET: 'secret',
     ...overrides,
   } as Env['Bindings'];
-}
-
-async function hmac(body: string, secret = 'secret'): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
-  return Array.from(sig).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 describe('callPlatformApi', () => {
@@ -29,23 +17,39 @@ describe('callPlatformApi', () => {
     vi.unstubAllGlobals();
   });
 
-  it('URL APIでbase/pathを結合しHMAC検証する', async () => {
+  it('URL APIでbase/pathを結合しGame Server Tokenで呼び出す', async () => {
     const body = JSON.stringify({ ok: true });
-    const signature = await hmac(body);
-    const fetchMock = vi.fn(async () => new Response(body, {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(body, {
       status: 200,
-      headers: { 'X-HMAC-Signature': signature },
     }));
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await callPlatformApi<{ ok: boolean }>(env(), '/users/u1');
     expect(result).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://platform.example.test/api/users/u1',
-      expect.objectContaining({
-        headers: expect.objectContaining({ 'X-Service-API-Key': 'service-key' }),
-      }),
-    );
+    expect(fetchMock.mock.calls[0][0]).toBe('https://platform.example.test/api/users/u1');
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer gfp-token');
+  });
+
+  it('user authとIdempotency-Keyを付けてPOSTできる', async () => {
+    const body = JSON.stringify({ ok: true });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(body, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callPlatformApi(env(), '/v1/commerce/purchase', {
+      method: 'POST',
+      authMode: 'user',
+      userToken: 'user-jwt',
+      idempotencyKey: 'idem-1',
+      body: JSON.stringify({ product_id: 'p1' }),
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://platform.example.test/api/v1/commerce/purchase');
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer user-jwt');
+    expect(headers.get('Idempotency-Key')).toBe('idem-1');
+    expect(headers.get('Content-Type')).toBe('application/json');
   });
 
   it('http base URL を拒否する', async () => {
@@ -57,13 +61,12 @@ describe('callPlatformApi', () => {
     const body = JSON.stringify({ ok: true });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
       status: 200,
-      headers: { 'X-HMAC-Signature': await hmac(body) },
     })));
 
     await expect(callPlatformApi(env({
       PLATFORM_API_BASE: 'http://localhost:8787',
       ALLOW_INSECURE_PLATFORM_API: 'true',
-    }), '/health')).resolves.toEqual({ ok: true });
+    }), '/health', { authMode: 'none' })).resolves.toEqual({ ok: true });
   });
 
   it('絶対URL pathを拒否する', async () => {

@@ -67,8 +67,8 @@ webhooks.post('/purchase', async (c) => {
   if (typeof event_type !== 'string' || event_type.length === 0) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'Missing event_type' }, 400);
   }
-  if (typeof data?.user_id !== 'string' || data.user_id.length === 0 || typeof data?.sku !== 'string' || data.sku.length === 0) {
-    return c.json({ error: 'VALIDATION_ERROR', message: 'Missing user_id or sku' }, 400);
+  if (typeof data?.user_id !== 'string' || data.user_id.length === 0) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'Missing user_id' }, 400);
   }
 
   const now = new Date().toISOString();
@@ -104,7 +104,52 @@ webhooks.post('/purchase', async (c) => {
       .run();
   }
 
-  // 4-A. インゴットSKU → ウォレットに加算（entitlement.created のみ）
+  // 4-A. 現行Platform: currency.granted / currency.revoked → INGOTウォレットへ反映
+  if (event_type === 'currency.granted' || event_type === 'currency.revoked') {
+    const currencyCode = String(data.currency_code ?? '').toUpperCase();
+    const amount = Number(data.amount);
+    if (currencyCode !== 'INGOT' || !Number.isFinite(amount) || amount <= 0) {
+      await markProcessed('currency event ignored');
+      return c.json({ ok: true });
+    }
+
+    let result = 'ok';
+    try {
+      if (event_type === 'currency.granted') {
+        await c.env.DB.prepare(
+          `INSERT INTO user_wallets (user_id, ingots, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET ingots = ingots + ?, updated_at = ?`,
+        )
+          .bind(data.user_id, amount, now, amount, now)
+          .run();
+      } else {
+        await c.env.DB.prepare(
+          `INSERT INTO user_wallets (user_id, ingots, updated_at) VALUES (?, 0, ?)
+           ON CONFLICT(user_id) DO UPDATE SET ingots = MAX(ingots - ?, 0), updated_at = ?`,
+        )
+          .bind(data.user_id, now, amount, now)
+          .run();
+      }
+    } catch (e) {
+      result = `error: ${e instanceof Error ? e.message : String(e)}`;
+      console.error('[webhook/purchase] Currency wallet error:', e);
+    }
+    await markProcessed(result);
+    return c.json({ ok: true });
+  }
+
+  // 4-B. inventory eventsは将来拡張用。現行FCMSでは副作用なしで受理する。
+  if (event_type === 'inventory.granted' || event_type === 'inventory.revoked' || event_type === 'purchase.completed') {
+    await markProcessed(`${event_type} ignored`);
+    return c.json({ ok: true });
+  }
+
+  if (typeof data.sku !== 'string' || data.sku.length === 0) {
+    await markProcessed('missing sku');
+    return c.json({ error: 'VALIDATION_ERROR', message: 'Missing sku' }, 400);
+  }
+
+  // 4-C. 旧INGOT SKU互換 → ウォレットに加算（entitlement.created のみ）
   const ingotAmount = INGOT_SKU_AMOUNTS[data.sku];
   if (ingotAmount !== undefined) {
     let result = 'ok';
@@ -128,7 +173,7 @@ webhooks.post('/purchase', async (c) => {
     return c.json({ ok: true });
   }
 
-  // 4-B. SKU → piece_id 変換
+  // 4-D. SKU → piece_id 変換
   const pieceId = skuToPieceId(data.sku);
   if (pieceId === null) {
     await markProcessed('invalid sku');

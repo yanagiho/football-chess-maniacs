@@ -26,6 +26,9 @@ interface CatalogItem {
   cost: Cost;
   imageUrl?: string;
   owned: boolean;
+  ingotPrice?: number | null;
+  /** undefined=情報なし（フォールバック/デモ）/ false=Platform未設定で購入不可 */
+  platformConfigured?: boolean;
 }
 
 interface RawCatalogItem {
@@ -36,6 +39,18 @@ interface RawCatalogItem {
   cost: number;
   image_url?: string | null;
   is_owned?: boolean;
+  ingot_price?: number | null;
+  platform_configured?: boolean;
+}
+
+interface IngotProduct {
+  product_id: string;
+  price_id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  amount_cents: number;
+  provider: string;
 }
 
 /** バックエンド未接続時のローカルカタログ（開発・デモ用） */
@@ -60,6 +75,7 @@ function buildFallbackCatalog(): CatalogItem[] {
 export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
   const [balance, setBalance] = useState<number | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [ingotProducts, setIngotProducts] = useState<IngotProduct[]>([]);
   const [posFilter, setPosFilter] = useState<Position | 'ALL'>('ALL');
   const [acquired, setAcquired] = useState<CatalogItem | null>(null);
   const [buyingIngots, setBuyingIngots] = useState(false);
@@ -90,6 +106,24 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
     };
   }, [authHeaders]);
 
+  // Platform INGOT商品取得
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/shop/ingot-products', { headers: authHeaders });
+        if (!res.ok) throw new Error(`ingot-products ${res.status}`);
+        const data = (await res.json()) as { items: IngotProduct[] };
+        if (!cancelled) setIngotProducts(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        if (!cancelled) setIngotProducts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders]);
+
   // カタログ取得（API → 失敗時フォールバック）
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +140,8 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
           cost: r.cost as Cost,
           imageUrl: r.image_url ?? undefined,
           owned: Boolean(r.is_owned),
+          ingotPrice: r.ingot_price ?? null,
+          platformConfigured: r.platform_configured,
         }));
         setCatalog(mapped);
       } catch {
@@ -157,12 +193,25 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
   }, [authToken, authHeaders, balance, buyingId]);
 
   const handleBuyIngots = useCallback(async () => {
+    if (!authToken) {
+      setToast(t('shop.login_required'));
+      return;
+    }
+    const product = ingotProducts[0];
+    if (!product) {
+      setToast(t('shop.platform_connect_failed'));
+      return;
+    }
     setBuyingIngots(true);
     try {
       const res = await fetch('/api/shop/ingots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          product_id: product.product_id,
+          price_id: product.price_id,
+          provider: product.provider,
+        }),
       });
       if (!res.ok) throw new Error(`ingots ${res.status}`);
       const data = (await res.json()) as { checkout_url?: string };
@@ -176,7 +225,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
     } finally {
       setBuyingIngots(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, authToken, ingotProducts]);
 
   useEffect(() => {
     if (!toast) return;
@@ -207,11 +256,11 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
             <span style={{ fontSize: 15 }}>◆</span>
             {balance === null ? '—' : balance.toLocaleString()}
           </div>
-          <button onClick={handleBuyIngots} disabled={buyingIngots} style={{
+          <button onClick={handleBuyIngots} disabled={buyingIngots || ingotProducts.length === 0} style={{
             padding: '7px 14px', borderRadius: 20, border: 'none',
-            background: buyingIngots ? '#444' : 'linear-gradient(135deg, #4a9eff, #2563eb)',
+            background: buyingIngots || ingotProducts.length === 0 ? '#444' : 'linear-gradient(135deg, #4a9eff, #2563eb)',
             color: '#fff', fontSize: 13, fontWeight: 'bold',
-            cursor: buyingIngots ? 'default' : 'pointer', whiteSpace: 'nowrap',
+            cursor: buyingIngots || ingotProducts.length === 0 ? 'default' : 'pointer', whiteSpace: 'nowrap',
           }}>
             {buyingIngots ? t('shop.connecting') : t('shop.buy_ingots')}
           </button>
@@ -242,11 +291,13 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
         gap: 10, width: '100%', maxWidth: 460,
       }}>
         {visible.map((item) => {
-          const price = pieceCostToIngots(item.cost);
+          const price = item.ingotPrice ?? pieceCostToIngots(item.cost);
           const isSS = item.cost >= 2.5;
           const isBuying = buyingId === item.pieceId;
           const affordable = balance === null || balance >= price;
-          const canBuy = !item.owned && affordable && buyingId === null;
+          // undefined（フォールバック/デモ）は購入可。false のときだけ Platform 未設定で不可。
+          const configured = item.platformConfigured !== false;
+          const canBuy = !item.owned && affordable && configured && buyingId === null;
           return (
             <div key={item.pieceId} style={{
               background: isSS ? 'rgba(255,215,0,0.06)' : 'rgba(255,255,255,0.04)',
@@ -277,7 +328,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
                   color: canBuy ? '#fff' : '#666',
                   fontSize: 12, fontWeight: 'bold', cursor: canBuy ? 'pointer' : 'default',
                 }}>
-                  {isBuying ? t('shop.buying') : `◆ ${price}`}
+                  {isBuying ? t('shop.buying') : !configured ? t('shop.unavailable') : `◆ ${price}`}
                 </button>
               )}
             </div>

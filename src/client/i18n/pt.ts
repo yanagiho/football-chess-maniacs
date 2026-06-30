@@ -261,6 +261,7 @@ const pt: Dict = {
   'shop.filter_all': 'Todas',
   'shop.owned': 'Em posse',
   'shop.buying': 'Comprando…',
+  'shop.unavailable': 'Indisponível',
   'shop.loading': 'Carregando peças…',
   'shop.tap_to_close': 'Toque para fechar',
 

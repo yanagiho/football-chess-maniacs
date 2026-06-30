@@ -72,18 +72,39 @@ export interface ShopCatalogItem {
   summary_ja: string | null;
   image_url: string | null;
   is_owned: boolean;
+  // Platform 連携情報（§6.3。Platform 取得失敗時は product_id=null / platform_configured=false）
+  product_id?: string | null;
+  ingot_price?: number | null;
+  is_on_sale?: boolean;
+  platform_configured?: boolean;
 }
 
-/** Webhook ペイロード (entitlement.created / entitlement.revoked) */
+/** Platform Webhook ペイロード */
 export interface WebhookPurchasePayload {
-  event_type: 'entitlement.created' | 'entitlement.revoked';
+  event_type:
+    | 'entitlement.created'
+    | 'entitlement.revoked'
+    | 'currency.granted'
+    | 'currency.revoked'
+    | 'inventory.granted'
+    | 'inventory.revoked'
+    | 'purchase.completed';
   event_id: string;
   timestamp: string;
+  game_id?: string;
   data: {
     user_id: string;
-    sku: string;
-    entitlement_id: string;
-    state: string;
+    sku?: string;
+    entitlement_id?: string;
+    state?: string;
+    currency_code?: string;
+    amount?: number;
+    balance_after?: number;
+    ledger_id?: string;
+    item_id?: string;
+    inventory_item_id?: string;
+    product_id?: string;
+    purchase_id?: string;
   };
 }
 

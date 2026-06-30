@@ -262,6 +262,7 @@ const zhCN: Dict = {
   'shop.filter_all': '全部',
   'shop.owned': '已拥有',
   'shop.buying': '购买中…',
+  'shop.unavailable': '暂不可购买',
   'shop.loading': '正在加载棋子…',
   'shop.tap_to_close': '点击关闭',
 

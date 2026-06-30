@@ -3,6 +3,7 @@
 // ============================================================
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 
@@ -41,10 +42,15 @@ export interface Env {
     // Vars
     CORS_ORIGIN: string;
     PLATFORM_API_BASE: string;
+    PLATFORM_GAME_ID: string;
+    GAME_CLIENT_URL?: string;
+    PLATFORM_CHECKOUT_RETURN_URL?: string;
     AI_MODEL_ID: string;
     // Secrets
     PLATFORM_JWKS_URL: string;
-    PLATFORM_SERVICE_API_KEY: string;
+    PLATFORM_GAME_SERVER_TOKEN: string;
+    /** Internal debug/service key. Kept separate from Platform auth. */
+    PLATFORM_SERVICE_API_KEY?: string;
     PLATFORM_HMAC_SECRET: string;
     PLATFORM_JWT_ISSUER: string;
     PLATFORM_JWT_AUDIENCE: string;
@@ -58,6 +64,30 @@ export interface Env {
 
 const app = new Hono<Env>();
 
+function parseAllowedOrigins(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function resolveRequestOrigin(requestOrigin: string | undefined, allowedOrigins: string[]): string | undefined {
+  if (allowedOrigins.length === 0) return undefined;
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) return requestOrigin;
+  return allowedOrigins[0];
+}
+
+function getClientUrl(env: Env['Bindings']): string {
+  return env.GAME_CLIENT_URL || 'https://football-chess-maniacs.pages.dev';
+}
+
+function redirectToClient(c: Context<Env>, path = ''): Response {
+  const target = new URL(path || '/', getClientUrl(c.env));
+  const source = new URL(c.req.url);
+  source.searchParams.forEach((value, key) => target.searchParams.set(key, value));
+  return c.redirect(target.toString(), 302);
+}
+
 // ── グローバルミドルウェア ──
 
 // CORS（§7-1: ゲームオリジンのみ許可）
@@ -66,10 +96,11 @@ app.use('*', async (c, next) => {
   if (c.req.header('Upgrade')?.toLowerCase() === 'websocket') {
     return next();
   }
+  const allowedOrigins = parseAllowedOrigins(c.env.CORS_ORIGIN);
   const corsMiddleware = cors({
-    origin: c.env.CORS_ORIGIN,
+    origin: (origin) => resolveRequestOrigin(origin, allowedOrigins) ?? origin,
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     maxAge: 86400,
   });
   return corsMiddleware(c, next);
@@ -96,6 +127,9 @@ app.use('*', async (c, next) => {
 });
 
 // ── ヘルスチェック ──
+app.get('/', (c) => redirectToClient(c));
+app.get('/purchase/success', (c) => redirectToClient(c, '/?purchase=success'));
+app.get('/purchase/cancel', (c) => redirectToClient(c, '/?purchase=cancel'));
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
 
 // ── Webhook（認証不要、独自署名検証） ──

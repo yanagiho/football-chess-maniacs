@@ -48,13 +48,17 @@ binding = "AI"
 
 # ── Environment Variables ──
 [vars]
-CORS_ORIGIN = "https://manics.example.com"
-PLATFORM_API_BASE = "https://api.football-century.example.com"
+CORS_ORIGIN = "https://football-chess-maniacs.pages.dev,https://universo-futbol.com,https://www.universo-futbol.com"
+GAME_CLIENT_URL = "https://football-chess-maniacs.pages.dev"
+PLATFORM_API_BASE = "https://fc-platform-api.yanagiho.workers.dev"
+PLATFORM_GAME_ID = "football_chess_maniacs"
 AI_MODEL_ID = "@cf/google/gemma-3-12b-it"
 
 # ── Secrets (set via `wrangler secret put`) ──
 # PLATFORM_JWKS_URL
 # PLATFORM_JWT_ISSUER
 # PLATFORM_JWT_AUDIENCE
-# PLATFORM_SERVICE_API_KEY
+# PLATFORM_GAME_SERVER_TOKEN
 # PLATFORM_HMAC_SECRET
+# PLATFORM_SERVICE_API_KEY (optional internal AI debug key)
+# PLATFORM_CHECKOUT_RETURN_URL (optional override; origin must be allowed by Platform)

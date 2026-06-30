@@ -262,6 +262,7 @@ const ja: Dict = {
   'shop.filter_all': 'すべて',
   'shop.owned': '所持済み',
   'shop.buying': '購入中…',
+  'shop.unavailable': '販売準備中',
   'shop.loading': 'コマを読み込み中…',
   'shop.tap_to_close': 'タップして閉じる',
 
