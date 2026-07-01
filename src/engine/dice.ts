@@ -2,7 +2,7 @@
 // dice.ts — 基本判定式と確率ロール
 // ============================================================
 
-import type { Cost, ZocAdjacency } from './types';
+import type { Cost, ProbabilityBreakdown, ZocAdjacency } from './types';
 
 /**
  * ランク帯を返す。低ランク帯=0, 中ランク帯=1, 高ランク帯=2
@@ -53,9 +53,32 @@ export function calcProbability(
   positionModifier: number = 0,
   zocModifier: number = 0,
 ): number {
+  return calcProbabilityBreakdown(x, y, omega, positionModifier, zocModifier).total;
+}
+
+/**
+ * 基本判定式の内訳付き版（コスト差由来のbase / ポジション修正 / ZOC修正を個別に返す）。
+ * UIでの判定内訳表示（§Phase A3）向け。
+ */
+export function calcProbabilityBreakdown(
+  x: Cost,
+  y: Cost,
+  omega: number,
+  positionModifier: number = 0,
+  zocModifier: number = 0,
+): ProbabilityBreakdown {
   const base = (effectiveDiff(x, y) + 3) * omega;
-  const raw = base + positionModifier + zocModifier;
-  return Math.min(100, Math.max(0, raw));
+  const rawTotal = base + positionModifier + zocModifier;
+  const total = Math.min(100, Math.max(0, rawTotal));
+  return {
+    components: [
+      { key: 'base', value: base },
+      { key: 'position', value: positionModifier },
+      { key: 'zoc', value: zocModifier },
+    ],
+    rawTotal,
+    total,
+  };
 }
 
 /**

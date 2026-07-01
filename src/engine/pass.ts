@@ -7,7 +7,7 @@
 //
 // ============================================================
 
-import { calcProbability, calcZocModifier, judge } from './dice';
+import { calcProbabilityBreakdown, calcZocModifier, judge } from './dice';
 import type { Piece, PassCutResult, ZocAdjacency } from './types';
 
 // ────────────────────────────────────────────────────────────
@@ -69,8 +69,8 @@ export function passCut1(input: Cut1Input) {
 
   const zocMod = calcZocModifier(zoc, -5, +10);
 
-  const prob = calcProbability(interceptor.cost, passer.cost, omega, posMod + defenseBonusMod, zocMod);
-  return { ...judge(prob), interceptor };
+  const breakdown = calcProbabilityBreakdown(interceptor.cost, passer.cost, omega, posMod + defenseBonusMod, zocMod);
+  return { ...judge(breakdown.total), breakdown, interceptor };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -107,8 +107,8 @@ export function passCut2(input: Cut2Input) {
 
   const zocMod = calcZocModifier(zoc, -5, +20);
 
-  const prob = calcProbability(interceptor.cost, receiver.cost, omega, posMod + defenseBonusMod, zocMod);
-  return { ...judge(prob), interceptor };
+  const breakdown = calcProbabilityBreakdown(interceptor.cost, receiver.cost, omega, posMod + defenseBonusMod, zocMod);
+  return { ...judge(breakdown.total), breakdown, interceptor };
 }
 
 // ────────────────────────────────────────────────────────────

@@ -200,6 +200,7 @@ interface RightPanelProps {
 
 export function RightPanel({ orders, pieces, events, turn, onRemoveOrder }: RightPanelProps) {
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
+  const [expandedEventIdx, setExpandedEventIdx] = useState<number | null>(null);
   const orderEntries = [...orders.entries()];
   const myFieldPieces = pieces.filter((p) => !p.isBench);
   const totalField = myFieldPieces.length;
@@ -319,20 +320,36 @@ export function RightPanel({ orders, pieces, events, turn, onRemoveOrder }: Righ
           {events.length === 0 ? (
             <div style={{ padding: 12, color: '#555', fontSize: 13 }}>{t('sidepanel.no_log')}</div>
           ) : (
-            events.slice(0, 20).map((event, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: '3px 12px',
-                  fontSize: 12,
-                  color: '#aaa',
-                  borderBottom: '1px solid rgba(255,255,255,0.02)',
-                }}
-              >
-                <span style={{ color: '#666', marginRight: 4 }}>T{turn - 1}</span>
-                <span style={{ color: eventColor(event.type) }}>{formatEvent(event)}</span>
-              </div>
-            ))
+            events.slice(0, 20).map((event, i) => {
+              const breakdown = eventBreakdown(event);
+              const expanded = expandedEventIdx === i;
+              return (
+                <div
+                  key={i}
+                  onClick={breakdown ? () => setExpandedEventIdx(expanded ? null : i) : undefined}
+                  style={{
+                    padding: '3px 12px',
+                    fontSize: 12,
+                    color: '#aaa',
+                    borderBottom: '1px solid rgba(255,255,255,0.02)',
+                    cursor: breakdown ? 'pointer' : 'default',
+                  }}
+                >
+                  <span style={{ color: '#666', marginRight: 4 }}>T{turn - 1}</span>
+                  <span style={{ color: eventColor(event.type) }}>{formatEvent(event)}</span>
+                  {breakdown && expanded && (
+                    <div style={{ marginTop: 2, marginLeft: 20, color: '#888', fontSize: 11, lineHeight: 1.6 }}>
+                      {breakdown.components.filter((c: any) => c.value !== 0).map((c: any) => (
+                        <div key={c.key}>
+                          {t(`sidepanel.breakdown_${c.key}`)}: {c.value >= 0 ? '+' : ''}{c.value}
+                        </div>
+                      ))}
+                      <div style={{ color: '#ccc' }}>{t('sidepanel.breakdown_total', { total: breakdown.total })}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
@@ -360,24 +377,36 @@ function successRateSuffix(probability: number | undefined): string {
   return typeof probability === 'number' ? t('sidepanel.success_rate', { probability }) : '';
 }
 
-/** シュートチェーンの結果を決定づけたcheckのprobabilityを選ぶ（outcome別に対応するcheckが異なるため） */
-function shootDecisiveProbability(result: any): number | undefined {
+/** シュートチェーンの結果を決定づけたcheck（outcome別に対応するcheckが異なる）。probability/breakdown共通の参照元 */
+function shootDecisiveResult(result: any): any {
   switch (result?.outcome) {
-    case 'blocked': return result.blockCheck?.probability;
-    case 'saved_catch': return result.catchCheck?.probability ?? result.savingCheck?.probability;
-    case 'saved_ck': return result.savingCheck?.probability;
+    case 'blocked': return result.blockCheck;
+    case 'saved_catch':
+    case 'saved_ck': return result.savingCheck;
     case 'goal':
     case 'missed':
-    default: return result?.shootSuccessCheck?.probability;
+    default: return result?.shootSuccessCheck;
   }
 }
 
-/** パスカットの結果を決定づけたcheckのprobabilityを選ぶ */
-function passCutDecisiveProbability(result: any): number | undefined {
+/** パスカットの結果を決定づけたcheck */
+function passCutDecisiveResult(result: any): any {
   switch (result?.outcome) {
-    case 'cut1': return result.cut1?.probability;
-    case 'cut2': return result.cut2?.probability;
+    case 'cut1': return result.cut1;
+    case 'cut2': return result.cut2;
     default: return undefined;
+  }
+}
+
+/** イベントの判定結果に紐づく確率内訳（Phase A3）。内訳がない場合はnull */
+function eventBreakdown(event: GameEvent): any {
+  const result = (event as any).result;
+  switch (event.type) {
+    case 'TACKLE':
+    case 'COLLISION': return result?.breakdown ?? null;
+    case 'SHOOT': return shootDecisiveResult(result)?.breakdown ?? null;
+    case 'PASS_CUT': return passCutDecisiveResult(result)?.breakdown ?? null;
+    default: return null;
   }
 }
 
@@ -388,9 +417,9 @@ function formatEvent(event: GameEvent): string {
     case 'TACKLE': return t('sidepanel.event_tackle') + successRateSuffix((event as any).result?.probability);
     case 'FOUL': return t('sidepanel.event_foul');
     case 'SHOOT': return t('sidepanel.event_shoot', { outcome: (event as any).result?.outcome ?? '' })
-      + successRateSuffix(shootDecisiveProbability((event as any).result));
+      + successRateSuffix(shootDecisiveResult((event as any).result)?.probability);
     case 'PASS_DELIVERED': return t('sidepanel.event_pass_delivered');
-    case 'PASS_CUT': return t('sidepanel.event_pass_cut') + successRateSuffix(passCutDecisiveProbability((event as any).result));
+    case 'PASS_CUT': return t('sidepanel.event_pass_cut') + successRateSuffix(passCutDecisiveResult((event as any).result)?.probability);
     case 'OFFSIDE': return t('sidepanel.event_offside');
     case 'BATTLE_DELAY': return t('sidepanel.event_battle_delay');
     case 'PASSIVE_TACTICS': return t('sidepanel.event_passive_tactics');

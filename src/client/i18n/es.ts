@@ -387,6 +387,13 @@ const es: Dict = {
   'sidepanel.event_collision': 'Choque',
   'sidepanel.event_ball_acquired': 'Balón recuperado',
   'sidepanel.success_rate': ' (tasa de éxito {probability}%)',
+  'sidepanel.breakdown_base': 'Dif. de coste',
+  'sidepanel.breakdown_position': 'Mod. de posición',
+  'sidepanel.breakdown_zoc': 'Mod. de ZOC',
+  'sidepanel.breakdown_distance': 'Mod. de distancia',
+  'sidepanel.breakdown_course': 'Mod. de trayectoria',
+  'sidepanel.breakdown_gk_zoc': 'Mod. de área del GK',
+  'sidepanel.breakdown_total': 'Total {total}%',
 
   // ----- FK minigame (fk.*) -----
   'fk.title_attack': '¡Tiro libre!',

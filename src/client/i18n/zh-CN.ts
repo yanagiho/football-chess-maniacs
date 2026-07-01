@@ -388,6 +388,13 @@ const zhCN: Dict = {
   'sidepanel.event_collision': '争抢',
   'sidepanel.event_ball_acquired': '获得球权',
   'sidepanel.success_rate': '（成功率{probability}%）',
+  'sidepanel.breakdown_base': '成本差',
+  'sidepanel.breakdown_position': '位置修正',
+  'sidepanel.breakdown_zoc': 'ZOC修正',
+  'sidepanel.breakdown_distance': '距离修正',
+  'sidepanel.breakdown_course': '路线修正',
+  'sidepanel.breakdown_gk_zoc': 'GK周边修正',
+  'sidepanel.breakdown_total': '合计{total}%',
 
   // ----- FKミニゲーム(fk.*) -----
   'fk.title_attack': '任意球！',

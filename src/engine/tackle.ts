@@ -7,7 +7,7 @@
 //
 // ============================================================
 
-import { calcProbability, calcZocModifier, judge } from './dice';
+import { calcProbabilityBreakdown, calcZocModifier, judge } from './dice';
 import type { Piece, TackleResult, ZocAdjacency } from './types';
 
 // ────────────────────────────────────────────────────────────
@@ -63,11 +63,12 @@ export function resolveTackle(input: TackleInput): TackleResult {
   // 守備側ZOC隣接: +5 / 攻撃側ZOC隣接: -10
   const zocMod = calcZocModifier(zoc, -10, +5);
 
-  const prob = calcProbability(tackler.cost, dribbler.cost, omega, posMod + defenseBonusMod, zocMod);
-  const result = judge(prob);
+  const breakdown = calcProbabilityBreakdown(tackler.cost, dribbler.cost, omega, posMod + defenseBonusMod, zocMod);
+  const result = judge(breakdown.total);
 
   return {
     ...result,
+    breakdown,
     tackler,
     dribbler,
     outcome: result.success ? 'tackled' : 'survived',

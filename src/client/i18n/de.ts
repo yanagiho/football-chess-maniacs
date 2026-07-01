@@ -387,6 +387,13 @@ const de: Dict = {
   'sidepanel.event_collision': 'Kollision',
   'sidepanel.event_ball_acquired': 'Ball erobert',
   'sidepanel.success_rate': ' (Erfolgsquote {probability}%)',
+  'sidepanel.breakdown_base': 'Kostenunterschied',
+  'sidepanel.breakdown_position': 'Positionsmodifikator',
+  'sidepanel.breakdown_zoc': 'ZOC-Modifikator',
+  'sidepanel.breakdown_distance': 'Distanzmodifikator',
+  'sidepanel.breakdown_course': 'Kursmodifikator',
+  'sidepanel.breakdown_gk_zoc': 'TW-Bereichsmodifikator',
+  'sidepanel.breakdown_total': 'Gesamt {total}%',
 
   // ----- FKミニゲーム(fk.*) -----
   'fk.title_attack': 'Freistoß!',

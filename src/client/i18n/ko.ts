@@ -388,6 +388,13 @@ const ko: Dict = {
   'sidepanel.event_collision': '경합',
   'sidepanel.event_ball_acquired': '볼 획득',
   'sidepanel.success_rate': ' (성공률 {probability}%)',
+  'sidepanel.breakdown_base': '코스트 차',
+  'sidepanel.breakdown_position': '포지션 보정',
+  'sidepanel.breakdown_zoc': 'ZOC 보정',
+  'sidepanel.breakdown_distance': '거리 보정',
+  'sidepanel.breakdown_course': '코스 보정',
+  'sidepanel.breakdown_gk_zoc': 'GK 주변 보정',
+  'sidepanel.breakdown_total': '합계 {total}%',
 
   // ----- FKミニゲーム(fk.*) -----
   'fk.title_attack': '프리킥!',

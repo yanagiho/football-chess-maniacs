@@ -11,8 +11,8 @@
 //
 // ============================================================
 
-import { calcProbability, calcZocModifier, judge } from './dice';
-import type { Piece, ShootChainResult, ZocAdjacency } from './types';
+import { calcProbabilityBreakdown, calcZocModifier, effectiveDiff, judge } from './dice';
+import type { Piece, ProbabilityBreakdown, ShootChainResult, ZocAdjacency } from './types';
 
 // ────────────────────────────────────────────────────────────
 // § ポジション修正定数
@@ -76,8 +76,8 @@ export function blockCheck(input: BlockCheckInput) {
   // 守備側ZOC隣接: 1体につき +10
   const zocMod = calcZocModifier(zoc, -5, +10);
 
-  const prob = calcProbability(blocker.cost, shooter.cost, omega, posMod, zocMod);
-  return { ...judge(prob), blocker };
+  const breakdown = calcProbabilityBreakdown(blocker.cost, shooter.cost, omega, posMod, zocMod);
+  return { ...judge(breakdown.total), breakdown, blocker };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -112,14 +112,21 @@ export function savingCheck(input: SavingCheckInput) {
   // 攻撃側ZOC隣接: 1体につき -5 / 守備側ZOC隣接: 1体につき +10
   const zocMod = calcZocModifier(zoc, -5, +10);
 
-  const prob = calcProbability(
-    gk.cost,
-    shooter.cost,
-    omega,
-    posMod + gkZocDefMod + distMod,
-    zocMod,
-  );
-  return judge(prob);
+  const base = (effectiveDiff(gk.cost, shooter.cost) + 3) * omega;
+  const rawTotal = base + posMod + gkZocDefMod + distMod + zocMod;
+  const total = Math.min(100, Math.max(0, rawTotal));
+  const breakdown: ProbabilityBreakdown = {
+    components: [
+      { key: 'base', value: base },
+      { key: 'position', value: posMod },
+      { key: 'gk_zoc', value: gkZocDefMod },
+      { key: 'distance', value: distMod },
+      { key: 'zoc', value: zocMod },
+    ],
+    rawTotal,
+    total,
+  };
+  return { ...judge(total), breakdown };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -163,8 +170,19 @@ export function shootSuccessCheck(input: ShootSuccessCheckInput) {
   const distMod = (distanceToGoal - 3) * -5;
   const zocMod = calcZocModifier(zoc, +5, -10);
 
-  const prob = Math.min(100, Math.max(0, base + distMod + zocMod + courseMod));
-  return judge(prob);
+  const rawTotal = base + distMod + zocMod + courseMod;
+  const total = Math.min(100, Math.max(0, rawTotal));
+  const breakdown: ProbabilityBreakdown = {
+    components: [
+      { key: 'base', value: base },
+      { key: 'distance', value: distMod },
+      { key: 'zoc', value: zocMod },
+      { key: 'course', value: courseMod },
+    ],
+    rawTotal,
+    total,
+  };
+  return { ...judge(total), breakdown };
 }
 
 // ────────────────────────────────────────────────────────────

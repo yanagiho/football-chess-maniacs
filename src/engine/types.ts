@@ -88,11 +88,29 @@ export interface Order {
 // 判定イベント（Event）型
 // ============================================================
 
+/** 確率内訳の1項目（例: コスト差による基礎値、ポジション修正、ZOC隣接修正、距離修正等） */
+export interface ProbabilityBreakdownComponent {
+  /** UI表示ラベルキー。sidepanel.breakdown_{key} のi18nキーに対応させる */
+  key: 'base' | 'position' | 'zoc' | 'distance' | 'course' | 'gk_zoc';
+  value: number;
+}
+
+/** 確率計算の内訳（判定式ごとに項目構成が異なるため汎用リスト形式） */
+export interface ProbabilityBreakdown {
+  components: ProbabilityBreakdownComponent[];
+  /** クランプ前の合計（components の合計値） */
+  rawTotal: number;
+  /** 0〜100にクランプした最終確率（probabilityと同値） */
+  total: number;
+}
+
 /** 判定結果の基底 */
 export interface JudgmentResult {
   success: boolean;
   probability: number; // 0-100
   roll: number;        // 0-100 の乱数
+  /** 確率の内訳（コスト差・ポジション修正・ZOC修正の内訳表示用） */
+  breakdown?: ProbabilityBreakdown;
 }
 
 /** シュートチェーン結果 */

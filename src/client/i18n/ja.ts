@@ -388,6 +388,13 @@ const ja: Dict = {
   'sidepanel.event_collision': '競合',
   'sidepanel.event_ball_acquired': 'ボール獲得',
   'sidepanel.success_rate': ' (成功率{probability}%)',
+  'sidepanel.breakdown_base': 'コスト差',
+  'sidepanel.breakdown_position': 'ポジション修正',
+  'sidepanel.breakdown_zoc': 'ZOC修正',
+  'sidepanel.breakdown_distance': '距離修正',
+  'sidepanel.breakdown_course': 'コース修正',
+  'sidepanel.breakdown_gk_zoc': 'GK周辺修正',
+  'sidepanel.breakdown_total': '合計{total}%',
 
   // ----- FKミニゲーム(fk.*) -----
   'fk.title_attack': 'フリーキック！',

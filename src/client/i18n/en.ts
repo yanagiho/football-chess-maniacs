@@ -387,6 +387,13 @@ const en: Dict = {
   'sidepanel.event_collision': 'Collision',
   'sidepanel.event_ball_acquired': 'Ball gained',
   'sidepanel.success_rate': ' (success rate {probability}%)',
+  'sidepanel.breakdown_base': 'Cost diff',
+  'sidepanel.breakdown_position': 'Position mod.',
+  'sidepanel.breakdown_zoc': 'ZOC mod.',
+  'sidepanel.breakdown_distance': 'Distance mod.',
+  'sidepanel.breakdown_course': 'Course mod.',
+  'sidepanel.breakdown_gk_zoc': 'GK area mod.',
+  'sidepanel.breakdown_total': 'Total {total}%',
 
   // ----- FK minigame (fk.*) -----
   'fk.title_attack': 'Free Kick!',

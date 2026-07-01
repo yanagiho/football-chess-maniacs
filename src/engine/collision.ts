@@ -8,7 +8,7 @@
 //
 // ============================================================
 
-import { calcProbability, calcZocModifier, judge } from './dice';
+import { calcProbabilityBreakdown, calcZocModifier, judge } from './dice';
 import type { CollisionResult, Piece, ZocAdjacency } from './types';
 
 export interface CollisionInput {
@@ -33,11 +33,12 @@ export function resolveCollision(input: CollisionInput): CollisionResult {
   // ZOC修正なし（§7-6では修正値の記載がないため基本式のみ）
   const zocMod = calcZocModifier(zoc, 0, 0);
 
-  const prob = calcProbability(pieceA.cost, pieceB.cost, omega, 0, zocMod);
-  const result = judge(prob);
+  const breakdown = calcProbabilityBreakdown(pieceA.cost, pieceB.cost, omega, 0, zocMod);
+  const result = judge(breakdown.total);
 
   return {
     ...result,
+    breakdown,
     winner: result.success ? pieceA : pieceB,
     loser: result.success ? pieceB : pieceA,
   };
