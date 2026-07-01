@@ -1,7 +1,7 @@
 // ============================================================
 // lastSetup.ts — 前回の対戦設定の永続化（速い層 §1.3）
-// モード・難易度・編成を localStorage に記憶し、
-// タイトルの「前回の編成で対戦」でワンタップ復元する。
+// モード・難易度・編成・チーム識別情報を localStorage に記憶し、
+// マイページ（Title.tsx）の自チームカード表示に使う。
 // ============================================================
 
 import type { GameMode, ComDifficulty, FormationData, TeamOrigin } from '../types';
@@ -49,34 +49,4 @@ export function saveLastSetup(setup: LastSetup): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(setup));
   } catch { /* ignore */ }
-}
-
-const MODE_KEYS: Record<GameMode, string> = {
-  ranked: 'mode.ranked',
-  casual: 'mode.casual',
-  com: 'mode.com',
-  comVsCom: 'mode.com_watch',
-};
-
-const DIFFICULTY_KEYS: Record<ComDifficulty, string> = {
-  beginner: 'difficulty.beginner',
-  regular: 'difficulty.regular',
-  maniac: 'difficulty.maniac',
-};
-
-function modeLabel(m: GameMode): string {
-  return t(MODE_KEYS[m]);
-}
-
-function difficultyLabel(d: ComDifficulty): string {
-  return t(DIFFICULTY_KEYS[d]);
-}
-
-/** 「前回の編成で対戦」ボタンのサブラベル（例: "COM対戦 · レギュラー"） */
-export function describeLastSetup(setup: LastSetup): string {
-  const parts: string[] = [modeLabel(setup.gameMode)];
-  if (setup.gameMode === 'com' || setup.gameMode === 'comVsCom') {
-    parts.push(difficultyLabel(setup.comDifficulty));
-  }
-  return parts.join(' · ');
 }

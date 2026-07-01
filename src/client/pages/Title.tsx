@@ -4,18 +4,16 @@
 
 import React from 'react';
 import type { Page } from '../types';
-import { type LastSetup, describeLastSetup, resolveTeamName } from '../utils/lastSetup';
+import { type LastSetup, resolveTeamName } from '../utils/lastSetup';
 import { t } from '../i18n';
 
 interface TitleProps {
   onNavigate: (page: Page) => void;
-  /** 前回の対戦設定（あれば「前回の編成で対戦」を最上段に表示） */
+  /** 前回の対戦設定（自チームカードの表示に使用） */
   lastSetup?: LastSetup | null;
-  /** 「前回の編成で対戦」: 前回設定でマッチングへ直行 */
-  onQuickMatch?: () => void;
 }
 
-export default function Title({ onNavigate, lastSetup, onQuickMatch }: TitleProps) {
+export default function Title({ onNavigate, lastSetup }: TitleProps) {
   return (
     <div
       style={{
@@ -50,23 +48,11 @@ export default function Title({ onNavigate, lastSetup, onQuickMatch }: TitleProp
         </p>
       </div>
 
-      {/* 自チームカード（マイページハブ） */}
+      {/* 自チームカード（マイページハブ）— 試合を始める入口はここの「対戦へ」のみ */}
       <TeamCard lastSetup={lastSetup} onNavigate={onNavigate} />
 
-      {/* メインメニュー */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
-        {lastSetup && onQuickMatch && (
-          <QuickMatchButton subLabel={describeLastSetup(lastSetup)} onClick={onQuickMatch} />
-        )}
-        <TitleButton label={t('title.mode_select')} onClick={() => onNavigate('modeSelect')} primary={!lastSetup} />
-        <TitleButton label={t('title.edit_formation')} onClick={() => onNavigate('formation')} />
-        <TitleButton label={t('title.friend_match')} onClick={() => onNavigate('friendMatch')} />
-        <TitleButton label={t('title.preset_teams')} onClick={() => onNavigate('presetTeams')} />
-      </div>
-
-      {/* サブメニュー */}
+      {/* 補助機能（試合フローとは別軸） */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-        <SubButton label={t('title.shop')} onClick={() => onNavigate('shop')} />
         <SubButton label={t('title.collection')} onClick={() => onNavigate('collection')} />
         <SubButton label={t('title.ranking')} onClick={() => onNavigate('ranking')} />
         <SubButton label={t('title.profile')} onClick={() => onNavigate('profile')} />
@@ -144,58 +130,6 @@ function teamCardBtnStyle(primary = false): React.CSSProperties {
     fontWeight: 'bold',
     cursor: 'pointer',
   };
-}
-
-function QuickMatchButton({ subLabel, onClick }: { subLabel: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '16px 0',
-        borderRadius: 12,
-        border: 'none',
-        background: 'linear-gradient(135deg, #c9920f, #ffd700)',
-        color: '#1a1a1a',
-        cursor: 'pointer',
-        boxShadow: '0 4px 16px rgba(255,215,0,0.3)',
-        transition: 'transform 0.1s',
-      }}
-    >
-      <div style={{ fontSize: 18, fontWeight: 900 }}>{t('title.quick_match')}</div>
-      <div style={{ fontSize: 12, fontWeight: 'bold', opacity: 0.7, marginTop: 2 }}>{subLabel}</div>
-    </button>
-  );
-}
-
-function TitleButton({
-  label,
-  onClick,
-  primary = false,
-}: {
-  label: string;
-  onClick: () => void;
-  primary?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '14px 0',
-        borderRadius: 10,
-        border: primary ? 'none' : '1px solid rgba(255,255,255,0.15)',
-        background: primary
-          ? 'linear-gradient(135deg, #2a6a2a, #3a8a3a)'
-          : 'rgba(255,255,255,0.05)',
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
-        cursor: 'pointer',
-        transition: 'transform 0.1s',
-      }}
-    >
-      {label}
-    </button>
-  );
 }
 
 function SubButton({ label, onClick }: { label: string; onClick: () => void }) {

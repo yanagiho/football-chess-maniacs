@@ -164,12 +164,6 @@ export default function App() {
     [],
   );
 
-  // タイトル「前回の編成で対戦」: 前回設定でマッチングへ直行
-  const handleQuickMatch = useCallback(() => {
-    if (!lastSetup) return;
-    startMatch(lastSetup.gameMode, lastSetup.comDifficulty, lastSetup.formationData);
-  }, [lastSetup, startMatch]);
-
   // 対戦セットアップ「編成して開始」: モード/難易度/相手プレビューを保持して編成画面へ
   const handleStartWithFormation = useCallback((mode: GameMode, difficulty: ComDifficulty, opponent?: PresetTeam | null) => {
     setGameMode(mode);
@@ -271,7 +265,7 @@ export default function App() {
           </div>
         }>
         {page === 'title' && (
-          <Title onNavigate={navigate} lastSetup={lastSetup} onQuickMatch={handleQuickMatch} />
+          <Title onNavigate={navigate} lastSetup={lastSetup} />
         )}
         {page === 'modeSelect' && (
           <ModeSelect
