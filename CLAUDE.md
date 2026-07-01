@@ -72,10 +72,9 @@ src/
     ├── index.html            # HTMLテンプレート
     ├── types.ts              # クライアント型定義（GameMode, FormationData, WsMessage, MAX_ROW等）
     ├── pages/
-    │   ├── Title.tsx          # タイトル画面
-    │   ├── ModeSelect.tsx     # モード選択（ranked/casual/com/comVsCom → onSelectMode）
-    │   ├── TeamSelect.tsx     # チーム選択
-    │   ├── Formation.tsx      # 編成画面v2（→onFormationConfirmでApp.tsxへデータ引継ぎ）
+    │   ├── Title.tsx          # マイページ（自チームカード常設 + 補助機能3列×2行グリッド、旧タイトル画面を置換）
+    │   ├── ModeSelect.tsx     # 対戦タイプ選択（COM対戦/オンライン対戦の2択+フレンド対戦の3種、選択時のみ難易度/相手プレビュー等展開）
+    │   ├── Formation.tsx      # 編成画面v2（→onFormationConfirmでApp.tsxへデータ引継ぎ、フッターに「プリセットから選ぶ」導線）
     │   ├── Matching.tsx       # マッチング待機（COM: クライアント即遷移 or サーバーDO作成 / Online: WS接続+キュー参加）
     │   ├── Battle.tsx         # 対戦画面（processTurn接続済・演出・ゴールリスタート・flipY）
     │   ├── Battle/
@@ -143,7 +142,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n・DO helpers・rating・ranking・shop購入・hex_utils・special | ✅ 670 tests passing (+10 skip: ライブE2E) |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n・DO helpers・rating・ranking・shop購入・hex_utils・special・presetTeams・match_friend | ✅ 696 tests passing (+10 skip: ライブE2E) |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -239,6 +238,7 @@ public/
 | ショップ購入テスト（2026-06-28, `a5fcea7`） | `POST /api/shop/purchase`のマネー経路をHono app.request+フェイクD1で検証(7件): ガード付き減算/残高不足402/二重購入409/購入不可400/未認証401 | ✅ |
 | Cloudflare再デプロイ（2026-06-28） | 本セッションのサーバー変更(対人3ブロッカー/選手交代DO/`/api/ranking`新設/レーティング永続化/shop) を Worker(`wrangler deploy`)で本番反映。新規D1マイグレーションなし(既存テーブルのみ)。クライアント(Vite)はPages別運用 | ✅ |
 | INGOT Platform連携（2026-07-01, runbook §6/§8/§9） | ショップ課金をPlatform台帳に接続。`auth.ts`をBearer(game/user/none)認証+Idempotency-Key方式へ移行(レスポンスHMAC廃止)。`/wallet`=Platform残高`GET /v1/commerce/currencies/{game_id}`(障害は502)、`/catalog`=Platform product情報(product_id/ingot_price/is_on_sale/platform_configured)をSKUでマージ(取得失敗は`platform_configured:false`で継続)、`/purchase`=`POST /v1/commerce/items/purchase`(piece_id→SKU→product解決、§6.4エラー変換表、granted_items→`user_pieces_v2`冪等同期)、`/ingots`=product_id/price_id方式のcheckout。Webhookに`currency.granted/revoked`追加。`ShopScreen`は未設定商品の購入ボタンを`shop.unavailable`(7言語)で無効化。Platform本番DBにINGOT pack 3件 + FCMS purchasable piece 188件を投入済み。Worker/Pages本番デプロイ済み。公開API smoke: catalog 188/188 configured、INGOT pack 3件、未ログイン購入系401、Pages/health 200。JWT付き実購入/Stripe checkoutは実ユーザー状態を変更するため未実施。正本 docs/fcms_ingot_platform_service_runbook.md。 | ✅ |
+| アウトゲーム整理v2（2026-07-01, `6ef0bc3`〜`d00648b`, T1-T9） | 正本 `docs/football_chess_outgame_plan_v2.md`。「自分のチームがどれか・誰と戦うか分からない」課題への再設計。T1: `FormationData`/`LastSetup`に`teamName`/`teamEmoji`/`origin`('custom'\|'preset')追加、未設定時`team.default_name`にフォールバック。T2: `Title.tsx`をマイページ化し自チームカード（エンブレム・チーム名・スタメン概要）を常設、ショップ/編成する/対戦へ3導線。T3: `createDefaultAwayPieces()`の固定4-4-2を`pickNpcOpponent(difficulty)`（`src/data/presetTeams.ts`、beginner=低コスト寄り/maniac=高コスト寄り抽選）に置換、マッチング画面に対戦相手表示、`createGoalRestartPieces`にopponent伝播。T4: `ModeSelect.tsx`をCOM対戦/オンライン対戦/フレンド対戦の3種選択に再編（COM対戦選択時のみ難易度+相手プレビュー展開）、選択結果はApp.tsx `pendingOpponent`で編成画面を経由してもマッチングまで一貫。T5: `durable/matchmaking.ts`にBot補完（`COM_TIMEOUT_MS`超過でawayUserId='com_ai'+isComMatch=trueのGameSession DOへ自動アサイン、`isRatedMatch`除外済みIDのためランキング対象外）。T6: フレンド対戦を`POST /match/friend/create`(KVにルーム発行、6桁コード)・`GET /match/friend/status/:roomId`(ホストのポーリング)・`POST /match/friend/join`(合流)で実装、matchIdは`friend_`prefix（`isRatedMatch`でレーティング対象外）、`FriendMatchScreen.tsx`をモックから実API接続に、`resolveActiveTeamId`を`client/utils/`へ共通化。T7: Titleの旧3入口（前回の編成で対戦/モードを選んで対戦/編成をいじる/フレンド対戦/プリセットチーム）ボタンを撤去し自チームカードの「対戦へ」1本に集約、`describeLastSetup`等未使用コード削除。T8: `PresetTeamsScreen`への独立導線を廃止しFormation.tsx フッターの「プリセットから選ぶ」ボタン経由でのみ到達（戻り先もformationに変更）。T9（Phase 4、grassrootsfootball.footballとの比較で追加）: 自チームカードのエンブレムを88px主役サイズで中央配置(T9a)、ModeSelectをCOM対戦/オンライン対戦の2列大型カード+フレンド対戦を控えめな横長ボタンに再編(T9b)、補助機能6項目(ショップ含む)を3列×2行グリッド化(T9c)、背景を黒基調+アクセントカラーを黄色系(`#ffd700`/`#ffb300`)に統一してコントラスト強化(T9d)。テスト+13件(presetTeams pickNpcOpponent 3件・battleUtils opponent 1件・isRatedMatch friend_ 1件・match_friend API 9件を含む、523→696件母数から積み上げ)。**ブラウザでのUI目視確認・オンライン対戦/フレンド対戦のE2E動作は本セッションでは未検証**（本環境のChrome拡張エラーのため）。 | ✅（型チェック+テストのみ確認） |
 
 ---
 
@@ -530,7 +530,7 @@ public/
 ## テスト
 
 ```bash
-npm test              # vitest run（全608テスト + 10 E2Eスキップ）
+npm test              # vitest run（全696テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
@@ -749,7 +749,7 @@ Platform認証はJWT（JWKS署名検証）+ サービスAPIキー + HMAC応答/W
 | 🟠 | オンライン対戦のWS送信が `player_id=''` / `client_hash=''`（盤面ハッシュ未実装）。サーバー統合とE2Eが未完 | `client/pages/Battle.tsx:1419-1423` |
 | ✅ | リプレイ視聴: COM対戦のクライアント録画→再生を配線済(`66076cb`)。残: オンライン対戦の録画(サーバーR2 `/replays/:id` 経由のビューア接続)、`/replays/:id/turn/:turn`(誰も書かず実質stub) | `api/replay.ts` |
 | ✅ | 選手交代: エンジン(applySubstitutions)+クライアントCOM(`d4becd7`)+DO/PvP・サーバーCOM(`a03b243`)で実装済み。残: COM AIへのbench供給(現状AIは交代提案せず) / 得点後リスタートでDOは交代がリセット(クライアントは保持)の挙動差 / オンラインE2E未検証 | `game_session.ts` |
-| 🟡 | FriendMatch がモックデータ（API未接続、フレンド機能自体が未実装）。Collection(`c44ed82`)/Ranking(`7d58a51`)は実データ化済。RankingはPvP対戦が無いと空。Ranking weekly/friendsタブは準備中表示 | `client/screens/*` |
+| ✅ | FriendMatch: `POST /match/friend/create`・`GET /match/friend/status/:roomId`・`POST /match/friend/join`で実装済み(outgame整理v2 T6, `f909eac`)。招待コード/URL方式、matchIdは`friend_`prefixでレーティング対象外。残: E2E未検証。Collection(`c44ed82`)/Ranking(`7d58a51`)は実データ化済。RankingはPvP対戦が無いと空。Ranking weekly/friendsタブは準備中表示 | `client/screens/*`, `api/match.ts` |
 | 🟡 | デッドコード整理: `pages/Result.tsx`・`pages/HalfTime.tsx`（到達不能）、`api/auth.ts` の `/purchase`（未マウント） | — |
 | 🟡 | `public/assets/characters/`（PK/FKスプライト9枚）がgit未追跡・未参照。配線時に追加 | — |
 
