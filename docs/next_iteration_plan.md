@@ -44,7 +44,12 @@ A1/A2/A3すべて実装済み。テスト711件全通過・型チェッククリ
 
 ---
 
-## Phase B: 自作編成へのチーム名入力UI
+## Phase B: 自作編成へのチーム名入力UI — ✅ 完了（2026-07-01）
+
+`Formation.tsx` の Header にテキスト入力（最大16文字）を追加。確定時 `teamName.trim() || undefined` で
+`FormationData.teamName` へ反映（空白のみ・未入力は既存の `resolveTeamName()`/`team.default_name` フォールバックに委ねる）。
+i18nキー追加、全7言語パリティ維持。テスト711件全通過・型チェッククリーン（Formation.tsx自体はページコンポーネントで
+本プロジェクトの既存テスト境界に倣い直接のUIテストは追加せず、抽出済み純粋関数のみテスト対象という方針を踏襲）。
 
 ### 設計意図
 T1（`outgame_plan_v2.md`）でチーム識別情報（`teamName`/`teamEmoji`/`origin`）の型は追加済みだが、
