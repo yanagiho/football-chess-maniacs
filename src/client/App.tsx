@@ -107,6 +107,8 @@ export default function App() {
   const [comDifficulty, setComDifficulty] = useState<ComDifficulty>('regular');
   // COM対戦の対戦相手（NPC_TEAMSから選出）。startMatch呼び出し毎にCOM系モードのみ再抽選
   const [comOpponent, setComOpponent] = useState<PresetTeam | null>(null);
+  // ModeSelect「編成して開始」でプレビューされた相手（編成画面を経由してもマッチング相手が変わらないよう保持）
+  const [pendingOpponent, setPendingOpponent] = useState<PresetTeam | null>(null);
   // JWT認証トークン（Universo SSO fragment → localStorage フォールバック）
   const [authToken, setAuthToken] = useState<string>(() => readLocalStorage('fcms_token'));
 
@@ -136,12 +138,17 @@ export default function App() {
   const navigate = useCallback((p: Page) => setPage(p), []);
 
   // マッチング開始の共通処理: 状態反映 + 前回設定の永続化 + 遷移
+  // opponent省略時（前回設定の復元等）はCOM系モードのみ新規抽選。ModeSelectでプレビュー済みの場合はそのまま引き継ぐ
   const startMatch = useCallback(
-    (mode: GameMode, difficulty: ComDifficulty, formation: FormationData | null) => {
+    (mode: GameMode, difficulty: ComDifficulty, formation: FormationData | null, opponent?: PresetTeam | null) => {
       setGameMode(mode);
       setComDifficulty(difficulty);
       setFormationData(formation);
-      setComOpponent(mode === 'com' || mode === 'comVsCom' ? pickNpcOpponent(difficulty) : null);
+      setComOpponent(
+        opponent !== undefined
+          ? opponent
+          : (mode === 'com' || mode === 'comVsCom') ? pickNpcOpponent(difficulty) : null,
+      );
       const setup: LastSetup = {
         gameMode: mode,
         comDifficulty: difficulty,
@@ -163,27 +170,28 @@ export default function App() {
     startMatch(lastSetup.gameMode, lastSetup.comDifficulty, lastSetup.formationData);
   }, [lastSetup, startMatch]);
 
-  // 対戦セットアップ「編成して開始」: モード/難易度を保持して編成画面へ
-  const handleStartWithFormation = useCallback((mode: GameMode, difficulty: ComDifficulty) => {
+  // 対戦セットアップ「編成して開始」: モード/難易度/相手プレビューを保持して編成画面へ
+  const handleStartWithFormation = useCallback((mode: GameMode, difficulty: ComDifficulty, opponent?: PresetTeam | null) => {
     setGameMode(mode);
     setComDifficulty(difficulty);
+    setPendingOpponent(opponent ?? null);
     setPage('formation');
   }, []);
 
   // 対戦セットアップ「この設定で開始」/「観戦を開始」: 既存（前回）編成で直行
   const handleStartNow = useCallback(
-    (mode: GameMode, difficulty: ComDifficulty) => {
-      startMatch(mode, difficulty, mode === 'comVsCom' ? null : formationData);
+    (mode: GameMode, difficulty: ComDifficulty, opponent?: PresetTeam | null) => {
+      startMatch(mode, difficulty, mode === 'comVsCom' ? null : formationData, opponent);
     },
     [startMatch, formationData],
   );
 
-  // 編成画面の「マッチング開始」: 編成を保存してマッチングへ
+  // 編成画面の「マッチング開始」: 編成を保存してマッチングへ（ModeSelectでプレビュー済みの相手を引き継ぐ）
   const handleFormationConfirm = useCallback(
     (data: FormationData) => {
-      startMatch(gameMode, comDifficulty, data);
+      startMatch(gameMode, comDifficulty, data, pendingOpponent);
     },
-    [startMatch, gameMode, comDifficulty],
+    [startMatch, gameMode, comDifficulty, pendingOpponent],
   );
 
   // サーバーサイドCOM用のトークン（POST /match/com が返すuserId）
@@ -264,6 +272,7 @@ export default function App() {
             initialDifficulty={comDifficulty}
             onStartWithFormation={handleStartWithFormation}
             onStartNow={handleStartNow}
+            onNavigate={navigate}
             onBack={() => navigate('title')}
           />
         )}
