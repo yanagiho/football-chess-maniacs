@@ -215,6 +215,7 @@ export type MatchmakingWsMessage =
 
 const PRODUCTION_WORKER_ORIGIN = 'https://football-chess-maniacs.yanagiho.workers.dev';
 const PRODUCTION_PAGES_HOST = 'football-chess-maniacs.pages.dev';
+const PRODUCTION_CUSTOM_HOSTS = new Set(['footballchess.io', 'www.footballchess.io']);
 
 function getViteEnv(): Record<string, string | undefined> {
   return (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
@@ -228,13 +229,17 @@ function isPagesHost(hostname: string): boolean {
   return hostname === PRODUCTION_PAGES_HOST || hostname.endsWith(`.${PRODUCTION_PAGES_HOST}`);
 }
 
+function isProductionClientHost(hostname: string): boolean {
+  return isPagesHost(hostname) || PRODUCTION_CUSTOM_HOSTS.has(hostname);
+}
+
 /** REST API接続先ベースURL取得（dev: wrangler dev、Pages: Worker、Worker配信: 同一オリジン） */
 export function getApiBaseUrl(): string {
   const configured = getViteEnv().VITE_API_BASE;
   if (configured) return trimTrailingSlash(configured);
   if (typeof window === 'undefined') return '';
   if (window.location.port === '5173') return 'http://localhost:8787';
-  return isPagesHost(window.location.hostname) ? PRODUCTION_WORKER_ORIGIN : '';
+  return isProductionClientHost(window.location.hostname) ? PRODUCTION_WORKER_ORIGIN : '';
 }
 
 /** REST API URLを生成する。pathは /api/... または /match/... を渡す。 */
@@ -249,7 +254,7 @@ export function getWsBaseUrl(): string {
   if (configured) return trimTrailingSlash(configured);
   if (typeof window === 'undefined') return 'ws://localhost:8787';
   if (location.port === '5173') return 'ws://localhost:8787';
-  if (isPagesHost(location.hostname)) return 'wss://football-chess-maniacs.yanagiho.workers.dev';
+  if (isProductionClientHost(location.hostname)) return 'wss://football-chess-maniacs.yanagiho.workers.dev';
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.host}`;
 }

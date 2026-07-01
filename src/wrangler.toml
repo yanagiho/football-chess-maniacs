@@ -2,6 +2,7 @@ name = "football-chess-maniacs"
 main = "worker.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
 
 # ── Durable Objects ──
 [durable_objects]
@@ -9,6 +10,16 @@ bindings = [
   { name = "GAME_SESSION", class_name = "GameSession" },
   { name = "MATCHMAKING", class_name = "Matchmaking" },
 ]
+
+# ── Worker Custom Domains ──
+# Apex/www はWorkerで受け、API以外のGETはPages本体へプロキシする。
+[[routes]]
+pattern = "footballchess.io"
+custom_domain = true
+
+[[routes]]
+pattern = "www.footballchess.io"
+custom_domain = true
 
 [[migrations]]
 tag = "v1"
@@ -53,8 +64,8 @@ service = "fc-platform-api"
 
 # ── Environment Variables ──
 [vars]
-CORS_ORIGIN = "https://football-chess-maniacs.pages.dev,https://universo-futbol.com,https://www.universo-futbol.com"
-GAME_CLIENT_URL = "https://football-chess-maniacs.pages.dev"
+CORS_ORIGIN = "https://footballchess.io,https://www.footballchess.io,https://football-chess-maniacs.pages.dev,https://universo-futbol.com,https://www.universo-futbol.com"
+GAME_CLIENT_URL = "https://footballchess.io"
 PLATFORM_API_BASE = "https://fc-platform-api.yanagiho.workers.dev"
 PLATFORM_GAME_ID = "football_chess_maniacs"
 AI_MODEL_ID = "@cf/google/gemma-3-12b-it"

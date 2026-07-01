@@ -65,6 +65,7 @@ export interface Env {
 }
 
 const app = new Hono<Env>();
+const CLIENT_ASSET_ORIGIN = 'https://football-chess-maniacs.pages.dev';
 
 function parseAllowedOrigins(value: string | undefined): string[] {
   return (value ?? '')
@@ -88,6 +89,23 @@ function redirectToClient(c: Context<Env>, path = ''): Response {
   const source = new URL(c.req.url);
   source.searchParams.forEach((value, key) => target.searchParams.set(key, value));
   return c.redirect(target.toString(), 302);
+}
+
+async function proxyClientAsset(c: Context<Env>): Promise<Response> {
+  const source = new URL(c.req.url);
+  if (source.hostname === 'www.footballchess.io') {
+    source.hostname = 'footballchess.io';
+    return Response.redirect(source.toString(), 301);
+  }
+
+  const target = new URL(source.pathname + source.search, CLIENT_ASSET_ORIGIN);
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete('host');
+  return fetch(target.toString(), {
+    method: c.req.method,
+    headers,
+    redirect: 'manual',
+  });
 }
 
 // ── グローバルミドルウェア ──
@@ -119,8 +137,15 @@ app.use('*', async (c, next) => {
     contentSecurityPolicy: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
-      connectSrc: ["'self'", 'wss://manics.example.com', 'https://api.football-century.example.com'],
-      imgSrc: ["'self'", 'https://r2.example.com'],
+      connectSrc: [
+        "'self'",
+        'https://footballchess.io',
+        'https://www.footballchess.io',
+        'https://football-chess-maniacs.pages.dev',
+        'https://football-chess-maniacs.yanagiho.workers.dev',
+        'wss://football-chess-maniacs.yanagiho.workers.dev',
+      ],
+      imgSrc: ["'self'"],
     },
     xFrameOptions: 'DENY',
     xContentTypeOptions: 'nosniff',
@@ -129,7 +154,7 @@ app.use('*', async (c, next) => {
 });
 
 // ── ヘルスチェック ──
-app.get('/', (c) => redirectToClient(c));
+app.get('/', (c) => proxyClientAsset(c));
 app.get('/purchase/success', (c) => redirectToClient(c, '/?purchase=success'));
 app.get('/purchase/cancel', (c) => redirectToClient(c, '/?purchase=cancel'));
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
@@ -209,6 +234,10 @@ api.route('/pieces', piecesRoutes);
 api.route('/ranking', rankingRoutes);
 
 app.route('/api', api);
+
+// ── Client fallback ──
+// footballchess.io はWorker Custom Domainで受け、API以外の静的アセット/SPAルートはPages本体へプロキシする。
+app.get('*', (c) => proxyClientAsset(c));
 
 // ── Queues Consumer（試合結果の非同期永続化 §5-2） ──
 
