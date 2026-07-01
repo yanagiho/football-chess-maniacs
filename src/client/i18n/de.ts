@@ -16,6 +16,8 @@ const de: Dict = {
   'common.to_home': 'Zur Startseite',
   'common.rematch': 'Nochmal',
   'team.default_name': 'Mein Team',
+  'team.starters_summary': '{count} Startspieler · Kosten {cost}',
+  'team.go_to_battle': 'Zum Match',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': 'Oben-L',

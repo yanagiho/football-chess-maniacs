@@ -16,6 +16,8 @@ const en: Dict = {
   'common.to_home': 'Back to Home',
   'common.rematch': 'Rematch',
   'team.default_name': 'My Team',
+  'team.starters_summary': '{count} starters · Cost {cost}',
+  'team.go_to_battle': 'Battle',
 
   // ----- goal course / direction (course.*) -----
   'course.top_left': 'Top-L',

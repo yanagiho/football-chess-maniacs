@@ -17,6 +17,8 @@ const zhCN: Dict = {
   'common.to_home': '返回主页',
   'common.rematch': '再来一局',
   'team.default_name': '我的球队',
+  'team.starters_summary': '首发{count}人・费用{cost}',
+  'team.go_to_battle': '前往对战',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '左上',

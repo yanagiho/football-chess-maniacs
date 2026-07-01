@@ -4,7 +4,7 @@
 
 import React from 'react';
 import type { Page } from '../types';
-import { type LastSetup, describeLastSetup } from '../utils/lastSetup';
+import { type LastSetup, describeLastSetup, resolveTeamName } from '../utils/lastSetup';
 import { t } from '../i18n';
 
 interface TitleProps {
@@ -24,7 +24,7 @@ export default function Title({ onNavigate, lastSetup, onQuickMatch }: TitleProp
         alignItems: 'center',
         justifyContent: 'center',
         height: '100%',
-        gap: 32,
+        gap: 24,
         background: 'linear-gradient(180deg, #0a0a1e 0%, #1a1a3e 50%, #0a0a1e 100%)',
       }}
     >
@@ -49,6 +49,9 @@ export default function Title({ onNavigate, lastSetup, onQuickMatch }: TitleProp
           HEX Board Strategy
         </p>
       </div>
+
+      {/* 自チームカード（マイページハブ） */}
+      <TeamCard lastSetup={lastSetup} onNavigate={onNavigate} />
 
       {/* メインメニュー */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
@@ -77,6 +80,70 @@ export default function Title({ onNavigate, lastSetup, onQuickMatch }: TitleProp
       </div>
     </div>
   );
+}
+
+function TeamCard({
+  lastSetup,
+  onNavigate,
+}: {
+  lastSetup?: LastSetup | null;
+  onNavigate: (page: Page) => void;
+}) {
+  const teamName = resolveTeamName(lastSetup?.teamName);
+  const teamEmoji = lastSetup?.teamEmoji || '⚽';
+  const starters = lastSetup?.formationData?.starters ?? [];
+  const totalCost = starters.reduce((sum, p) => sum + p.cost, 0);
+
+  return (
+    <div
+      style={{
+        width: 300,
+        maxWidth: '90vw',
+        borderRadius: 14,
+        padding: '16px 18px',
+        background: 'linear-gradient(135deg, rgba(42,106,42,0.35), rgba(20,20,50,0.5))',
+        border: '1px solid rgba(255,255,255,0.12)',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ fontSize: 32, lineHeight: 1 }}>{teamEmoji}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 900, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {teamName}
+          </div>
+          <div style={{ fontSize: 11, color: '#9cd89c', marginTop: 2 }}>
+            {t('team.starters_summary', { count: String(starters.length), cost: String(totalCost) })}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button onClick={() => onNavigate('shop')} style={teamCardBtnStyle()}>
+          {t('title.shop')}
+        </button>
+        <button onClick={() => onNavigate('formation')} style={teamCardBtnStyle()}>
+          {t('title.edit_formation')}
+        </button>
+        <button onClick={() => onNavigate('modeSelect')} style={teamCardBtnStyle(true)}>
+          {t('team.go_to_battle')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function teamCardBtnStyle(primary = false): React.CSSProperties {
+  return {
+    flex: 1,
+    padding: '8px 0',
+    borderRadius: 8,
+    border: primary ? 'none' : '1px solid rgba(255,255,255,0.15)',
+    background: primary ? 'linear-gradient(135deg, #c9920f, #ffd700)' : 'rgba(255,255,255,0.06)',
+    color: primary ? '#1a1a1a' : '#ddd',
+    fontSize: 12,
+    fontWeight: 'bold',
+    cursor: 'pointer',
+  };
 }
 
 function QuickMatchButton({ subLabel, onClick }: { subLabel: string; onClick: () => void }) {

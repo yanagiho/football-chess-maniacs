@@ -17,6 +17,8 @@ const ja: Dict = {
   'common.to_home': 'ホームに戻る',
   'common.rematch': 'もう一度',
   'team.default_name': 'マイチーム',
+  'team.starters_summary': 'スタメン{count}人・コスト{cost}',
+  'team.go_to_battle': '対戦へ',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '左上',

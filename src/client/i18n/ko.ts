@@ -17,6 +17,8 @@ const ko: Dict = {
   'common.to_home': '홈으로',
   'common.rematch': '다시 하기',
   'team.default_name': '마이팀',
+  'team.starters_summary': '선발 {count}명 · 코스트 {cost}',
+  'team.go_to_battle': '대전으로',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '좌상',
