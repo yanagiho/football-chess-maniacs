@@ -15,6 +15,7 @@ const de: Dict = {
   'common.close': 'Schließen',
   'common.to_home': 'Zur Startseite',
   'common.rematch': 'Nochmal',
+  'team.default_name': 'Mein Team',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': 'Oben-L',

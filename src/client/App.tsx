@@ -138,7 +138,14 @@ export default function App() {
       setGameMode(mode);
       setComDifficulty(difficulty);
       setFormationData(formation);
-      const setup: LastSetup = { gameMode: mode, comDifficulty: difficulty, formationData: formation };
+      const setup: LastSetup = {
+        gameMode: mode,
+        comDifficulty: difficulty,
+        formationData: formation,
+        teamName: formation?.teamName,
+        teamEmoji: formation?.teamEmoji,
+        origin: formation?.origin ?? 'custom',
+      };
       saveLastSetup(setup);
       setLastSetup(setup);
       setPage('matching');
@@ -203,6 +210,9 @@ export default function App() {
         row: MAX_ROW - piece.row,
       })),
       bench: [],
+      teamName: team.name,
+      teamEmoji: team.emoji,
+      origin: 'preset',
     };
     startMatch('com', comDifficulty, formation);
   }, [startMatch, comDifficulty]);

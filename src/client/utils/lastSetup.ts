@@ -4,16 +4,27 @@
 // タイトルの「前回の編成で対戦」でワンタップ復元する。
 // ============================================================
 
-import type { GameMode, ComDifficulty, FormationData } from '../types';
+import type { GameMode, ComDifficulty, FormationData, TeamOrigin } from '../types';
 import { t } from '../i18n';
 
 export interface LastSetup {
   gameMode: GameMode;
   comDifficulty: ComDifficulty;
   formationData: FormationData | null;
+  /** 自チームカード表示用（formationData.teamName/teamEmoji/origin のスナップショット） */
+  teamName?: string;
+  teamEmoji?: string;
+  origin?: TeamOrigin;
 }
 
 const STORAGE_KEY = 'fcms_last_setup';
+
+/** チーム名の表示用フォールバック（未設定時は「マイチーム」） */
+export function resolveTeamName(name?: string): string {
+  return name && name.trim().length > 0 ? name : t('team.default_name');
+}
+
+const DEFAULT_TEAM_EMOJI = '⚽';
 
 export function loadLastSetup(): LastSetup | null {
   try {
@@ -25,6 +36,9 @@ export function loadLastSetup(): LastSetup | null {
       gameMode: parsed.gameMode,
       comDifficulty: parsed.comDifficulty ?? 'regular',
       formationData: parsed.formationData ?? null,
+      teamName: parsed.teamName ?? parsed.formationData?.teamName,
+      teamEmoji: parsed.teamEmoji ?? parsed.formationData?.teamEmoji ?? DEFAULT_TEAM_EMOJI,
+      origin: parsed.origin ?? parsed.formationData?.origin ?? 'custom',
     };
   } catch {
     return null;

@@ -16,6 +16,7 @@ const ja: Dict = {
   'common.close': '閉じる',
   'common.to_home': 'ホームに戻る',
   'common.rematch': 'もう一度',
+  'team.default_name': 'マイチーム',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '左上',

@@ -445,6 +445,7 @@ export default function Formation({ onNavigate, onFormationConfirm, isPremium = 
                 bench: bench.map(b => ({
                   id: b.id, position: b.position, cost: b.cost, col: 0, row: 0,
                 })),
+                origin: 'custom',
               });
             } else {
               onNavigate('matching');

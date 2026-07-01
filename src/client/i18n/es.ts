@@ -15,6 +15,7 @@ const es: Dict = {
   'common.close': 'Cerrar',
   'common.to_home': 'Volver al inicio',
   'common.rematch': 'Revancha',
+  'team.default_name': 'Mi Equipo',
 
   // ----- goal course / direction (course.*) -----
   'course.top_left': 'Arr. izq.',

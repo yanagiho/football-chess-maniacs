@@ -118,9 +118,17 @@ export interface FormationPiece {
   row: number;
 }
 
+/** チームの出自: 自作編成 / プリセット(NPCチーム流用) */
+export type TeamOrigin = 'custom' | 'preset';
+
 export interface FormationData {
   starters: FormationPiece[];
   bench: FormationPiece[];
+  /** チーム名（自作は既定で未設定→表示側で team.default_name にフォールバック、プリセットは PresetTeam.name を引き継ぐ） */
+  teamName?: string;
+  /** 代表アイコン（絵文字）。プリセットは PresetTeam.emoji を引き継ぐ */
+  teamEmoji?: string;
+  origin?: TeamOrigin;
 }
 
 /** ボード最大行（0-33） */

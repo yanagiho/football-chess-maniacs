@@ -16,6 +16,7 @@ const zhCN: Dict = {
   'common.close': '关闭',
   'common.to_home': '返回主页',
   'common.rematch': '再来一局',
+  'team.default_name': '我的球队',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '左上',

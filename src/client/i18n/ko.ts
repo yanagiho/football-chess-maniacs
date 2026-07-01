@@ -16,6 +16,7 @@ const ko: Dict = {
   'common.close': '닫기',
   'common.to_home': '홈으로',
   'common.rematch': '다시 하기',
+  'team.default_name': '마이팀',
 
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '좌상',
