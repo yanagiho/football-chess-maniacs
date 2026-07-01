@@ -73,27 +73,34 @@ export default function ModeSelect({
     >
       <h2 style={{ fontSize: 22, fontWeight: 'bold' }}>{t('modeselect.title')}</h2>
 
-      {/* 対戦タイプ（並列カード） */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 360 }}>
-        <BattleTypeCard
+      {/* T9b: 対戦導線の2択化。COM対戦／オンライン対戦を巨大ボタンで並べ、
+          フレンド対戦はその下に控えめな3番目の選択肢として配置する */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 360 }}>
+        <BigBattleTypeCard
           active={battleType === 'com'}
           label={t('mode.com')}
           desc={t('modeselect.com_desc')}
           onClick={() => setBattleType('com')}
         />
-        <BattleTypeCard
+        <BigBattleTypeCard
           active={battleType === 'online'}
           label={t('modeselect.online_type')}
           desc={t('modeselect.online_type_desc')}
           onClick={() => setBattleType('online')}
         />
-        <BattleTypeCard
-          active={battleType === 'friend'}
-          label={t('title.friend_match')}
-          desc={t('modeselect.friend_desc')}
-          onClick={() => setBattleType('friend')}
-        />
       </div>
+      <button
+        onClick={() => setBattleType('friend')}
+        style={{
+          width: '100%', maxWidth: 360, padding: '10px 16px', borderRadius: 10,
+          border: battleType === 'friend' ? '2px solid #ffd700' : '1px solid rgba(255,255,255,0.1)',
+          background: battleType === 'friend' ? 'rgba(255,215,0,0.08)' : 'rgba(255,255,255,0.03)',
+          color: '#ccc', textAlign: 'left', cursor: 'pointer', fontSize: 13,
+        }}
+      >
+        <span style={{ fontWeight: 'bold' }}>{t('title.friend_match')}</span>
+        <span style={{ color: '#777', marginLeft: 8 }}>{t('modeselect.friend_desc')}</span>
+      </button>
 
       {/* COM対戦: 難易度 + 対戦相手プレビュー */}
       {battleType === 'com' && (
@@ -177,10 +184,10 @@ export default function ModeSelect({
               padding: '14px 0',
               borderRadius: 10,
               border: 'none',
-              background: 'linear-gradient(135deg, #2a6a2a, #3a8a3a)',
-              color: '#fff',
+              background: 'linear-gradient(135deg, #ffd700, #ffb300)',
+              color: '#000',
               fontSize: 15,
-              fontWeight: 'bold',
+              fontWeight: 900,
               cursor: 'pointer',
             }}
           >
@@ -215,10 +222,10 @@ export default function ModeSelect({
               padding: '14px 0',
               borderRadius: 10,
               border: 'none',
-              background: 'linear-gradient(135deg, #2a6a2a, #3a8a3a)',
-              color: '#fff',
+              background: 'linear-gradient(135deg, #ffd700, #ffb300)',
+              color: '#000',
               fontSize: 15,
-              fontWeight: 'bold',
+              fontWeight: 900,
               cursor: 'pointer',
             }}
           >
@@ -261,7 +268,7 @@ export default function ModeSelect({
   );
 }
 
-function BattleTypeCard({
+function BigBattleTypeCard({
   active,
   label,
   desc,
@@ -276,18 +283,22 @@ function BattleTypeCard({
     <button
       onClick={onClick}
       style={{
-        padding: '14px 20px',
-        borderRadius: 12,
-        border: active ? '2px solid #ffd700' : '1px solid rgba(255,255,255,0.1)',
-        background: active ? 'rgba(255,215,0,0.1)' : 'rgba(255,255,255,0.05)',
+        padding: '20px 12px',
+        minHeight: 108,
+        borderRadius: 14,
+        border: active ? '2px solid #ffd700' : '1px solid rgba(255,255,255,0.12)',
+        background: active
+          ? 'linear-gradient(160deg, rgba(255,215,0,0.22), rgba(255,140,0,0.08))'
+          : 'rgba(255,255,255,0.04)',
         color: '#fff',
-        textAlign: 'left',
+        textAlign: 'center',
         cursor: 'pointer',
-        transition: 'background 0.15s',
+        boxShadow: active ? '0 0 18px rgba(255,214,0,0.2)' : 'none',
+        transition: 'background 0.15s, box-shadow 0.15s',
       }}
     >
-      <div style={{ fontSize: 16, fontWeight: 'bold' }}>{label}</div>
-      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{desc}</div>
+      <div style={{ fontSize: 17, fontWeight: 900 }}>{label}</div>
+      <div style={{ fontSize: 11, color: '#999', marginTop: 6 }}>{desc}</div>
     </button>
   );
 }

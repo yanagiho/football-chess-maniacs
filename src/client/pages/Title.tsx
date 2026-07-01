@@ -22,17 +22,18 @@ export default function Title({ onNavigate, lastSetup }: TitleProps) {
         alignItems: 'center',
         justifyContent: 'center',
         height: '100%',
-        gap: 24,
-        background: 'linear-gradient(180deg, #0a0a1e 0%, #1a1a3e 50%, #0a0a1e 100%)',
+        gap: 20,
+        padding: '20px 16px',
+        background: 'linear-gradient(180deg, #000000 0%, #14142c 55%, #000000 100%)',
       }}
     >
       {/* タイトルロゴ */}
       <div style={{ textAlign: 'center' }}>
         <h1
           style={{
-            fontSize: 'clamp(28px, 6vw, 48px)',
+            fontSize: 'clamp(24px, 5vw, 38px)',
             fontWeight: 900,
-            background: 'linear-gradient(135deg, #ffd700, #ff8c00)',
+            background: 'linear-gradient(135deg, #ffe600, #ff8c00)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             letterSpacing: 2,
@@ -43,16 +44,18 @@ export default function Title({ onNavigate, lastSetup }: TitleProps) {
           <br />
           ManiacS
         </h1>
-        <p style={{ color: '#888', fontSize: 14, marginTop: 8 }}>
-          HEX Board Strategy
-        </p>
       </div>
 
-      {/* 自チームカード（マイページハブ）— 試合を始める入口はここの「対戦へ」のみ */}
+      {/* 自チームカード（マイページハブ）— 試合を始める入口はここの「対戦へ」のみ。
+          T9a: エンブレム/チーム名を画面の主役として大きく中央配置する */}
       <TeamCard lastSetup={lastSetup} onNavigate={onNavigate} />
 
-      {/* 補助機能（試合フローとは別軸） */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+      {/* 補助機能（試合フローとは別軸）— T9c: 3列×2行の均等グリッド */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10,
+        width: '100%', maxWidth: 340,
+      }}>
+        <SubButton label={t('title.shop')} onClick={() => onNavigate('shop')} />
         <SubButton label={t('title.collection')} onClick={() => onNavigate('collection')} />
         <SubButton label={t('title.ranking')} onClick={() => onNavigate('ranking')} />
         <SubButton label={t('title.profile')} onClick={() => onNavigate('profile')} />
@@ -83,37 +86,52 @@ function TeamCard({
   return (
     <div
       style={{
-        width: 300,
-        maxWidth: '90vw',
-        borderRadius: 14,
-        padding: '16px 18px',
-        background: 'linear-gradient(135deg, rgba(42,106,42,0.35), rgba(20,20,50,0.5))',
-        border: '1px solid rgba(255,255,255,0.12)',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+        width: '100%',
+        maxWidth: 340,
+        borderRadius: 20,
+        padding: '24px 20px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        background: 'linear-gradient(160deg, rgba(42,106,42,0.4), rgba(10,10,26,0.85))',
+        border: '2px solid rgba(255,214,0,0.45)',
+        boxShadow: '0 0 24px rgba(255,214,0,0.15), 0 8px 24px rgba(0,0,0,0.5)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontSize: 32, lineHeight: 1 }}>{teamEmoji}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 900, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {teamName}
-          </div>
-          <div style={{ fontSize: 11, color: '#9cd89c', marginTop: 2 }}>
-            {t('team.starters_summary', { count: String(starters.length), cost: String(totalCost) })}
-          </div>
-        </div>
+      {/* T9a: エンブレムを主役サイズで中央配置 */}
+      <div style={{
+        width: 88, height: 88, borderRadius: '50%',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 48, lineHeight: 1,
+        background: 'radial-gradient(circle, rgba(255,214,0,0.18), rgba(255,214,0,0.04))',
+        border: '2px solid rgba(255,214,0,0.6)',
+        boxShadow: '0 0 20px rgba(255,214,0,0.25)',
+      }}>
+        {teamEmoji}
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+      <div style={{
+        fontSize: 20, fontWeight: 900, color: '#fff', marginTop: 12,
+        textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap', maxWidth: '100%',
+      }}>
+        {teamName}
+      </div>
+      <div style={{ fontSize: 12, color: '#9cd89c', marginTop: 4, fontWeight: 'bold' }}>
+        {t('team.starters_summary', { count: String(starters.length), cost: String(totalCost) })}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 18, width: '100%' }}>
         <button onClick={() => onNavigate('shop')} style={teamCardBtnStyle()}>
           {t('title.shop')}
         </button>
         <button onClick={() => onNavigate('formation')} style={teamCardBtnStyle()}>
           {t('title.edit_formation')}
         </button>
-        <button onClick={() => onNavigate('modeSelect')} style={teamCardBtnStyle(true)}>
-          {t('team.go_to_battle')}
-        </button>
       </div>
+      {/* T9b: 対戦への主導線はModeSelect側で2大ボタンに再編されるため、ここは単一の遷移ボタンのまま強調 */}
+      <button onClick={() => onNavigate('modeSelect')} style={{ ...teamCardBtnStyle(true), width: '100%', marginTop: 8, padding: '12px 0', fontSize: 15 }}>
+        {t('team.go_to_battle')}
+      </button>
     </div>
   );
 }
@@ -121,13 +139,13 @@ function TeamCard({
 function teamCardBtnStyle(primary = false): React.CSSProperties {
   return {
     flex: 1,
-    padding: '8px 0',
+    padding: '9px 0',
     borderRadius: 8,
-    border: primary ? 'none' : '1px solid rgba(255,255,255,0.15)',
-    background: primary ? 'linear-gradient(135deg, #c9920f, #ffd700)' : 'rgba(255,255,255,0.06)',
-    color: primary ? '#1a1a1a' : '#ddd',
-    fontSize: 12,
-    fontWeight: 'bold',
+    border: primary ? 'none' : '1px solid rgba(255,255,255,0.18)',
+    background: primary ? 'linear-gradient(135deg, #ffd700, #ffb300)' : 'rgba(255,255,255,0.07)',
+    color: primary ? '#000' : '#ddd',
+    fontSize: 13,
+    fontWeight: 900,
     cursor: 'pointer',
   };
 }
@@ -137,13 +155,15 @@ function SubButton({ label, onClick }: { label: string; onClick: () => void }) {
     <button
       onClick={onClick}
       style={{
-        padding: '8px 14px',
-        borderRadius: 8,
-        border: '1px solid rgba(255,255,255,0.1)',
-        background: 'rgba(255,255,255,0.03)',
-        color: '#999',
+        padding: '14px 4px',
+        borderRadius: 10,
+        border: '1px solid rgba(255,214,0,0.15)',
+        background: 'rgba(255,255,255,0.04)',
+        color: '#ccc',
         fontSize: 12,
+        fontWeight: 'bold',
         cursor: 'pointer',
+        textAlign: 'center',
       }}
     >
       {label}
