@@ -8,6 +8,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { apiUrl, type Page, type Team } from '../types';
 import { resolveActiveTeamId } from '../utils/resolveActiveTeamId';
+import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
 interface FriendMatchScreenProps {
@@ -42,6 +43,7 @@ export default function FriendMatchScreen({ onNavigate, authToken, onMatchFound 
   const [busy, setBusy] = useState(false);
   const matchedRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { isLoggedIn, requireLogin } = useAuth();
 
   useEffect(() => {
     return () => {
@@ -50,6 +52,10 @@ export default function FriendMatchScreen({ onNavigate, authToken, onMatchFound 
   }, []);
 
   const handleCreate = useCallback(async () => {
+    if (!isLoggedIn) {
+      requireLogin(t('title.friend_match'));
+      return;
+    }
     setError('');
     setBusy(true);
     try {
@@ -96,7 +102,7 @@ export default function FriendMatchScreen({ onNavigate, authToken, onMatchFound 
     } finally {
       setBusy(false);
     }
-  }, [authToken, onMatchFound]);
+  }, [authToken, onMatchFound, isLoggedIn, requireLogin]);
 
   const handleCopy = useCallback((kind: 'id' | 'url') => {
     const text = kind === 'id' ? roomId : buildInviteUrl(roomId);
@@ -106,6 +112,10 @@ export default function FriendMatchScreen({ onNavigate, authToken, onMatchFound 
   }, [roomId]);
 
   const handleJoin = useCallback(async () => {
+    if (!isLoggedIn) {
+      requireLogin(t('title.friend_match'));
+      return;
+    }
     if (joinId.length !== 6) {
       setError(t('friend.error_id_length'));
       return;
@@ -134,7 +144,7 @@ export default function FriendMatchScreen({ onNavigate, authToken, onMatchFound 
     } finally {
       setBusy(false);
     }
-  }, [joinId, authToken, onMatchFound]);
+  }, [joinId, authToken, onMatchFound, isLoggedIn, requireLogin]);
 
   const handleBack = useCallback(() => {
     matchedRef.current = true;

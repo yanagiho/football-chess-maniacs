@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import type { GameMode, ComDifficulty, Page } from '../types';
 import type { PresetTeam } from '../../data/presetTeams';
 import { pickNpcOpponent } from '../../data/presetTeams';
+import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
 interface ModeSelectProps {
@@ -50,6 +51,7 @@ export default function ModeSelect({
   const [onlineMode, setOnlineMode] = useState<'ranked' | 'casual'>(initialMode === 'casual' ? 'casual' : 'ranked');
   const [difficulty, setDifficulty] = useState<ComDifficulty>(initialDifficulty);
   const [opponent, setOpponent] = useState<PresetTeam>(() => pickNpcOpponent(initialDifficulty));
+  const { isLoggedIn, requireLogin } = useAuth();
 
   // 難易度変更に応じて対戦相手プレビューを再抽選
   useEffect(() => {
@@ -57,6 +59,15 @@ export default function ModeSelect({
   }, [difficulty]);
 
   const effectiveMode: GameMode = battleType === 'online' ? onlineMode : 'com';
+
+  // T10d: オンライン対戦はログイン必須。未ログインならモーダルへ誘導して処理を中断する
+  const guardOnlineLogin = (): boolean => {
+    if (battleType === 'online' && !isLoggedIn) {
+      requireLogin(t('modeselect.online_type'));
+      return false;
+    }
+    return true;
+  };
 
   return (
     <div
@@ -200,7 +211,7 @@ export default function ModeSelect({
       {battleType !== 'friend' && (
         <div style={{ display: 'flex', gap: 12, marginTop: 8, width: '100%', maxWidth: 360 }}>
           <button
-            onClick={() => onStartWithFormation(effectiveMode, difficulty, battleType === 'com' ? opponent : null)}
+            onClick={() => { if (guardOnlineLogin()) onStartWithFormation(effectiveMode, difficulty, battleType === 'com' ? opponent : null); }}
             style={{
               flex: 1,
               padding: '14px 0',
@@ -216,7 +227,7 @@ export default function ModeSelect({
             {t('modeselect.start_with_formation')}
           </button>
           <button
-            onClick={() => onStartNow(effectiveMode, difficulty, battleType === 'com' ? opponent : null)}
+            onClick={() => { if (guardOnlineLogin()) onStartNow(effectiveMode, difficulty, battleType === 'com' ? opponent : null); }}
             style={{
               flex: 1,
               padding: '14px 0',

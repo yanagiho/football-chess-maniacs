@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiUrl, type Page } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
 interface RankingScreenProps {
@@ -36,6 +37,7 @@ export default function RankingScreen({ onNavigate, authToken }: RankingScreenPr
   const [top, setTop] = useState<RankEntry[]>([]);
   const [me, setMe] = useState<RankEntry | null>(null);
   const [loading, setLoading] = useState(true);
+  const { isLoggedIn, requireLogin } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +139,27 @@ export default function RankingScreen({ onNavigate, authToken }: RankingScreenPr
           <span style={{ color: '#4488cc', fontWeight: 'bold' }}>#{me.rank} {me.name}</span>
           <span style={{ color: '#aaa' }}>Elo {me.elo}</span>
           <span style={{ color: '#888', fontSize: 11 }}>{me.wins}-{me.draws}-{me.losses}</span>
+        </div>
+      )}
+
+      {/* T10d: 未ログインでも閲覧は可能（Public API）。自分の順位表示にはログインが必要なことをソフトに案内する */}
+      {showOverall && !isLoggedIn && (
+        <div style={{
+          width: '100%', maxWidth: 440, padding: '10px 16px',
+          background: 'rgba(255,214,0,0.06)', borderTop: '1px solid rgba(255,214,0,0.2)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, gap: 8,
+        }}>
+          <span style={{ color: '#cc8800' }}>{t('auth.reason_prefix', { reason: t('title.ranking') })}</span>
+          <button
+            onClick={() => requireLogin(t('title.ranking'))}
+            style={{
+              padding: '5px 12px', borderRadius: 6, border: 'none',
+              background: 'linear-gradient(135deg, #ffd700, #ffb300)', color: '#000',
+              fontSize: 11, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            {t('auth.login_cta')}
+          </button>
         </div>
       )}
 

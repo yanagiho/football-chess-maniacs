@@ -7,6 +7,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { apiUrl, type Page, type Position, type Cost } from '../types';
 import { pieceCostToIngots, costToDisplay } from '../../types/piece';
 import PieceIcon from '../components/board/PieceIcon';
+import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
 interface ShopScreenProps {
@@ -81,6 +82,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
   const [buyingIngots, setBuyingIngots] = useState(false);
   const [buyingId, setBuyingId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const { requireLogin } = useAuth();
 
   const authHeaders = useMemo<Record<string, string>>(() => {
     const h: Record<string, string> = {};
@@ -157,6 +159,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
     if (item.owned || buyingId !== null) return;
     if (!authToken) {
       setToast(t('shop.login_required'));
+      requireLogin(t('title.shop'));
       return;
     }
     const price = pieceCostToIngots(item.cost);
@@ -190,11 +193,12 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
     } finally {
       setBuyingId(null);
     }
-  }, [authToken, authHeaders, balance, buyingId]);
+  }, [authToken, authHeaders, balance, buyingId, requireLogin]);
 
   const handleBuyIngots = useCallback(async () => {
     if (!authToken) {
       setToast(t('shop.login_required'));
+      requireLogin(t('title.shop'));
       return;
     }
     const product = ingotProducts[0];
@@ -225,7 +229,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
     } finally {
       setBuyingIngots(false);
     }
-  }, [authHeaders, authToken, ingotProducts]);
+  }, [authHeaders, authToken, ingotProducts, requireLogin]);
 
   useEffect(() => {
     if (!toast) return;
