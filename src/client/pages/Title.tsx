@@ -5,6 +5,7 @@
 import React from 'react';
 import type { Page } from '../types';
 import { type LastSetup, resolveTeamName } from '../utils/lastSetup';
+import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
 interface TitleProps {
@@ -46,6 +47,9 @@ export default function Title({ onNavigate, lastSetup }: TitleProps) {
         </h1>
       </div>
 
+      {/* T10c: ゲスト/ログイン状態表示 + ログイン導線 */}
+      <AuthStatusBar />
+
       {/* 自チームカード（マイページハブ）— 試合を始める入口はここの「対戦へ」のみ。
           T9a: エンブレム/チーム名を画面の主役として大きく中央配置する */}
       <TeamCard lastSetup={lastSetup} onNavigate={onNavigate} />
@@ -70,6 +74,41 @@ export default function Title({ onNavigate, lastSetup }: TitleProps) {
     </div>
   );
 }
+
+function AuthStatusBar() {
+  const { isLoggedIn, requireLogin, logout } = useAuth();
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+      fontSize: 12,
+    }}>
+      <span style={{ color: isLoggedIn ? '#9cd89c' : '#888' }}>
+        {isLoggedIn ? t('auth.logged_in_as') : t('auth.guest_playing')}
+      </span>
+      {isLoggedIn ? (
+        <button onClick={logout} style={authStatusBtnStyle}>
+          {t('auth.logout')}
+        </button>
+      ) : (
+        <button onClick={() => requireLogin()} style={{ ...authStatusBtnStyle, borderColor: 'rgba(255,214,0,0.5)', color: '#ffd700' }}>
+          {t('auth.login_cta')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const authStatusBtnStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  borderRadius: 6,
+  border: '1px solid rgba(255,255,255,0.2)',
+  background: 'rgba(255,255,255,0.05)',
+  color: '#ccc',
+  fontSize: 11,
+  fontWeight: 'bold',
+  cursor: 'pointer',
+};
 
 function TeamCard({
   lastSetup,
