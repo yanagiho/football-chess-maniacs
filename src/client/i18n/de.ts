@@ -21,6 +21,28 @@ const de: Dict = {
   'team.opponent_label': 'Gegner:',
   'team.era_label': '(Ära {era})',
 
+  // ----- auth.* -----
+  'auth.login_title': 'Anmelden',
+  'auth.register_title': 'Registrieren',
+  'auth.email': 'E-Mail',
+  'auth.password': 'Passwort',
+  'auth.password_confirm': 'Passwort bestätigen',
+  'auth.login_button': 'Anmelden',
+  'auth.register_button': 'Registrieren',
+  'auth.switch_to_register': 'Konto erstellen',
+  'auth.switch_to_login': 'Zurück zur Anmeldung',
+  'auth.guest_continue': 'Als Gast fortfahren',
+  'auth.email_required': 'Bitte E-Mail-Adresse eingeben',
+  'auth.password_required': 'Bitte Passwort eingeben',
+  'auth.passwords_mismatch': 'Passwörter stimmen nicht überein',
+  'auth.login_failed': 'Anmeldung fehlgeschlagen',
+  'auth.register_failed': 'Registrierung fehlgeschlagen',
+  'auth.reason_prefix': 'Für {reason} ist eine Anmeldung erforderlich',
+  'auth.logged_in_as': 'Angemeldet',
+  'auth.logout': 'Abmelden',
+  'auth.guest_playing': 'Als Gast unterwegs',
+  'auth.login_cta': 'Anmelden',
+
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': 'Oben-L',
   'course.top_center': 'Oben-M',

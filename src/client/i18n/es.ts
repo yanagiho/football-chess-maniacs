@@ -21,6 +21,28 @@ const es: Dict = {
   'team.opponent_label': 'Rival:',
   'team.era_label': '(Era {era})',
 
+  // ----- auth.* -----
+  'auth.login_title': 'Iniciar sesión',
+  'auth.register_title': 'Crear cuenta',
+  'auth.email': 'Correo electrónico',
+  'auth.password': 'Contraseña',
+  'auth.password_confirm': 'Confirmar contraseña',
+  'auth.login_button': 'Iniciar sesión',
+  'auth.register_button': 'Registrarse',
+  'auth.switch_to_register': 'Crear una cuenta',
+  'auth.switch_to_login': 'Volver a iniciar sesión',
+  'auth.guest_continue': 'Continuar como invitado',
+  'auth.email_required': 'Introduce tu correo electrónico',
+  'auth.password_required': 'Introduce tu contraseña',
+  'auth.passwords_mismatch': 'Las contraseñas no coinciden',
+  'auth.login_failed': 'Error al iniciar sesión',
+  'auth.register_failed': 'Error al registrarse',
+  'auth.reason_prefix': 'Se requiere iniciar sesión para {reason}',
+  'auth.logged_in_as': 'Sesión iniciada',
+  'auth.logout': 'Cerrar sesión',
+  'auth.guest_playing': 'Jugando como invitado',
+  'auth.login_cta': 'Iniciar sesión',
+
   // ----- goal course / direction (course.*) -----
   'course.top_left': 'Arr. izq.',
   'course.top_center': 'Arr. centro',

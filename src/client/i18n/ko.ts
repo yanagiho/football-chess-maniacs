@@ -22,6 +22,28 @@ const ko: Dict = {
   'team.opponent_label': '상대:',
   'team.era_label': '(Era{era})',
 
+  // ----- auth.* -----
+  'auth.login_title': '로그인',
+  'auth.register_title': '회원가입',
+  'auth.email': '이메일',
+  'auth.password': '비밀번호',
+  'auth.password_confirm': '비밀번호 확인',
+  'auth.login_button': '로그인',
+  'auth.register_button': '가입하기',
+  'auth.switch_to_register': '계정 만들기',
+  'auth.switch_to_login': '로그인 화면으로',
+  'auth.guest_continue': '게스트로 계속하기',
+  'auth.email_required': '이메일 주소를 입력해주세요',
+  'auth.password_required': '비밀번호를 입력해주세요',
+  'auth.passwords_mismatch': '비밀번호가 일치하지 않습니다',
+  'auth.login_failed': '로그인에 실패했습니다',
+  'auth.register_failed': '가입에 실패했습니다',
+  'auth.reason_prefix': '{reason}에는 로그인이 필요합니다',
+  'auth.logged_in_as': '로그인됨',
+  'auth.logout': '로그아웃',
+  'auth.guest_playing': '게스트로 플레이 중',
+  'auth.login_cta': '로그인하기',
+
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '좌상',
   'course.top_center': '중상',

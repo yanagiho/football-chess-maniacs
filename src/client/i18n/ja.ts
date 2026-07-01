@@ -22,6 +22,28 @@ const ja: Dict = {
   'team.opponent_label': '対戦相手：',
   'team.era_label': '（Era{era}）',
 
+  // ----- 認証(auth.*) -----
+  'auth.login_title': 'ログイン',
+  'auth.register_title': '新規登録',
+  'auth.email': 'メールアドレス',
+  'auth.password': 'パスワード',
+  'auth.password_confirm': 'パスワード（確認）',
+  'auth.login_button': 'ログイン',
+  'auth.register_button': '登録する',
+  'auth.switch_to_register': 'アカウントを作成する',
+  'auth.switch_to_login': 'ログイン画面に戻る',
+  'auth.guest_continue': 'ゲストのまま続ける',
+  'auth.email_required': 'メールアドレスを入力してください',
+  'auth.password_required': 'パスワードを入力してください',
+  'auth.passwords_mismatch': 'パスワードが一致しません',
+  'auth.login_failed': 'ログインに失敗しました',
+  'auth.register_failed': '登録に失敗しました',
+  'auth.reason_prefix': '{reason}にはログインが必要です',
+  'auth.logged_in_as': 'ログイン中',
+  'auth.logout': 'ログアウト',
+  'auth.guest_playing': 'ゲストでプレイ中',
+  'auth.login_cta': 'ログインする',
+
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '左上',
   'course.top_center': '中上',

@@ -22,6 +22,28 @@ const zhCN: Dict = {
   'team.opponent_label': '对手：',
   'team.era_label': '（Era{era}）',
 
+  // ----- auth.* -----
+  'auth.login_title': '登录',
+  'auth.register_title': '注册',
+  'auth.email': '邮箱',
+  'auth.password': '密码',
+  'auth.password_confirm': '确认密码',
+  'auth.login_button': '登录',
+  'auth.register_button': '注册',
+  'auth.switch_to_register': '创建账号',
+  'auth.switch_to_login': '返回登录',
+  'auth.guest_continue': '以访客身份继续',
+  'auth.email_required': '请输入邮箱地址',
+  'auth.password_required': '请输入密码',
+  'auth.passwords_mismatch': '两次输入的密码不一致',
+  'auth.login_failed': '登录失败',
+  'auth.register_failed': '注册失败',
+  'auth.reason_prefix': '使用{reason}需要登录',
+  'auth.logged_in_as': '已登录',
+  'auth.logout': '退出登录',
+  'auth.guest_playing': '正在以访客身份游玩',
+  'auth.login_cta': '登录',
+
   // ----- ゴールコース / 方向ラベル(course.*) -----
   'course.top_left': '左上',
   'course.top_center': '中上',

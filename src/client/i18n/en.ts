@@ -21,6 +21,28 @@ const en: Dict = {
   'team.opponent_label': 'Opponent:',
   'team.era_label': '(Era {era})',
 
+  // ----- auth.* -----
+  'auth.login_title': 'Log In',
+  'auth.register_title': 'Sign Up',
+  'auth.email': 'Email',
+  'auth.password': 'Password',
+  'auth.password_confirm': 'Confirm Password',
+  'auth.login_button': 'Log In',
+  'auth.register_button': 'Sign Up',
+  'auth.switch_to_register': 'Create an account',
+  'auth.switch_to_login': 'Back to login',
+  'auth.guest_continue': 'Continue as guest',
+  'auth.email_required': 'Please enter your email address',
+  'auth.password_required': 'Please enter your password',
+  'auth.passwords_mismatch': 'Passwords do not match',
+  'auth.login_failed': 'Login failed',
+  'auth.register_failed': 'Sign up failed',
+  'auth.reason_prefix': 'Login is required for {reason}',
+  'auth.logged_in_as': 'Logged in',
+  'auth.logout': 'Log Out',
+  'auth.guest_playing': 'Playing as guest',
+  'auth.login_cta': 'Log In',
+
   // ----- goal course / direction (course.*) -----
   'course.top_left': 'Top-L',
   'course.top_center': 'Top-C',

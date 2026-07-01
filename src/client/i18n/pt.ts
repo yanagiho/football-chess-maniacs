@@ -21,6 +21,28 @@ const pt: Dict = {
   'team.opponent_label': 'Adversário:',
   'team.era_label': '(Era {era})',
 
+  // ----- auth.* -----
+  'auth.login_title': 'Entrar',
+  'auth.register_title': 'Criar conta',
+  'auth.email': 'E-mail',
+  'auth.password': 'Senha',
+  'auth.password_confirm': 'Confirmar senha',
+  'auth.login_button': 'Entrar',
+  'auth.register_button': 'Cadastrar',
+  'auth.switch_to_register': 'Criar uma conta',
+  'auth.switch_to_login': 'Voltar ao login',
+  'auth.guest_continue': 'Continuar como convidado',
+  'auth.email_required': 'Informe seu e-mail',
+  'auth.password_required': 'Informe sua senha',
+  'auth.passwords_mismatch': 'As senhas não coincidem',
+  'auth.login_failed': 'Falha ao entrar',
+  'auth.register_failed': 'Falha ao cadastrar',
+  'auth.reason_prefix': 'É necessário fazer login para {reason}',
+  'auth.logged_in_as': 'Conectado',
+  'auth.logout': 'Sair',
+  'auth.guest_playing': 'Jogando como convidado',
+  'auth.login_cta': 'Entrar',
+
   // ----- goal course / direction (course.*) -----
   'course.top_left': 'Sup. esq.',
   'course.top_center': 'Sup. centro',
