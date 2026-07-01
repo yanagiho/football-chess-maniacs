@@ -147,12 +147,12 @@ export default function PresetTeamsScreen({ onNavigate, onSelectPresetTeam }: Pr
       )}
 
       <div style={{ padding: '12px 0', textAlign: 'center' }}>
-        <button onClick={() => onNavigate('title')} style={{
+        <button onClick={() => onNavigate('formation')} style={{
           padding: '8px 24px', background: 'transparent',
           border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
           color: '#888', fontSize: 14, cursor: 'pointer',
         }}>
-          {t('common.to_home')}
+          {t('common.back')}
         </button>
       </div>
     </div>

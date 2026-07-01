@@ -435,6 +435,7 @@ export default function Formation({ onNavigate, onFormationConfirm, isPremium = 
       {/* ═══ フッター ═══ */}
       <div style={{ display: 'flex', gap: 12, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', justifyContent: 'center' }}>
         <button onClick={() => onNavigate('title')} style={btnStyle('#334155')}>{t('common.back')}</button>
+        <button onClick={() => onNavigate('presetTeams')} style={btnStyle('#334155')}>{t('title.preset_teams')}</button>
         <button
           onClick={() => {
             if (onFormationConfirm) {
