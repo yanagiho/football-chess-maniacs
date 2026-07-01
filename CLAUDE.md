@@ -67,7 +67,7 @@ src/
 │   ├── rate_limit.ts         # レート制限（KV）
 │   └── validation.ts         # 入力バリデーション（§7-3 全14項目）
 └── client/                   # React フロントエンド（Cloudflare Pages）
-    ├── App.tsx               # ルート（ページ遷移 + gameMode + formationData + authToken管理）
+    ├── App.tsx               # ルート（AuthProvider配下のAppShellでページ遷移 + gameMode + formationData管理、authTokenはuseAuth()由来）
     ├── main.tsx              # エントリポイント（React.StrictMode）
     ├── index.html            # HTMLテンプレート
     ├── types.ts              # クライアント型定義（GameMode, FormationData, WsMessage, MAX_ROW等）
@@ -96,16 +96,27 @@ src/
     │   │   ├── Timer.tsx      # ターンタイマー（60秒カウントダウン、プログレスバー、(M:SS)形式）
     │   │   ├── ActionBar.tsx  # スマホ: アクションバー（ドリブル/パス/シュート/交代/確定）+ベンチスライドアップ
     │   │   └── SidePanel.tsx  # PC: 左パネル(§3-4)+右パネル(§3-5)
-    │   └── minigame/
-    │       ├── FKGame.tsx     # FKミニゲーム（§4-1）
-    │       ├── CKGame.tsx     # CKミニゲーム（§4-2）
-    │       └── PKGame.tsx     # PKミニゲーム（§4-3）
+    │   ├── minigame/
+    │   │   ├── FKGame.tsx     # FKミニゲーム（§4-1）
+    │   │   ├── CKGame.tsx     # CKミニゲーム（§4-2）
+    │   │   └── PKGame.tsx     # PKミニゲーム（§4-3）
+    │   └── auth/
+    │       └── LoginModal.tsx # Platformログイン/新規登録モーダル（GrassrootsFootball authUI.js移植、AuthContextから開く）
+    ├── contexts/
+    │   ├── SettingsContext.tsx # アプリ設定（localStorage永続化）
+    │   └── AuthContext.tsx    # Platformログイン状態の単一窓口（requireLogin(reason)でLoginModalを開く、GRF authState.js相当）
+    ├── platform/               # Universo Futbol Platform API 直叩きクライアント（GRFパターン移植）
+    │   ├── config.ts           # VITE_PLATFORM_API_URL + hostname判定でPlatform API URL解決
+    │   ├── tokenStore.ts       # JWT永続化（localStorage: fcms_token/fcms_refresh_token、JWT subからuserIdキャッシュ）
+    │   ├── authClient.ts       # login/register/refresh/logout/authFetch（401時1回だけ自動refresh）
+    │   └── ssoFragment.ts      # #uf_sso=<base64url>フラグメント消費（Universo Futbolからの将来のSSOハンドオフ受信）
     ├── hooks/
     │   ├── useWebSocket.ts    # WebSocket通信（§7-2 upgrade認証、自動再接続）
     │   ├── useGameState.ts    # ゲーム状態管理（useReducer + APPLY_ENGINE_RESULT + NEXT_TURN + AT）
     │   └── useDeviceType.ts   # スマホ/PC判定
     ├── utils/
-    │   └── pieceAssetPath.ts  # コマPNG画像パス導出（getPieceAssetPath: position/cost/side → /assets/pieces/*.png）
+    │   ├── pieceAssetPath.ts  # コマPNG画像パス導出（getPieceAssetPath: position/cost/side → /assets/pieces/*.png）
+    │   └── resolveActiveTeamId.ts # マッチング/フレンド対戦に渡す編成teamId解決（is_active優先→先頭→'default'）
     ├── i18n/                  # 多言語化基盤（ShootOutDiceプレイブック移植・7言語対応）
     │   ├── index.ts           # i18n器本体（t / tn / setLocale / detectInitialLocale / lookupPlural / SUPPORTED_LOCALES / LOCALE_NATIVE_NAMES / 永続化）
     │   ├── ja.ts              # 日本語辞書（正本・401キー）
@@ -142,7 +153,7 @@ public/
 | ball.ts | §9-2 フェーズ2 | ✅ |
 | special.ts | §9-2 フェーズ3 | ✅ |
 | turn_processor.ts | §9-2 全フェーズ統合 | ✅ |
-| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n・DO helpers・rating・ranking・shop購入・hex_utils・special・presetTeams・match_friend | ✅ 696 tests passing (+10 skip: ライブE2E) |
+| ユニットテスト | 判定式全体・統合・E2E・AIモジュール・フロントエンド・i18n・DO helpers・rating・ranking・shop購入・hex_utils・special・presetTeams・match_friend・platform auth(tokenStore/ssoFragment) | ✅ 708 tests passing (+10 skip: ライブE2E) |
 | worker.ts + api/* | Hono REST API + WebSocket | ✅ |
 | durable/game_session.ts | §4-3 DO Hibernation + §7-2 WS認証 + processTurn統合 + ハーフタイム/AT/ゴールリスタート | ✅ |
 | durable/matchmaking.ts | §4-2 シャード構成マッチメイキング | ✅ |
@@ -239,6 +250,7 @@ public/
 | Cloudflare再デプロイ（2026-06-28） | 本セッションのサーバー変更(対人3ブロッカー/選手交代DO/`/api/ranking`新設/レーティング永続化/shop) を Worker(`wrangler deploy`)で本番反映。新規D1マイグレーションなし(既存テーブルのみ)。クライアント(Vite)はPages別運用 | ✅ |
 | INGOT Platform連携（2026-07-01, runbook §6/§8/§9） | ショップ課金をPlatform台帳に接続。`auth.ts`をBearer(game/user/none)認証+Idempotency-Key方式へ移行(レスポンスHMAC廃止)。`/wallet`=Platform残高`GET /v1/commerce/currencies/{game_id}`(障害は502)、`/catalog`=Platform product情報(product_id/ingot_price/is_on_sale/platform_configured)をSKUでマージ(取得失敗は`platform_configured:false`で継続)、`/purchase`=`POST /v1/commerce/items/purchase`(piece_id→SKU→product解決、§6.4エラー変換表、granted_items→`user_pieces_v2`冪等同期)、`/ingots`=product_id/price_id方式のcheckout。Webhookに`currency.granted/revoked`追加。`ShopScreen`は未設定商品の購入ボタンを`shop.unavailable`(7言語)で無効化。Platform本番DBにINGOT pack 3件 + FCMS purchasable piece 188件を投入済み。Worker/Pages本番デプロイ済み。公開API smoke: catalog 188/188 configured、INGOT pack 3件、未ログイン購入系401、Pages/health 200。JWT付き実購入/Stripe checkoutは実ユーザー状態を変更するため未実施。正本 docs/fcms_ingot_platform_service_runbook.md。 | ✅ |
 | アウトゲーム整理v2（2026-07-01, `6ef0bc3`〜`d00648b`, T1-T9） | 正本 `docs/football_chess_outgame_plan_v2.md`。「自分のチームがどれか・誰と戦うか分からない」課題への再設計。T1: `FormationData`/`LastSetup`に`teamName`/`teamEmoji`/`origin`('custom'\|'preset')追加、未設定時`team.default_name`にフォールバック。T2: `Title.tsx`をマイページ化し自チームカード（エンブレム・チーム名・スタメン概要）を常設、ショップ/編成する/対戦へ3導線。T3: `createDefaultAwayPieces()`の固定4-4-2を`pickNpcOpponent(difficulty)`（`src/data/presetTeams.ts`、beginner=低コスト寄り/maniac=高コスト寄り抽選）に置換、マッチング画面に対戦相手表示、`createGoalRestartPieces`にopponent伝播。T4: `ModeSelect.tsx`をCOM対戦/オンライン対戦/フレンド対戦の3種選択に再編（COM対戦選択時のみ難易度+相手プレビュー展開）、選択結果はApp.tsx `pendingOpponent`で編成画面を経由してもマッチングまで一貫。T5: `durable/matchmaking.ts`にBot補完（`COM_TIMEOUT_MS`超過でawayUserId='com_ai'+isComMatch=trueのGameSession DOへ自動アサイン、`isRatedMatch`除外済みIDのためランキング対象外）。T6: フレンド対戦を`POST /match/friend/create`(KVにルーム発行、6桁コード)・`GET /match/friend/status/:roomId`(ホストのポーリング)・`POST /match/friend/join`(合流)で実装、matchIdは`friend_`prefix（`isRatedMatch`でレーティング対象外）、`FriendMatchScreen.tsx`をモックから実API接続に、`resolveActiveTeamId`を`client/utils/`へ共通化。T7: Titleの旧3入口（前回の編成で対戦/モードを選んで対戦/編成をいじる/フレンド対戦/プリセットチーム）ボタンを撤去し自チームカードの「対戦へ」1本に集約、`describeLastSetup`等未使用コード削除。T8: `PresetTeamsScreen`への独立導線を廃止しFormation.tsx フッターの「プリセットから選ぶ」ボタン経由でのみ到達（戻り先もformationに変更）。T9（Phase 4、grassrootsfootball.footballとの比較で追加）: 自チームカードのエンブレムを88px主役サイズで中央配置(T9a)、ModeSelectをCOM対戦/オンライン対戦の2列大型カード+フレンド対戦を控えめな横長ボタンに再編(T9b)、補助機能6項目(ショップ含む)を3列×2行グリッド化(T9c)、背景を黒基調+アクセントカラーを黄色系(`#ffd700`/`#ffb300`)に統一してコントラスト強化(T9d)。テスト+13件(presetTeams pickNpcOpponent 3件・battleUtils opponent 1件・isRatedMatch friend_ 1件・match_friend API 9件を含む、523→696件母数から積み上げ)。**ブラウザでのUI目視確認・オンライン対戦/フレンド対戦のE2E動作は本セッションでは未検証**（本環境のChrome拡張エラーのため）。 | ✅（型チェック+テストのみ確認） |
+| アウトゲーム整理v2 Phase5（2026-07-01, `7621c13`〜`2bcfa16`, T10 SSO/ログイン連携） | 正本 `docs/football_chess_outgame_plan_v2.md` §Phase5。GrassrootsFootball/football-line-break/universo-frontpageの本番実装を調査した結果、FCMS既存の`#uf_sso=`フラグメント実装（App.tsx `consumeUniversoSsoFragment`）はGRFの`consumeUniversoSsoFromHash`とキー名/エンコードが完全一致で正しかったが、universo-frontpage側が未実装のためこの経路はdormant。本番で実際に機能するログイン経路（ゲーム内モーダル→Platform API直叩き、GRFパターン）がFCMSに欠落していたことが本当のギャップ。T10a: `src/client/platform/{config,tokenStore,authClient,ssoFragment}.ts`新設（GRFの`flavorConfig.js`/`platformClient.js`/`tokenStore.js`をTS移植、`VITE_PLATFORM_API_URL`環境変数+hostname判定でAPI URL解決、localStorageキーは既存`fcms_token`/`fcms_refresh_token`を継続、401時1回だけ自動refresh）。T10b: `AuthContext.tsx`(`requireLogin(reason)`でモーダルを開く単一窓口、マウント時に`consumeUniversoSsoFromHash`→tokenStore同期)+`components/auth/LoginModal.tsx`(メール/パスワードのログイン・登録UI)。App.tsxの旧`consumeUniversoSsoFragment`/`readLocalStorage`/`authToken` stateを撤去し`AuthProvider`配下の`AppShell`に統合。T10c: Title.tsx(マイページ)に`AuthStatusBar`（「ゲストでプレイ中」/「ログイン中」+ログイン・ログアウトボタン）追加。ゲストのままCOM対戦・編成は継続利用可能。T10d: オンライン対戦(ModeSelect)・フレンド対戦(FriendMatchScreen作成/参加)・ショップ購入(ShopScreen)で未ログイン時に`requireLogin()`でモーダル誘導、ランキング(RankingScreen)は閲覧はPublic APIのため継続可能でソフトバナーのみ。テスト+12件(tokenStore 6件+ssoFragment 6件、jsdom environment)。**ブラウザでのUI目視確認・ログインモーダル/オンライン対戦のE2E動作は未検証**。 | ✅（型チェック+テストのみ確認） |
 
 ---
 
@@ -530,7 +542,7 @@ public/
 ## テスト
 
 ```bash
-npm test              # vitest run（全696テスト + 10 E2Eスキップ）
+npm test              # vitest run（全708テスト + 10 E2Eスキップ）
 npm run test:watch
 npm run dev           # Vite dev server（localhost:5173）
 npm run bootstrap:small  # AI自動対戦テスト（10試合）
