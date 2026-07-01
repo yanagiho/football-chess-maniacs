@@ -218,6 +218,8 @@ const ko: Dict = {
   'battle.confirm_turn': '✓ 턴 확정',
 
   // ----- コレクション画面(collection.*) -----
+  'collection.title': '컬렉션',
+  'collection.era_label': 'Era {era}',
   'collection.tab_owned': '보유 말',
   'collection.tab_catalog': '도감',
   'collection.sort_cost': '코스트순',

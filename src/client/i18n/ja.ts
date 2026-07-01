@@ -218,6 +218,8 @@ const ja: Dict = {
   'battle.confirm_turn': '✓ ターン確定',
 
   // ----- コレクション画面(collection.*) -----
+  'collection.title': 'コレクション',
+  'collection.era_label': 'Era {era}',
   'collection.tab_owned': '所持コマ',
   'collection.tab_catalog': '図鑑',
   'collection.sort_cost': 'コスト順',

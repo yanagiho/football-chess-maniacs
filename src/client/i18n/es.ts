@@ -217,6 +217,8 @@ const es: Dict = {
   'battle.confirm_turn': '✓ Confirmar turno',
 
   // ----- collection (collection.*) -----
+  'collection.title': 'Colección',
+  'collection.era_label': 'Era {era}',
   'collection.tab_owned': 'En posesión',
   'collection.tab_catalog': 'Catálogo',
   'collection.sort_cost': 'Por coste',

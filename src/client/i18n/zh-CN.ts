@@ -218,6 +218,8 @@ const zhCN: Dict = {
   'battle.confirm_turn': '✓ 确定回合',
 
   // ----- コレクション画面(collection.*) -----
+  'collection.title': '收藏',
+  'collection.era_label': 'Era {era}',
   'collection.tab_owned': '已拥有棋子',
   'collection.tab_catalog': '图鉴',
   'collection.sort_cost': '按费用排序',

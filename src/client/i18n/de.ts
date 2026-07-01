@@ -217,6 +217,8 @@ const de: Dict = {
   'battle.confirm_turn': '✓ Zug bestätigen',
 
   // ----- コレクション画面(collection.*) -----
+  'collection.title': 'Sammlung',
+  'collection.era_label': 'Era {era}',
   'collection.tab_owned': 'Im Besitz',
   'collection.tab_catalog': 'Katalog',
   'collection.sort_cost': 'Nach Kosten',
