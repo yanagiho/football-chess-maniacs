@@ -7,6 +7,7 @@ import type { Page } from '../types';
 import PieceIcon from '../components/board/PieceIcon';
 import { PRESET_TEAMS, type PresetTeam } from '../../data/presetTeams';
 import type { Cost, Position } from '../components/board/PieceIcon';
+import BackButton from '../components/ui/BackButton';
 import { t } from '../i18n';
 
 interface PresetTeamsScreenProps {
@@ -146,15 +147,7 @@ export default function PresetTeamsScreen({ onNavigate, onSelectPresetTeam }: Pr
         </div>
       )}
 
-      <div style={{ padding: '12px 0', textAlign: 'center' }}>
-        <button onClick={() => onNavigate('formation')} style={{
-          padding: '8px 24px', background: 'transparent',
-          border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
-          color: '#888', fontSize: 14, cursor: 'pointer',
-        }}>
-          {t('common.back')}
-        </button>
-      </div>
+      <BackButton onClick={() => onNavigate('formation')} />
     </div>
   );
 }

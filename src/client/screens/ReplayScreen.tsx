@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Page, Team, TurnSnapshot } from '../types';
 import HexBoard from '../components/board/HexBoard';
+import BackButton from '../components/ui/BackButton';
 import { t } from '../i18n';
 
 interface ReplayScreenProps {
@@ -58,12 +59,7 @@ export default function ReplayScreen({ onNavigate, turns, myTeam }: ReplayScreen
         height: '100%', gap: 16, background: 'linear-gradient(180deg, #0a0a1e 0%, #1a1a3e 100%)',
       }}>
         <div style={{ fontSize: 18, color: '#888' }}>{t('replay.no_data')}</div>
-        <button onClick={() => onNavigate('title')} style={{
-          padding: '10px 24px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
-          background: 'transparent', color: '#888', fontSize: 14, cursor: 'pointer',
-        }}>
-          {t('common.back')}
-        </button>
+        <BackButton onClick={() => onNavigate('title')} />
       </div>
     );
   }
@@ -136,6 +132,8 @@ export default function ReplayScreen({ onNavigate, turns, myTeam }: ReplayScreen
           ))}
         </div>
 
+        {/* T14: 再生中はコントロールバー内の一部のため専用BackButtonコンポーネントは使わないが、
+            遷移先が'result'固定でCtrlBtnの非activeスタイル自体がBackButtonと同トーン（border/colorが同一）*/}
         <CtrlBtn label={t('common.back')} onClick={() => onNavigate('result')} />
       </div>
     </div>

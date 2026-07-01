@@ -381,7 +381,6 @@ export default function Formation({ onNavigate, onFormationConfirm, isPremium = 
         currentPreset={currentPreset}
         onPresetChange={handlePresetChange}
         onShowSlots={handleOpenSlots}
-        onBack={() => onNavigate('title')}
         isPremium={isPremium}
         premiumMessage={premiumMessage}
         teamName={teamName}
@@ -486,9 +485,9 @@ export default function Formation({ onNavigate, onFormationConfirm, isPremium = 
 
 // ── ヘッダー ──
 
-function Header({ totalCost, starterCount, benchCount, hasGK, currentPreset, onPresetChange, onShowSlots, onBack, isPremium, premiumMessage, teamName, onTeamNameChange }: {
+function Header({ totalCost, starterCount, benchCount, hasGK, currentPreset, onPresetChange, onShowSlots, isPremium, premiumMessage, teamName, onTeamNameChange }: {
   totalCost: number; starterCount: number; benchCount: number; hasGK: boolean;
-  currentPreset: string; onPresetChange: (k: string) => void; onShowSlots: () => void; onBack: () => void;
+  currentPreset: string; onPresetChange: (k: string) => void; onShowSlots: () => void;
   isPremium: boolean; premiumMessage: boolean;
   teamName: string; onTeamNameChange: (name: string) => void;
 }) {

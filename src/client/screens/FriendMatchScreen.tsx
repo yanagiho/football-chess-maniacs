@@ -9,6 +9,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { apiUrl, type Page, type Team } from '../types';
 import { resolveActiveTeamId } from '../utils/resolveActiveTeamId';
 import { useAuth } from '../contexts/AuthContext';
+import BackButton from '../components/ui/BackButton';
 import { t } from '../i18n';
 
 interface FriendMatchScreenProps {
@@ -253,13 +254,7 @@ export default function FriendMatchScreen({ onNavigate, authToken, onMatchFound 
         </div>
       )}
 
-      <button onClick={handleBack} style={{
-        padding: '8px 24px', background: 'transparent',
-        border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
-        color: '#888', fontSize: 14, cursor: 'pointer',
-      }}>
-        {t('common.back')}
-      </button>
+      <BackButton onClick={handleBack} />
     </div>
   );
 }

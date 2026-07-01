@@ -5,6 +5,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { apiUrl, type Page, type Position, type Cost } from '../types';
 import PieceIcon from '../components/board/PieceIcon';
+import BackButton from '../components/ui/BackButton';
 import { t, tn } from '../i18n';
 
 interface CollectionScreenProps {
@@ -208,15 +209,7 @@ export default function CollectionScreen({ onNavigate, authToken }: CollectionSc
         </div>
       )}
 
-      <div style={{ padding: '12px 0', textAlign: 'center' }}>
-        <button onClick={() => onNavigate('title')} style={{
-          padding: '8px 24px', background: 'transparent',
-          border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
-          color: '#888', fontSize: 14, cursor: 'pointer',
-        }}>
-          {t('common.back')}
-        </button>
-      </div>
+      <BackButton onClick={() => onNavigate('title')} />
     </div>
   );
 }

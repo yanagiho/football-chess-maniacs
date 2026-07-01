@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import type { Page } from '../types';
+import BackButton from '../components/ui/BackButton';
 import { t } from '../i18n';
 
 interface ProfileScreenProps {
@@ -140,13 +141,7 @@ export default function ProfileScreen({ onNavigate }: ProfileScreenProps) {
         ))}
       </div>
 
-      <button onClick={() => onNavigate('title')} style={{
-        padding: '8px 24px', background: 'transparent',
-        border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
-        color: '#888', fontSize: 14, cursor: 'pointer', marginBottom: 20,
-      }}>
-        {t('common.back')}
-      </button>
+      <BackButton onClick={() => onNavigate('title')} />
     </div>
   );
 }

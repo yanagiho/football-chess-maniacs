@@ -10,6 +10,7 @@ import type { GameMode, ComDifficulty, Page } from '../types';
 import type { PresetTeam } from '../../data/presetTeams';
 import { pickNpcOpponent } from '../../data/presetTeams';
 import { useAuth } from '../contexts/AuthContext';
+import BackButton from '../components/ui/BackButton';
 import { t } from '../i18n';
 
 interface ModeSelectProps {
@@ -261,20 +262,7 @@ export default function ModeSelect({
         {t('mode.com_watch')}
       </button>
 
-      <button
-        onClick={onBack}
-        style={{
-          padding: '8px 24px',
-          background: 'transparent',
-          border: '1px solid rgba(255,255,255,0.15)',
-          borderRadius: 8,
-          color: '#888',
-          fontSize: 14,
-          cursor: 'pointer',
-        }}
-      >
-        {t('common.back')}
-      </button>
+      <BackButton onClick={onBack} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { apiUrl, type Page, type Position, type Cost } from '../types';
 import { pieceCostToIngots, costToDisplay } from '../../types/piece';
 import PieceIcon from '../components/board/PieceIcon';
+import BackButton from '../components/ui/BackButton';
 import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
@@ -344,13 +345,7 @@ export default function ShopScreen({ onNavigate, authToken }: ShopScreenProps) {
         <div style={{ color: '#666', fontSize: 13, padding: 32 }}>{t('shop.loading')}</div>
       )}
 
-      <button onClick={() => onNavigate('title')} style={{
-        marginTop: 8, padding: '8px 24px', background: 'transparent',
-        border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
-        color: '#888', fontSize: 14, cursor: 'pointer',
-      }}>
-        {t('common.back')}
-      </button>
+      <BackButton onClick={() => onNavigate('title')} />
 
       {/* 獲得演出 */}
       {acquired && (

@@ -5,6 +5,7 @@
 import React from 'react';
 import type { Page } from '../types';
 import { useSettings, type AppSettings } from '../contexts/SettingsContext';
+import BackButton from '../components/ui/BackButton';
 import { t } from '../i18n';
 import LanguageSelect from '../i18n/LanguageSelect';
 
@@ -84,13 +85,7 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
         </Section>
       </div>
 
-      <button onClick={() => onNavigate('title')} style={{
-        padding: '8px 24px', background: 'transparent',
-        border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
-        color: '#888', fontSize: 14, cursor: 'pointer', marginBottom: 20,
-      }}>
-        {t('common.back')}
-      </button>
+      <BackButton onClick={() => onNavigate('title')} />
     </div>
   );
 }
