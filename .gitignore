@@ -7,3 +7,4 @@ src/.wrangler/
 .env.local
 *.log
 .DS_Store
+e2e/shots/

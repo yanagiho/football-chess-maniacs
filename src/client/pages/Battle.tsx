@@ -1045,6 +1045,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         const wait = (ms: number) => new Promise<void>(r => { replayTimerRef.current = setTimeout(r, Math.round(ms / animSpeed)); });
 
         (async () => {
+          // テスト用フォールト注入（DEVビルドのみ有効）
+          const viteDev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
+          if (viteDev && (window as unknown as { __fcmsForceReplayError?: boolean }).__fcmsForceReplayError) {
+            throw new Error('__fcms_test_replay_error');
+          }
           // Phase0: 全コマ同時移動（0.3秒待ち → APPLY_ENGINE_RESULT → CSS transition 0.8秒）
           setResolvingPhase(0);
           await wait(300);
@@ -1411,7 +1416,21 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             await wait(500);
             dispatch({ type: 'NEXT_TURN' });
           }
-        })();
+        })().catch((e) => {
+          // フェイルセーフ: 再生チェーンのどこで例外が出てもターン進行を復旧させる。
+          // 特にゴール演出はclearReplayTimers()後のため、ここが無いと8秒安全弁も効かず
+          // turnPhaseがEXECUTION/EVENTのまま暗転ブロッカーが永久に残る。
+          console.error('[Battle] replay chain error: forcing turn recovery', e);
+          goalScoredRef.current = { scored: false, scorerTeam: null };
+          setResolvingPhase(-1);
+          setPhaseEffects([]);
+          setBallTrails([]);
+          setFlyingBall(null);
+          setCeremony(null);
+          setGoalCelebration(null);
+          clearReplayTimers();
+          dispatch({ type: 'NEXT_TURN' });
+        });
 
         // 安全タイムアウト（async再生が何らかの理由で止まった場合）
         replaySafetyRef.current = setTimeout(() => {

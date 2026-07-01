@@ -274,11 +274,20 @@ export default function HexBoard({
     if (!cell) return;
 
     const rect = containerRef.current.getBoundingClientRect();
+    // レイアウト未確定（回転・ツールバー伸縮等でrectが縮退している瞬間）は
+    // 自動ズームしない — 盤面が画面外へ飛んで暗転して見えるのを防ぐ
+    if (rect.width < 50 || rect.height < 50) return;
     const scale = AUTO_FOCUS_ZOOM_SCALE;
+    // コマを中央に置きつつ、盤面端では盤外（黒背景）が画面に出ないようクランプ
+    const clampAxis = (center: number, container: number, boardSize: number) => {
+      const min = container - boardSize * scale;
+      if (min >= 0) return min / 2; // 盤面がコンテナより小さい軸は中央寄せ
+      return Math.min(0, Math.max(min, container / 2 - center * scale));
+    };
     setTransform({
       scale,
-      x: rect.width / 2 - cell.x * scale,
-      y: rect.height / 2 - cell.y * scale,
+      x: clampAxis(cell.x, rect.width, BOARD_WIDTH),
+      y: clampAxis(cell.y, rect.height, BOARD_HEIGHT),
     });
   }, [selectedPieceId, isMobile, pieces]);
 
