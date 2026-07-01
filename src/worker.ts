@@ -145,7 +145,9 @@ app.use('*', async (c, next) => {
         'https://football-chess-maniacs.yanagiho.workers.dev',
         'wss://football-chess-maniacs.yanagiho.workers.dev',
       ],
-      imgSrc: ["'self'"],
+      // Reactインラインスタイル + index.html/App.tsxのインライン<style>があるため'unsafe-inline'必須
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
     },
     xFrameOptions: 'DENY',
     xContentTypeOptions: 'nosniff',
