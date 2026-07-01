@@ -52,6 +52,27 @@ describe('callPlatformApi', () => {
     expect(headers.get('Content-Type')).toBe('application/json');
   });
 
+  it('Service Binding がある場合はbinding経由でPlatformを呼び出す', async () => {
+    const body = JSON.stringify({ ok: true });
+    const platformFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(body, { status: 200 }));
+    const globalFetch = vi.fn();
+    vi.stubGlobal('fetch', globalFetch);
+
+    const result = await callPlatformApi<{ ok: boolean }>(env({
+      PLATFORM: {
+        fetch: platformFetch,
+        connect: () => { throw new Error('unexpected connect'); },
+      },
+    }), '/v1/commerce/products?game_id=football_chess_maniacs', {
+      authMode: 'none',
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(platformFetch).toHaveBeenCalledOnce();
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(platformFetch.mock.calls[0][0]).toBe('https://platform.example.test/api/v1/commerce/products?game_id=football_chess_maniacs');
+  });
+
   it('http base URL を拒否する', async () => {
     await expect(callPlatformApi(env({ PLATFORM_API_BASE: 'http://platform.example.test' }), '/users/u1'))
       .rejects.toThrow('PLATFORM_API_BASE must use https');

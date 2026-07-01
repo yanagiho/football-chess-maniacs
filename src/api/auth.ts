@@ -117,7 +117,8 @@ export async function callPlatformApi<T>(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    const platformFetch = env.PLATFORM?.fetch.bind(env.PLATFORM) ?? fetch;
+    res = await platformFetch(url, {
       ...fetchOptions,
       signal: controller.signal,
       headers,

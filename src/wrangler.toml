@@ -46,6 +46,11 @@ max_batch_timeout = 30
 [ai]
 binding = "AI"
 
+# ── Service Bindings ──
+[[services]]
+binding = "PLATFORM"
+service = "fc-platform-api"
+
 # ── Environment Variables ──
 [vars]
 CORS_ORIGIN = "https://football-chess-maniacs.pages.dev,https://universo-futbol.com,https://www.universo-futbol.com"

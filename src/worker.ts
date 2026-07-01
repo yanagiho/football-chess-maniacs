@@ -39,6 +39,8 @@ export interface Env {
     MATCH_RESULT_QUEUE: Queue;
     // Workers AI
     AI: Ai;
+    // Service Bindings
+    PLATFORM?: Fetcher;
     // Vars
     CORS_ORIGIN: string;
     PLATFORM_API_BASE: string;
