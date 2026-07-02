@@ -151,9 +151,28 @@ D1/D2とも実装済み。テスト724件全通過・型チェッククリーン
 
 ---
 
-## Phase E: 演出の総点検（2026-07-02追加）
+## Phase E: 演出の総点検（2026-07-02追加） — ✅ 完了（2026-07-02）
 
 > 演出システムは CeremonyLayer.tsx（試合の節目・全画面暗転系）と CenterOverlay.tsx（TACKLE!等のイベント黒箱・showOverlayキュー）の2系統が併存しており、監査で以下の問題を特定済み。E1→E2→E3→E4 の順に実装する。
+
+E1〜E4すべて実装済み。テスト724件全通過・型チェッククリーン。変更はすべて `src/client/` のみ（Workerデプロイ不要）。
+- E1（`999317e`）: 演出タイミング体系をbattleUtils.tsに一元化（CEREMONY_BACKDROP_FADE_MS/CUTIN_IN_MS/CUTIN_HOLD_MS/
+  CUTIN_OUT_MS/KICKOFF_HOLD_MS/SECONDHALF_CEREMONY_MS/TURN_INDICATOR_MS等。TURN_FLASH_MSと実装から乖離していた
+  死定数SECOND_HALF_DELAY_MS(4500)は削除）。毎ターンのsetCeremony('turn')全画面暗転とshowOverlay('Turn N')を廃止し、
+  `TurnIndicator.tsx`（時間ラベル横の小さな0.6秒フェード、key={turn}で切替再生）の1系統に統一。CeremonyPhaseから
+  'turn'除去、fcms-turn-flash削除。TURN_START→INPUTのnormalDelayは現行値維持
+- E2（`5d47347`）: fcms-slide-up（%/px縦移動の二重合成）を廃止し、左から高速スライドイン(250ms,
+  cubic-bezier(0.16,1,0.3,1))→1.5sホールド→右へスナップアウト(200ms)のカットインに。暗転背景を独立divに分離して
+  250msフェードイン/アウト（backdropKeyでhalftime→halftime_sub、secondhalf→kickoff2ndの連続シーケンスは要素維持）。
+  KICKOFF前半/後半JSX共通化。未結線だったwhistle_start音を文字静止の瞬間に同期再生。全長2500ms不変
+- E3（`51bab71`）: CenterOverlayを黒角丸トーストからgoalkick流の斜め帯ワイプに刷新（帯ワイプイン→テキスト80ms遅れ
+  スライドイン→ホールド→帯ごとワイプアウト）。帯色はshowOverlayのcolor引数を反映（TACKLE!=オレンジ#F97316新規付与/
+  BALL CUT!=#ff8800新規付与/他は既存color）。キュー・duration互換とpointerEvents:none維持。reduced-motion時はフェード
+- E4（`44997ec`）: FULL TIMEのtransform二重指定（fcms-whistle+fcms-scale-in）を外側=配置/内側=シェイク(px基準)の
+  div分離で解消し振動を復活。旧fcms-whistle削除、CEREMONY_SCALE_IN_MS/FULLTIME_SHAKE_MS定数化
+- 検証: Playwright回帰 `e2e/mobile_battle_failsafe.mjs` を iPhone13/WebKit・Pixel7/Chromium 両方で全項目PASS
+  （フェイルセーフ・8秒安全弁・暗転ブロッカー非破壊）。Playwrightスクリーンショットで新KICKOFFカットイン・
+  ヘッダーTurn表示・帯カットイン（BALL CUT!/BREAKTHROUGH!）の描画を目視確認済み
 
 ### 監査で特定済みの問題
 
