@@ -309,8 +309,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
   useEffect(() => {
     if (state.turn !== 1 || state.status !== 'playing') return;
     setCeremony('kickoff');
+    // E2: カットイン入りが完了して文字が静止する瞬間に笛を同期
+    const whistle = setTimeout(() => soundManager.play('whistle_start'), CUTIN_IN_MS);
     const timer = setTimeout(() => setCeremony(null), KICKOFF_CEREMONY_MS);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); clearTimeout(whistle); };
   }, [state.turn, state.status]);
 
   // ハーフタイム: HALF TIME演出(3秒) → 交代パネル表示(30秒カウントダウン) → 後半開始
@@ -388,6 +390,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       dispatch({ type: 'SET_DISPLAY_PIECES', pieces: allPieces });
       setCeremony('kickoff2nd');
     }, SECONDHALF_CEREMONY_MS);
+    // E2: 後半KICK OFFカットインの文字静止と同時に笛
+    const whistle = setTimeout(() => soundManager.play('whistle_start'), SECONDHALF_CEREMONY_MS + CUTIN_IN_MS);
     const t2 = setTimeout(() => {
       const allPieces = buildSecondHalfPieces();
       setCeremony(null);
@@ -400,7 +404,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         scoreAway: capturedScoreAway,
       });
     }, SECONDHALF_CEREMONY_MS + KICKOFF_CEREMONY_MS);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(whistle); };
   }, [halftimeReady, state.status, dispatch, formationData]);
 
   // タイムアップ演出（試合終了時）

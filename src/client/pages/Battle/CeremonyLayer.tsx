@@ -9,7 +9,14 @@ import HalftimeSubPanel from '../../components/ui/HalftimeSubPanel';
 import GoalCeremony from './GoalCeremony';
 import { MAX_SUBSTITUTIONS } from './battleUtils';
 import { computeStats, computeMvp } from './battleUtils';
+import {
+  CEREMONY_BACKDROP_FADE_MS, CUTIN_IN_MS, CUTIN_OUT_MS,
+  KICKOFF_HOLD_MS, SECONDHALF_CEREMONY_MS, GOALKICK_WIPE_TOTAL_MS,
+} from './battleUtils';
 import { t } from '../../i18n';
+
+const reducedMotion =
+  typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 interface CeremonyLayerProps {
   ceremony: CeremonyPhase;
@@ -51,10 +58,38 @@ export default function CeremonyLayer({
     );
   }
 
+  // ── E2: 暗転背景のフェード ──
+  // key を演出シーケンス単位で分け、同一シーケンス内（halftime→halftime_sub、
+  // secondhalf→kickoff2nd）では要素を維持してアニメーションを再スタートさせない。
+  const backdropKey =
+    ceremony === 'halftime' || ceremony === 'halftime_sub' ? 'halftime'
+    : ceremony === 'secondhalf' || ceremony === 'kickoff2nd' ? 'secondhalf'
+    : ceremony;
+  // 自動で消える演出はフェードアウトの開始delay（ms）。null は表示継続（fulltime/halftime系）
+  const backdropOutDelay =
+    ceremony === 'kickoff' ? CUTIN_IN_MS + KICKOFF_HOLD_MS + CUTIN_OUT_MS
+    : ceremony === 'secondhalf' || ceremony === 'kickoff2nd'
+      ? SECONDHALF_CEREMONY_MS + CUTIN_IN_MS + KICKOFF_HOLD_MS + CUTIN_OUT_MS
+    : null;
+  const backdropAnim = backdropOutDelay !== null
+    ? `fcms-backdrop-in ${CEREMONY_BACKDROP_FADE_MS}ms ease-out forwards, fcms-backdrop-out ${CEREMONY_BACKDROP_FADE_MS}ms ease-in ${backdropOutDelay}ms forwards`
+    : `fcms-backdrop-in ${CEREMONY_BACKDROP_FADE_MS}ms ease-out forwards`;
+
+  // ── E2: KICKOFF カットイン（入り: 左から高速スライドで静止 / 抜け: 右へスナップアウト）──
+  // reduced-motion 時は横移動なしのシンプルなフェードにフォールバック
+  const kickoffTextAnim = reducedMotion
+    ? `fcms-fade-in ${CUTIN_IN_MS}ms ease-out both, fcms-fade-out ${CUTIN_OUT_MS}ms ease-in ${CUTIN_IN_MS + KICKOFF_HOLD_MS}ms forwards`
+    : `fcms-cutin-in ${CUTIN_IN_MS}ms cubic-bezier(0.16,1,0.3,1) both, fcms-cutin-out ${CUTIN_OUT_MS}ms cubic-bezier(0.7,0,0.84,0) ${CUTIN_IN_MS + KICKOFF_HOLD_MS}ms forwards`;
+
   return (
     <>
       <style>{`
-        @keyframes fcms-slide-up { 0% { opacity:0; transform:translate(-50%,-40%) translateY(40px); } 20% { opacity:1; transform:translate(-50%,-50%) translateY(0); } 80% { opacity:1; } 100% { opacity:0; } }
+        @keyframes fcms-backdrop-in { from { opacity:0; } to { opacity:1; } }
+        @keyframes fcms-backdrop-out { from { opacity:1; } to { opacity:0; } }
+        @keyframes fcms-cutin-in { 0% { opacity:0; transform:translate(-50%,-50%) translateX(-140px); } 100% { opacity:1; transform:translate(-50%,-50%) translateX(0); } }
+        @keyframes fcms-cutin-out { 0% { opacity:1; transform:translate(-50%,-50%) translateX(0); } 100% { opacity:0; transform:translate(-50%,-50%) translateX(120px); } }
+        @keyframes fcms-fade-in { from { opacity:0; } to { opacity:1; } }
+        @keyframes fcms-fade-out { from { opacity:1; } to { opacity:0; } }
         @keyframes fcms-scale-in { 0% { opacity:0; transform:translate(-50%,-50%) scale(0.5); } 25% { opacity:1; transform:translate(-50%,-50%) scale(1.08); } 40% { transform:translate(-50%,-50%) scale(1); } 100% { opacity:1; transform:translate(-50%,-50%) scale(1); } }
         @keyframes fcms-scale-out { 0% { opacity:1; transform:translate(-50%,-50%) scale(1); } 100% { opacity:0; transform:translate(-50%,-50%) scale(0.8); } }
         @keyframes fcms-whistle { 0%,100% { transform:translate(-50%,-50%); } 10% { transform:translate(-48%,-50%); } 20% { transform:translate(-52%,-50%); } 30% { transform:translate(-49%,-50%); } 40% { transform:translate(-51%,-50%); } 50% { transform:translate(-50%,-50%); } }
@@ -68,13 +103,13 @@ export default function CeremonyLayer({
             position: 'absolute', inset: 0,
             background: 'linear-gradient(105deg, #0a1f12 0%, #123d22 50%, #0a1f12 100%)',
             transform: 'translateX(-105%)',
-            animation: 'fcms-wipe 1.4s cubic-bezier(0.7,0,0.3,1) forwards',
+            animation: `fcms-wipe ${GOALKICK_WIPE_TOTAL_MS}ms cubic-bezier(0.7,0,0.3,1) forwards`,
           }} />
           <div style={{
             position: 'absolute', left: '50%', top: '50%',
             fontSize: 44, fontWeight: 900, color: '#fff', letterSpacing: 4,
             textShadow: '0 2px 24px rgba(0,0,0,0.8)', whiteSpace: 'nowrap',
-            animation: 'fcms-wipe-label 1.4s ease-out forwards',
+            animation: `fcms-wipe-label ${GOALKICK_WIPE_TOTAL_MS}ms ease-out forwards`,
           }}>
             {t('ceremony.goalkick')}
           </div>
@@ -82,39 +117,36 @@ export default function CeremonyLayer({
       )}
       <div style={{
         position: 'fixed', inset: 0,
-        background: ceremony === 'goalkick' ? 'transparent' : 'rgba(0,0,0,0.7)', // 'goal' は早期returnで別演出
         zIndex: 200,
         pointerEvents: (ceremony === 'fulltime' && showResultBtn) || ceremony === 'halftime_sub' ? 'auto' : 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {/* KICK OFF */}
-        {ceremony === 'kickoff' && (
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-slide-up 2.5s ease-out forwards',
-          }}>
-            <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
-              KICK OFF
-            </div>
-            <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
-              1st Half
-            </div>
-          </div>
+        {/* 暗転背景（E2: フェードイン/アウト。'goal' は早期returnで別演出） */}
+        {ceremony !== 'goalkick' && (
+          <div
+            key={backdropKey}
+            style={{
+              position: 'absolute', inset: 0,
+              background: 'rgba(0,0,0,0.7)',
+              opacity: 0,
+              animation: backdropAnim,
+            }}
+          />
         )}
 
-        {/* KICK OFF 2nd Half */}
-        {ceremony === 'kickoff2nd' && (
+        {/* KICK OFF（前半/後半共通、subTextのみ差し替え） */}
+        {(ceremony === 'kickoff' || ceremony === 'kickoff2nd') && (
           <div style={{
             position: 'absolute', left: '50%', top: '50%',
-            textAlign: 'center',
-            animation: 'fcms-slide-up 2.5s ease-out forwards',
+            textAlign: 'center', whiteSpace: 'nowrap',
+            transform: 'translate(-50%,-50%)',
+            animation: kickoffTextAnim,
           }}>
             <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
               KICK OFF
             </div>
             <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 8, fontWeight: 600 }}>
-              2nd Half
+              {ceremony === 'kickoff' ? '1st Half' : '2nd Half'}
             </div>
           </div>
         )}
@@ -155,7 +187,7 @@ export default function CeremonyLayer({
           <div style={{
             position: 'absolute', left: '50%', top: '50%',
             textAlign: 'center',
-            animation: 'fcms-scale-out 1.5s ease-out forwards',
+            animation: `fcms-scale-out ${SECONDHALF_CEREMONY_MS}ms ease-out forwards`,
           }}>
             <div style={{ fontSize: 36, fontWeight: 900, color: '#fff', letterSpacing: 3, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
               SECOND HALF
