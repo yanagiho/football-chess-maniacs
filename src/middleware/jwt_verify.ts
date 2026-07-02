@@ -43,10 +43,13 @@ function base64UrlDecode(str: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-/** JWKSエンドポイントから公開鍵を取得・キャッシュ */
-async function fetchJwks(jwksUrl: string): Promise<Map<string, CryptoKey>> {
+/**
+ * JWKSエンドポイントから公開鍵を取得・キャッシュ。
+ * forceRefresh=true でキャッシュを無視して再フェッチ（未知kid対応）。
+ */
+async function fetchJwks(jwksUrl: string, forceRefresh = false): Promise<Map<string, CryptoKey>> {
   const now = Date.now();
-  if (cachedKeys.size > 0 && now < cacheExpiry) {
+  if (!forceRefresh && cachedKeys.size > 0 && now < cacheExpiry) {
     return cachedKeys;
   }
 
@@ -101,8 +104,14 @@ export async function verifyJwt(
     throw new Error('Missing JWT kid');
   }
 
-  const keys = await fetchJwks(jwksUrl);
-  const key = keys.get(header.kid);
+  let keys = await fetchJwks(jwksUrl);
+  let key = keys.get(header.kid);
+  if (!key) {
+    // 未知のkid: 鍵ローテーション直後の可能性があるためキャッシュを無視して一度だけ再フェッチ
+    // （これがないとローテーション後の最大5分間、新しい鍵で署名されたJWTが全て401になる）
+    keys = await fetchJwks(jwksUrl, true);
+    key = keys.get(header.kid);
+  }
   if (!key) throw new Error(`Unknown kid: ${header.kid}`);
 
   const signatureInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);

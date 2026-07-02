@@ -134,6 +134,34 @@ describe('verifyJwt', () => {
       .rejects.toThrow('JWT not active yet');
   });
 
+  it('未知のkidはキャッシュを無視して再フェッチする（鍵ローテーション対応）', async () => {
+    // 1本目の鍵でキャッシュを温める
+    const first = await createJwtFactory();
+    // 2本目の鍵（ローテーション後の新しい鍵）
+    const second = await createJwtFactory();
+    const secondJwk = { ...second.publicJwk, kid: 'test-key-2' };
+
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1;
+      // 1回目は旧鍵のみ、2回目以降は両方の鍵を返す（ローテーションを模擬）
+      const keys = call === 1 ? [first.publicJwk] : [first.publicJwk, secondJwk];
+      return new Response(JSON.stringify({ keys }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }));
+
+    // 旧鍵で検証してキャッシュを作る
+    await verifyJwt(await first.signToken(), JWKS_URL, options);
+    expect(call).toBe(1);
+
+    // 新kidのトークン → キャッシュに無い → 強制再フェッチで成功する
+    // （旧実装は5分キャッシュを盲信して Unknown kid で落ちていた）
+    const newKidToken = await second.signToken({ header: { kid: 'test-key-2' } });
+    await expect(verifyJwt(newKidToken, JWKS_URL, options)).resolves.toMatchObject({ sub: 'user-1' });
+    expect(call).toBe(2);
+  });
+
   it('sub 欠落で落ちる', async () => {
     const { signToken } = await setup();
     await expect(verifyJwt(await signToken({ payload: { sub: undefined } }), JWKS_URL, options))

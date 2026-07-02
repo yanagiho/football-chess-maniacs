@@ -241,14 +241,11 @@ export class Matchmaking extends DurableObject<Env['Bindings']> {
         .bind(matchId, p1.userId, p2.userId, 'playing', new Date().toISOString())
         .run();
 
-      // 両プレイヤーに通知
-      const matchInfo = { type: 'MATCH_FOUND', matchId, opponent: '' };
-
-      matchInfo.opponent = p2.userId;
-      this.sendToPlayer(p1.userId, matchInfo);
-
-      matchInfo.opponent = p1.userId;
-      this.sendToPlayer(p2.userId, matchInfo);
+      // 両プレイヤーに通知（p1=home / p2=away。GameSession /init の割当と一致させる）
+      // teamを送らないと両クライアントが'home'にフォールバックし、away側が
+      // 自分のコマを操作できなくなる（E2E検証で発見したバグの修正）
+      this.sendToPlayer(p1.userId, { type: 'MATCH_FOUND', matchId, opponent: p2.userId, team: 'home' });
+      this.sendToPlayer(p2.userId, { type: 'MATCH_FOUND', matchId, opponent: p1.userId, team: 'away' });
 
       // キューから除去
       this.waitingPlayers.delete(p1.userId);

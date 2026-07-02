@@ -41,9 +41,12 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       return new Response('Expected WebSocket upgrade', { status: 426 });
     }
 
-    // COM対戦セッション: JWT不要（userIdはクエリパラメータから取得）
+    // COM対戦セッション（サーバーサイドCOM）: JWTの代わりにcomSessionTokenで認証。
+    // 注: マッチメイキングのBot補完マッチは isComMatch=true だが comSessionToken を
+    // 持たず、プレイヤーは通常のJWTで接続するため、comSessionToken の有無で分岐する
+    // （旧実装は isComMatch のみで分岐しており、Bot補完マッチが常に403で接続不能だった）
     const existingState = await this.getGameState();
-    const isComSession = existingState?.isComMatch === true;
+    const isComSession = existingState?.isComMatch === true && !!existingState?.comSessionToken;
 
     let userId: string;
     if (isComSession) {
@@ -312,6 +315,10 @@ export class GameSession extends DurableObject<Env['Bindings']> {
         ws.send(JSON.stringify({
           type: 'INPUT_REJECTED',
           violations: validation.violations,
+          // クライアントが sequence を再同期して自己回復できるように期待値を返す
+          // （再接続中のsend喪失等で一度ズレると、厳密+1検証のため以後全入力が
+          // 拒否され続けるデッドロックになっていた）
+          expectedSequence: (state.lastSequences[attachment.userId] ?? -1) + 1,
         }));
         return;
       }
@@ -448,6 +455,10 @@ export class GameSession extends DurableObject<Env['Bindings']> {
         scoreHome: state.scoreHome,
         scoreAway: state.scoreAway,
         secondHalfKickoff,
+        // クライアントが後半開始時の盤面リセットを反映できるよう盤面を同梱
+        // （これがないとクライアントは前半終了時の古い盤面のまま後半の命令を出してしまう）
+        board: state.board,
+        turn: state.turn,
       }));
     }
 
