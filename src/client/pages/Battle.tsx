@@ -24,6 +24,9 @@ import { generateRuleBasedOrders } from '../../ai/rule_based';
 import { processTurn, createBoardContext, hasGoal, getFoulEvent } from '../../engine/turn_processor';
 import { hexKey, hexDistance, buildZocMap, buildZoc2Map } from '../../engine/movement';
 import { previewShootChainProbability } from '../../engine/ball';
+import { getOffsideLine } from '../../engine/offside';
+import type { BurstKind } from '../components/board/ImpactBurst';
+import type { OffsideFlash } from '../components/board/overlay_renderers';
 import type {
   Piece as EnginePiece, Board as EngineBoard, Order as EngineOrder,
   ShootEvent, FoulEvent as EngineFoulEvent, GameEvent as EngineGameEvent,
@@ -55,11 +58,15 @@ import {
   // Functions
   createInitialPieces, createGoalRestartPieces, createSetPieceRestartPieces, toEnginePiece,
   clientOrderToEngine, enginePiecesToClient, calcPieceMoveDurationMs,
-  getMissedShootRestart, pickHeadingChanceReceiver,
+  getMissedShootRestart, pickHeadingChanceReceiver, isStrongShoot,
+  OFFSIDE_FLASH_MS, BOARD_SHAKE_MS,
   type SetPieceRestartType,
   computeReachableHexes, isShootZoneForPiece, getAccuratePassRange,
   getMatchTimeLabel, computeStats, computeMvp,
 } from './Battle/battleUtils';
+
+const reducedMotion =
+  typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 interface BattleProps {
   onNavigate: (page: Page) => void;
@@ -508,8 +515,10 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   // ── A10: フェーズ演出 ──
   const [resolvingPhase, setResolvingPhase] = useState(-1); // -1 = not in animation
-  const [phaseEffects, setPhaseEffects] = useState<Array<{ coord: HexCoord; icon: string; color: string; text?: string; burst?: 'impact' | 'dust' }>>([]);
+  const [phaseEffects, setPhaseEffects] = useState<Array<{ coord: HexCoord; icon: string; color: string; text?: string; burst?: BurstKind }>>([]);
   const [ballTrails, setBallTrails] = useState<BallTrail[]>([]);
+  // C5b: OFFSIDEイベント時のオフサイドライン点滅
+  const [offsideFlash, setOffsideFlash] = useState<OffsideFlash | null>(null);
   const [flyingBall, setFlyingBall] = useState<FlyingBallData | null>(null);
   const flyingBallResolveRef = useRef<(() => void) | null>(null);
   const resolvingEventsRef = useRef<EngineGameEvent[]>([]);
@@ -892,6 +901,19 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     flyingBallResolveRef.current = null;
   }, []);
 
+  // ── C3: 強シュート着弾時のカメラ微振動 ──
+  // HexBoard の外側ラッパーにアニメーションを直接当てる（パン/ズームのtransformとは別レイヤーで干渉しない）。
+  // FlyingBall と同じ「animation=none→reflow→再設定」方式で連続発火にも対応。
+  const boardShakeRef = useRef<HTMLDivElement>(null);
+  const triggerBoardShake = useCallback(() => {
+    if (reducedMotion) return; // reduced-motion時はカメラ振動を完全スキップ
+    const el = boardShakeRef.current;
+    if (!el) return;
+    el.style.animation = 'none';
+    el.getBoundingClientRect(); // reflow で animation リセットを確定
+    el.style.animation = `fcms-board-shake ${BOARD_SHAKE_MS}ms ease-out`;
+  }, []);
+
   // ── セットプレー再配置（CK守備クリア / G1枠外シュート / FK・PK失敗で共用） ──
   // ワイプが画面を覆った瞬間に動的配置（Phase H: アンカー+状況シフト+揺らぎ）へ再配置し、
   // ワイプ明けにNEXT_TURN。COM観戦はワイプを省略して即再配置。
@@ -1158,7 +1180,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 });
                 soundManager.play('tackle');
               } else {
-                p1Effects.push({ coord: te.coord, icon: '💨', color: '#00cccc', text: 'BREAK' });
+                // C4: タックルを振り切った突破の瞬間のみ砂煙（通常ドリブルでは出さない=メリハリ）
+                p1Effects.push({ coord: te.coord, icon: '💨', color: '#00cccc', text: 'BREAK', burst: 'dust' });
                 showOverlay('BREAKTHROUGH!', { duration: 800, color: '#00dddd', fontSize: 40 });
               }
             }
@@ -1204,6 +1227,21 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                   const receiver = turnResult.board.pieces.find(p => p.id === offsideEv.receiverId);
                   const coord = receiver?.coord ?? { col: 10, row: 16 };
                   setPhaseEffects([{ coord, icon: '🚩', color: '#ffcc00', text: 'OFFSIDE' }]);
+                  // C5b: 判定に使われたオフサイドラインをスナップショットから再構成して点滅表示
+                  // （エンジンと同じ getOffsideLine を同じ入力=ターン開始時スナップショットで呼ぶ）
+                  const attackTeam: Team = offsideEv.receiverId.startsWith('h') ? 'home' : 'away';
+                  const offsideDefTeam: Team = attackTeam === 'home' ? 'away' : 'home';
+                  const snaps = state.turnStartSnapshot ?? [];
+                  const defenderSnaps = snaps.filter(sp => sp.team === offsideDefTeam && !sp.isBench);
+                  const passerSnap = snaps.find(sp => sp.id === offsideEv.passerId);
+                  if (defenderSnaps.length > 0) {
+                    const lineRow = getOffsideLine(
+                      defenderSnaps as unknown as EnginePiece[],
+                      offsideDefTeam === 'home', // 守備側homeのゴールはrow 0（低い側）
+                      passerSnap?.coord.row,
+                    );
+                    setOffsideFlash({ row: lineRow, startedAt: performance.now(), durationMs: OFFSIDE_FLASH_MS });
+                  }
                   showOverlay('OFFSIDE!', { duration: 1200, color: '#FACC15', fontSize: 48 });
                   await wait(800);
                   setPhaseEffects([]);
@@ -1229,17 +1267,24 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 const goalCoord = isMissed
                   ? { col: Math.random() < 0.5 ? 5 : 16, row: goalRow }
                   : { col: 10, row: goalRow };
+                // C3: 強シュート判定（コスト or ゴール至近。通常シュートは演出を変えない=メリハリ）
+                const strong = isStrongShoot(shooter.cost, hexDistance(shooter.coord, { col: 10, row: goalRow }));
                 const result = se.result.outcome === 'goal' ? 'goal' as const
                   : se.result.outcome === 'blocked' ? 'blocked' as const
                   : (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck') ? 'saved' as const
                   : isMissed ? 'missed' as const
                   : 'success' as const;
-                // 軌跡を先に表示（D1: flightでボール飛行進捗と同期して線が伸びる）
-                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result, flight: trailFlight(shooter.coord, goalCoord) });
+                // 軌跡を先に表示（D1: flightでボール飛行進捗と同期して線が伸びる / C3: strongは太線+グロー）
+                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result, strong, flight: trailFlight(shooter.coord, goalCoord) });
                 setBallTrails([...trails]);
                 soundManager.play('shoot');
                 // ボール飛行アニメーション
                 await launchFlyingBall(shooter.coord, goalCoord, 'shoot');
+                // C3: 強シュートのみ着弾の瞬間にカメラ微振動 + 衝撃波リング
+                if (strong) {
+                  triggerBoardShake();
+                  setPhaseEffects(prev => [...prev, { coord: goalCoord, icon: '', color: '#fff', burst: 'impact' }]);
+                }
                 // 結果演出
                 if (se.result.outcome === 'goal') {
                   soundManager.play('goal');
@@ -1278,7 +1323,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 await launchFlyingBall(passer.coord, interceptor.coord, 'pass');
               }
               const coord = interceptor?.coord ?? { col: 10, row: 16 };
-              p4Effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED' });
+              // C5a: インターセプト地点にオレンジの火花（reduced-motion時はImpactBurst側で自動省略されアイコンのみ）
+              p4Effects.push({ coord, icon: '✋', color: '#ff8800', text: 'INTERCEPTED', burst: 'spark' });
               showOverlay('BALL CUT!', {
                 subText: interceptor ? `${interceptor.position} \u2605${interceptor.cost}` : undefined,
                 duration: 1200, color: '#ff8800', fontSize: 48,
@@ -1324,6 +1370,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           // 軌跡を1秒表示してからクリア
           await wait(800);
           setBallTrails([]);
+          setOffsideFlash(null);
 
           // A7: FK/PK ミニゲーム遷移
           const foulEv = evts.find((e): e is EngineFoulEvent => e.type === 'FOUL');
@@ -1533,6 +1580,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           setResolvingPhase(-1);
           setPhaseEffects([]);
           setBallTrails([]);
+          setOffsideFlash(null);
           setFlyingBall(null);
           setCeremony(null);
           setGoalCelebration(null);
@@ -1548,6 +1596,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
           setResolvingPhase(-1);
           setPhaseEffects([]);
           setBallTrails([]);
+          setOffsideFlash(null);
           setFlyingBall(null);
           setMiniGame(null);
           clearReplayTimers();
@@ -2195,37 +2244,42 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             />
           )}
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
-          <HexBoard
-            pieces={displayPieces}
-            selectedPieceId={state.selectedPieceId}
-            actionMode={state.actionMode}
-            orders={state.orders}
-            highlightHexes={highlightHexes}
-            zocHexes={zocHexes}
-            offsideLine={offsideLine}
-            onSelectPiece={handleSelectPiece}
-            onHexClick={handleHexClick}
-            onBallClick={handleBallClick}
-            chainBallPulseId={null}
-            isMobile={isMobile}
-            myTeam={state.myTeam}
-            flipY={state.myTeam === 'home'}
-            shootRangeHexes={shootRangeHexes}
-            passTargetHexes={passTargetHexes}
-            throughPassHexes={throughPassHexes}
-            longPassWarnings={longPassWarnings}
-            phaseEffects={phaseEffects}
-            ballTrails={ballTrails}
-            freeBallHex={state.board.freeBallHex}
-            ballActionMenu={radialBallActionPieceId}
-            onActionDribble={() => handleSetMode('dribble')}
-            onActionPass={() => handleSetMode('pass')}
-            onActionSpace={() => handleSetMode('throughPass')}
-            onActionShoot={() => handleSetMode('shoot')}
-            onActionCancel={() => dispatch({ type: 'SELECT_PIECE', pieceId: null })}
-            flyingBall={flyingBall}
-            onFlyingBallComplete={handleFlyingBallComplete}
-          />
+          {/* C3: 強シュート着弾時のカメラ微振動ラッパー（HexBoard内部のパン/ズームtransformとは独立） */}
+          <div ref={boardShakeRef} style={{ width: '100%', height: '100%' }}>
+            <style>{`@keyframes fcms-board-shake { 0%,100% { transform: translate(0,0); } 25% { transform: translate(3px,-2px); } 50% { transform: translate(-3px,2px); } 75% { transform: translate(2px,1px); } }`}</style>
+            <HexBoard
+              pieces={displayPieces}
+              selectedPieceId={state.selectedPieceId}
+              actionMode={state.actionMode}
+              orders={state.orders}
+              highlightHexes={highlightHexes}
+              zocHexes={zocHexes}
+              offsideLine={offsideLine}
+              onSelectPiece={handleSelectPiece}
+              onHexClick={handleHexClick}
+              onBallClick={handleBallClick}
+              chainBallPulseId={null}
+              isMobile={isMobile}
+              myTeam={state.myTeam}
+              flipY={state.myTeam === 'home'}
+              shootRangeHexes={shootRangeHexes}
+              passTargetHexes={passTargetHexes}
+              throughPassHexes={throughPassHexes}
+              longPassWarnings={longPassWarnings}
+              phaseEffects={phaseEffects}
+              ballTrails={ballTrails}
+              offsideFlash={offsideFlash}
+              freeBallHex={state.board.freeBallHex}
+              ballActionMenu={radialBallActionPieceId}
+              onActionDribble={() => handleSetMode('dribble')}
+              onActionPass={() => handleSetMode('pass')}
+              onActionSpace={() => handleSetMode('throughPass')}
+              onActionShoot={() => handleSetMode('shoot')}
+              onActionCancel={() => dispatch({ type: 'SELECT_PIECE', pieceId: null })}
+              flyingBall={flyingBall}
+              onFlyingBallComplete={handleFlyingBallComplete}
+            />
+          </div>
 
           {/* A8: オフサイドライントグル削除済 */}
 
@@ -2425,37 +2479,42 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             />
           )}
           <CenterOverlay queue={overlayQueue} onComplete={handleOverlayComplete} />
-          <HexBoard
-            pieces={displayPieces}
-            selectedPieceId={state.selectedPieceId}
-            actionMode={state.actionMode}
-            orders={state.orders}
-            highlightHexes={highlightHexes}
-            zocHexes={zocHexes}
-            offsideLine={offsideLine}
-            onSelectPiece={handleSelectPiece}
-            onHexClick={handleHexClick}
-            onBallClick={handleBallClick}
-            chainBallPulseId={null}
-            isMobile={false}
-            myTeam={state.myTeam}
-            flipY={state.myTeam === 'home'}
-            shootRangeHexes={shootRangeHexes}
-            passTargetHexes={passTargetHexes}
-            throughPassHexes={throughPassHexes}
-            longPassWarnings={longPassWarnings}
-            phaseEffects={phaseEffects}
-            ballTrails={ballTrails}
-            freeBallHex={state.board.freeBallHex}
-            ballActionMenu={radialBallActionPieceId}
-            onActionDribble={() => handleSetMode('dribble')}
-            onActionPass={() => handleSetMode('pass')}
-            onActionSpace={() => handleSetMode('throughPass')}
-            onActionShoot={() => handleSetMode('shoot')}
-            onActionCancel={() => dispatch({ type: 'SELECT_PIECE', pieceId: null })}
-            flyingBall={flyingBall}
-            onFlyingBallComplete={handleFlyingBallComplete}
-          />
+          {/* C3: 強シュート着弾時のカメラ微振動ラッパー（HexBoard内部のパン/ズームtransformとは独立） */}
+          <div ref={boardShakeRef} style={{ width: '100%', height: '100%' }}>
+            <style>{`@keyframes fcms-board-shake { 0%,100% { transform: translate(0,0); } 25% { transform: translate(3px,-2px); } 50% { transform: translate(-3px,2px); } 75% { transform: translate(2px,1px); } }`}</style>
+            <HexBoard
+              pieces={displayPieces}
+              selectedPieceId={state.selectedPieceId}
+              actionMode={state.actionMode}
+              orders={state.orders}
+              highlightHexes={highlightHexes}
+              zocHexes={zocHexes}
+              offsideLine={offsideLine}
+              onSelectPiece={handleSelectPiece}
+              onHexClick={handleHexClick}
+              onBallClick={handleBallClick}
+              chainBallPulseId={null}
+              isMobile={false}
+              myTeam={state.myTeam}
+              flipY={state.myTeam === 'home'}
+              shootRangeHexes={shootRangeHexes}
+              passTargetHexes={passTargetHexes}
+              throughPassHexes={throughPassHexes}
+              longPassWarnings={longPassWarnings}
+              phaseEffects={phaseEffects}
+              ballTrails={ballTrails}
+              offsideFlash={offsideFlash}
+              freeBallHex={state.board.freeBallHex}
+              ballActionMenu={radialBallActionPieceId}
+              onActionDribble={() => handleSetMode('dribble')}
+              onActionPass={() => handleSetMode('pass')}
+              onActionSpace={() => handleSetMode('throughPass')}
+              onActionShoot={() => handleSetMode('shoot')}
+              onActionCancel={() => dispatch({ type: 'SELECT_PIECE', pieceId: null })}
+              flyingBall={flyingBall}
+              onFlyingBallComplete={handleFlyingBallComplete}
+            />
+          </div>
 
           {/* §3-2 右クリックコンテキストメニュー */}
           {contextMenu && (

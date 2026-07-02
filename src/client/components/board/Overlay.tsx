@@ -7,7 +7,7 @@
 
 import React, { useRef, useEffect } from 'react';
 import type { HexCoord, HexCell, PieceData, OrderData, ActionMode } from '../../types';
-import { renderBallTrails, renderPhaseEffects, hasFlyingTrail } from './overlay_renderers';
+import { renderBallTrails, renderPhaseEffects, hasFlyingTrail, offsideFlashAlpha, type OffsideFlash } from './overlay_renderers';
 
 /** ボール軌跡（EXECUTIONフェーズ中に表示） */
 export interface BallTrail {
@@ -20,6 +20,8 @@ export interface BallTrail {
    * 未指定なら従来通り完成線を即描画する。
    */
   flight?: { startedAt: number; durationMs: number };
+  /** C3: 強シュート（太い線+グローで強調描画） */
+  strong?: boolean;
 }
 
 interface OverlayProps {
@@ -48,6 +50,8 @@ interface OverlayProps {
   phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string }>;
   /** ボール軌跡（EXECUTIONフェーズ中に描画） */
   ballTrails?: BallTrail[];
+  /** C5b: OFFSIDEイベント時のオフサイドライン点滅（表示座標系のrow） */
+  offsideFlash?: OffsideFlash | null;
 }
 
 /** flat-top HEX の半径（hex_map.json の間隔から算出） */
@@ -123,6 +127,7 @@ export default function Overlay({
   longPassWarnings,
   phaseEffects = [],
   ballTrails = [],
+  offsideFlash = null,
 }: OverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -311,6 +316,30 @@ export default function Overlay({
       renderPhaseEffects(ctx, phaseEffects, findCell);
 
       // ================================================================
+      // 6e. C5b: オフサイドライン点滅（OFFSIDEイベント時、1.2秒でフェードアウト）
+      // 「なぜオフサイドか」を判定に使われたラインの位置で可視化する
+      // ================================================================
+      if (offsideFlash) {
+        const alpha = offsideFlashAlpha(offsideFlash, performance.now());
+        if (alpha > 0) {
+          const cell = hexMap.find((h) => h.row === offsideFlash.row);
+          if (cell) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.moveTo(0, cell.y);
+            ctx.lineTo(width, cell.y);
+            ctx.strokeStyle = 'rgba(255, 220, 40, 0.95)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash(OFFSIDE_LINE_DASH);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+          }
+        }
+      }
+
+      // ================================================================
       // 7. オフサイドライン（§6-2: 黄色の点線, §1-3: 常時ON/OFF切替可）
       // ================================================================
       if (offsideLine !== null) {
@@ -355,12 +384,14 @@ export default function Overlay({
       }
     };
 
-    // D1: 飛行中の軌跡がある間は毎フレーム再描画し、線をボール位置まで伸ばす。
-    // 飛行が終われば（または飛行軌跡が無ければ）ループは回らず従来通り静的描画のまま。
+    // D1/C5b: 飛行中の軌跡 or フェード中のオフサイドラインがある間は毎フレーム再描画。
+    // どちらも無ければループは回らず従来通り静的描画のまま。
     let rafId = 0;
     const tick = () => {
       draw();
-      if (hasFlyingTrail(ballTrails, performance.now())) {
+      const now = performance.now();
+      const flashActive = offsideFlash !== null && offsideFlashAlpha(offsideFlash, now) > 0;
+      if (hasFlyingTrail(ballTrails, now) || flashActive) {
         rafId = requestAnimationFrame(tick);
       }
     };
@@ -370,7 +401,7 @@ export default function Overlay({
     width, height, highlightHexes, zocHexes, offsideLine,
     selectedPieceId, actionMode, orders, pieces, hexMap,
     showZoneBorders, hoverCoord, shootRangeHexes, passTargetHexes, throughPassHexes, longPassWarnings,
-    phaseEffects, ballTrails,
+    phaseEffects, ballTrails, offsideFlash,
   ]);
 
   return (

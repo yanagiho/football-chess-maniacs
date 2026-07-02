@@ -8,7 +8,7 @@
 
 import React, { useMemo } from 'react';
 
-export type BurstKind = 'impact' | 'dust';
+export type BurstKind = 'impact' | 'dust' | 'spark';
 
 interface ImpactBurstProps {
   /** hex_map.json セル中心のpx座標（コマと同じ座標系） */
@@ -34,6 +34,11 @@ const STYLES: Record<BurstKind, {
   dust: {
     ring: 'rgba(200,200,200,.55)', ringSize: 64, sparkColor: 'rgba(180,180,180,.8)',
     sparkCount: 5, sparkLen: 14, flash: 'rgba(220,220,220,.45)', duration: 500,
+  },
+  // C5a パスカット: オレンジの火花（BALL CUT!の#ff8800に合わせる）
+  spark: {
+    ring: 'rgba(255,170,60,.9)', ringSize: 76, sparkColor: '#ff8800',
+    sparkCount: 7, sparkLen: 22, flash: 'rgba(255,200,120,.85)', duration: 550,
   },
 };
 

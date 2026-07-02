@@ -4,7 +4,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { trailProgress, hasFlyingTrail } from '../overlay_renderers';
+import { trailProgress, hasFlyingTrail, shootTrailStyle, offsideFlashAlpha } from '../overlay_renderers';
 import type { BallTrail } from '../Overlay';
 
 const FROM = { col: 5, row: 10 };
@@ -56,5 +56,32 @@ describe('hasFlyingTrail', () => {
     ];
     expect(hasFlyingTrail(trails, 1400)).toBe(false);
     expect(hasFlyingTrail([], 0)).toBe(false);
+  });
+});
+
+describe('shootTrailStyle（C3: 強シュートの軌跡強調）', () => {
+  it('strongは太い線+グロー', () => {
+    expect(shootTrailStyle(true)).toEqual({ width: 10, glowBlur: 14 });
+  });
+
+  it('通常シュートは従来のまま（幅8・グローなし）', () => {
+    expect(shootTrailStyle(false)).toEqual({ width: 8, glowBlur: 0 });
+  });
+});
+
+describe('offsideFlashAlpha（C5b: オフサイドライン点滅）', () => {
+  const flash = { row: 20, startedAt: 1000, durationMs: 1200 };
+
+  it('開始直後は不透明度1', () => {
+    expect(offsideFlashAlpha(flash, 1000)).toBe(1);
+  });
+
+  it('中間で線形にフェード', () => {
+    expect(offsideFlashAlpha(flash, 1600)).toBeCloseTo(0.5);
+  });
+
+  it('表示期間を過ぎたら0（rAFループ停止条件）', () => {
+    expect(offsideFlashAlpha(flash, 2200)).toBe(0);
+    expect(offsideFlashAlpha(flash, 99999)).toBe(0);
   });
 });

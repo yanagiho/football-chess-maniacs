@@ -15,8 +15,9 @@ import type { PieceData, HexCoord, HexCell, OrderData, ActionMode } from '../../
 import { MAX_ROW } from '../../types';
 import hexMapData from '../../data/hex_map.json';
 import Piece from './Piece';
-import ImpactBurst from './ImpactBurst';
+import ImpactBurst, { type BurstKind } from './ImpactBurst';
 import type { BallTrail } from './Overlay';
+import type { OffsideFlash } from './overlay_renderers';
 import Overlay from './Overlay';
 import FlyingBall, { type FlyingBallData } from '../FlyingBall';
 import { useControls, fitToContainer, type Transform } from './Controls';
@@ -107,7 +108,9 @@ interface HexBoardProps {
   /** ロングパス警告 */
   longPassWarnings?: Map<string, number>;
   /** フェーズ演出エフェクト（§5-1b）。burst指定でImpactBurst(DOM)も再生 */
-  phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string; burst?: 'impact' | 'dust' }>;
+  phaseEffects?: Array<{ coord: HexCoord; icon: string; color: string; text?: string; burst?: BurstKind }>;
+  /** C5b: OFFSIDEイベント時のオフサイドライン点滅（盤面座標系のrow、flipYはここで変換） */
+  offsideFlash?: OffsideFlash | null;
   /** ボール軌跡（EXECUTIONフェーズ中に描画） */
   ballTrails?: BallTrail[];
   /** フリーボール位置（誰も持っていない場合に表示） */
@@ -152,6 +155,7 @@ export default function HexBoard({
   longPassWarnings,
   phaseEffects = [],
   ballTrails = [],
+  offsideFlash = null,
   freeBallHex,
   ballActionMenu,
   onActionPass,
@@ -475,6 +479,7 @@ export default function HexBoard({
             from: { col: t.from.col, row: MAX_ROW - t.from.row },
             to: { col: t.to.col, row: MAX_ROW - t.to.row },
           })) : ballTrails}
+          offsideFlash={flipY && offsideFlash ? { ...offsideFlash, row: MAX_ROW - offsideFlash.row } : offsideFlash}
         />
 
         {/* ── 着弾バースト（中イベント層）: burst指定のフェーズエフェクト位置で再生 ── */}

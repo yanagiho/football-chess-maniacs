@@ -32,6 +32,34 @@ export function hasFlyingTrail(trails: BallTrail[], now: number): boolean {
   return trails.some(t => trailProgress(t, now) < 1);
 }
 
+/** C3: シュート軌跡の描画スタイル。strongのみ太く・グロー付き（通常シュートは従来のまま） */
+export function shootTrailStyle(strong: boolean): { width: number; glowBlur: number } {
+  return strong ? { width: 10, glowBlur: 14 } : { width: 8, glowBlur: 0 };
+}
+
+// ================================================================
+// C5b: オフサイドライン点滅（OFFSIDEイベント時のみ）
+// ================================================================
+
+export interface OffsideFlash {
+  /** ライン行（表示座標系。flipYはHexBoard側で変換済み） */
+  row: number;
+  startedAt: number;
+  durationMs: number;
+}
+
+/**
+ * オフサイドライン点滅の不透明度（1 → 0 へフェードアウト）。
+ * prefers-reduced-motion 時は表示期間中1固定の静的表示（フェードなし）。
+ * 表示期間を過ぎたら常に0。
+ */
+export function offsideFlashAlpha(flash: OffsideFlash, now: number): number {
+  const elapsed = now - flash.startedAt;
+  if (elapsed >= flash.durationMs) return 0;
+  if (reducedMotion) return 1;
+  return Math.max(0, 1 - Math.max(0, elapsed / flash.durationMs));
+}
+
 /** 黒縁付きラインを描画 */
 function drawTrailLine(
   ctx: CanvasRenderingContext2D,
@@ -140,7 +168,14 @@ export function renderBallTrails(
         break;
       }
       case 'shoot': {
-        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#EF4444', 8);
+        // C3: 強シュートのみ太い線+グローで威力を強調
+        const style = shootTrailStyle(trail.strong === true);
+        if (style.glowBlur > 0) {
+          ctx.shadowColor = '#EF4444';
+          ctx.shadowBlur = style.glowBlur;
+        }
+        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#EF4444', style.width);
+        ctx.shadowBlur = 0;
         if (done) {
           if (trail.result === 'goal') {
             drawGoalStar(ctx, toCell.x, toCell.y);

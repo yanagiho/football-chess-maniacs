@@ -18,6 +18,8 @@ import {
   calcPieceMoveDurationMs,
   getMissedShootRestart,
   pickHeadingChanceReceiver,
+  isStrongShoot,
+  STRONG_SHOOT_GOAL_DIST_MAX,
   PIECE_MOVE_MIN_MS,
   PIECE_MOVE_MAX_MS,
   PIECE_MOVE_MS_PER_PX,
@@ -541,5 +543,24 @@ describe('pickHeadingChanceReceiver', () => {
       { ...mk('a_mf', 'MF', 10, 3), team: 'away' as const },
     ];
     expect(pickHeadingChanceReceiver(pieces, 'away')?.id).toBe('a_mf');
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// isStrongShoot（C3: 強シュート判定）
+// ────────────────────────────────────────────────────────────
+describe('isStrongShoot', () => {
+  it('ゴール至近（距離3以下）はstrong', () => {
+    expect(isStrongShoot(1, STRONG_SHOOT_GOAL_DIST_MAX)).toBe(true);
+    expect(isStrongShoot(1, 1)).toBe(true);
+  });
+
+  it('遠距離かつ低コストはstrongではない（通常シュートは演出を変えない）', () => {
+    expect(isStrongShoot(1, STRONG_SHOOT_GOAL_DIST_MAX + 1)).toBe(false);
+    expect(isStrongShoot(3, 8)).toBe(false); // 現行コスト帯の最大値3ではコスト条件は満たさない
+  });
+
+  it('コスト条件（STRONG_SHOOT_COST_MIN以上）でもstrong', () => {
+    expect(isStrongShoot(4, 10)).toBe(true);
   });
 });

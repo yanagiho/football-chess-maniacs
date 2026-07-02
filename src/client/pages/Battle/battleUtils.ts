@@ -87,6 +87,21 @@ export const TURN_INDICATOR_MS = 600;
 export const CEREMONY_SCALE_IN_MS = 600;
 /** FULL TIME のホイッスル振動 */
 export const FULLTIME_SHAKE_MS = 500;
+/** C3: 強シュート着弾時のカメラ微振動 */
+export const BOARD_SHAKE_MS = 200;
+/** C5b: オフサイドライン点滅表示（フェードアウト込み） */
+export const OFFSIDE_FLASH_MS = 1200;
+
+// ── C3: 強シュート判定（片方満たせばstrong。メリハリ設計のため条件は絞る） ──
+/** 強シュートとみなすシューターコストの下限（注: 現行コスト帯は1〜3のため実質は距離条件が主） */
+export const STRONG_SHOOT_COST_MIN = 4;
+/** 強シュートとみなすゴールまでのHEX距離の上限 */
+export const STRONG_SHOOT_GOAL_DIST_MAX = 3;
+
+/** C3: 強シュート判定。カメラ微振動・衝撃波リング・軌跡強調の発火条件 */
+export function isStrongShoot(shooterCost: number, distToGoal: number): boolean {
+  return shooterCost >= STRONG_SHOOT_COST_MIN || distToGoal <= STRONG_SHOOT_GOAL_DIST_MAX;
+}
 export const HALFTIME_CEREMONY_MS = 3000;
 export const FULLTIME_RESULT_BTN_DELAY_MS = 3000;
 export const GOAL_CEREMONY_MS = 2600;
