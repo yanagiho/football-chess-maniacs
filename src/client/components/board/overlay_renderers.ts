@@ -148,6 +148,9 @@ export function renderBallTrails(
             const mx = (fromCell.x * 0.3 + toCell.x * 0.7);
             const my = (fromCell.y * 0.3 + toCell.y * 0.7);
             drawXMark(ctx, mx, my, 12);
+          } else if (trail.result === 'missed') {
+            // G1: 枠外 → 着弾点（枠の外側）に×
+            drawXMark(ctx, toCell.x, toCell.y, 12);
           }
         }
         break;

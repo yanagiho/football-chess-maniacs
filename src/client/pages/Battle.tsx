@@ -54,6 +54,7 @@ import {
   // Functions
   createInitialPieces, createGoalRestartPieces, createGoalKickPieces, toEnginePiece,
   clientOrderToEngine, enginePiecesToClient, calcPieceMoveDurationMs,
+  getMissedShootRestart,
   computeReachableHexes, isShootZoneForPiece, getAccuratePassRange,
   getMatchTimeLabel, computeStats, computeMvp,
 } from './Battle/battleUtils';
@@ -889,6 +890,36 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     flyingBallResolveRef.current = null;
   }, []);
 
+  // ── ゴールキック再配置（CK守備クリア / G1枠外シュートで共用） ──
+  // ワイプが画面を覆った瞬間に専用陣形へ再配置し、ワイプ明けにNEXT_TURN。
+  // COM観戦はワイプを省略して即再配置。呼び出し元のフェイルセーフ（.catch / 8秒安全弁）の
+  // 管轄内で await すること（clearReplayTimersは最後に行うため安全弁は再配置完了まで有効）。
+  const performGoalKickRestart = useCallback(async (args: {
+    currentPieces: PieceData[]; defenseTeam: Team;
+    turn: number; scoreHome: number; scoreAway: number;
+  }) => {
+    // ワイプはCSSアニメーション（固定時間）と同期するためanimSpeedでは割らない
+    const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    const gkPieces = createGoalKickPieces(args.currentPieces, args.defenseTeam);
+    const applyBoard = () => dispatch({
+      type: 'SET_BOARD',
+      board: { pieces: gkPieces, freeBallHex: null },
+      turn: args.turn, scoreHome: args.scoreHome, scoreAway: args.scoreAway,
+    });
+    if (isComVsCom) {
+      applyBoard();
+    } else {
+      setCeremony('goalkick');
+      await wait(GOALKICK_WIPE_COVER_MS); // ワイプが画面を覆い切る瞬間まで待つ
+      applyBoard();
+      await wait(GOALKICK_WIPE_TOTAL_MS - GOALKICK_WIPE_COVER_MS);
+      setCeremony(null);
+    }
+    setBallTrails([]);
+    clearReplayTimers();
+    dispatch({ type: 'NEXT_TURN' });
+  }, [dispatch, isComVsCom, clearReplayTimers]);
+
   const handleConfirm = useCallback(async () => {
     if (state.status !== 'playing' || state.turnPhase !== 'INPUT') return;
 
@@ -1171,10 +1202,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const shooter = postPieces.find(pp => pp.id === se.shooterId);
               if (shooter) {
                 const goalRow = shooter.team === 'home' ? 33 : 0;
-                const goalCoord = { col: 10, row: goalRow };
+                const isMissed = se.result.outcome === 'missed';
+                // G1: 枠外シュートは着弾点をゴール枠（col 7-14）の左右外側にずらす
+                const goalCoord = isMissed
+                  ? { col: Math.random() < 0.5 ? 5 : 16, row: goalRow }
+                  : { col: 10, row: goalRow };
                 const result = se.result.outcome === 'goal' ? 'goal' as const
                   : se.result.outcome === 'blocked' ? 'blocked' as const
                   : (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck') ? 'saved' as const
+                  : isMissed ? 'missed' as const
                   : 'success' as const;
                 // 軌跡を先に表示（D1: flightでボール飛行進捗と同期して線が伸びる）
                 trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result, flight: trailFlight(shooter.coord, goalCoord) });
@@ -1185,6 +1221,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 // 結果演出
                 if (se.result.outcome === 'goal') {
                   soundManager.play('goal');
+                } else if (isMissed) {
+                  showOverlay('MISSED!', { duration: 1000, color: '#FACC15', fontSize: 44 });
                 } else if (se.result.outcome === 'blocked') {
                   showOverlay('BLOCKED!', { duration: 800, fontSize: 44 });
                 } else if (se.result.outcome === 'saved_catch') {
@@ -1400,6 +1438,21 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             return;
           }
 
+          // G1: 枠外シュート（missed）→ 守備側ゴールキック
+          // エンジンはmissedをフェーズ外処理としてhasBallをシューターに残すため、
+          // ここで検出してゴールキック再配置に遷移させる（放置するとボールが足元にワープして攻撃続行）
+          const missedRestart = getMissedShootRestart(evts as unknown as GameEvent[]);
+          if (missedRestart) {
+            await performGoalKickRestart({
+              currentPieces: newPieces,
+              defenseTeam: missedRestart.defenseTeam,
+              turn: state.turn,
+              scoreHome: newScoreHome,
+              scoreAway: newScoreAway,
+            });
+            return;
+          }
+
           // A6: ゴール判定
           dispatch({ type: 'SET_TURN_PHASE', phase: 'EVENT' });
           // リプレイ正常完了 → 安全タイマーをクリア（二重NEXT_TURN防止）
@@ -1495,7 +1548,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     if (isMobile && navigator.vibrate) {
       navigator.vibrate([50, 30, 50]);
     }
-  }, [isCom, isComVsCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, fetchGemmaOrders, comDifficulty]);
+  }, [isCom, isComVsCom, matchId, state, dispatch, isMobile, wsSend, boardContext, formationData, clearReplayTimers, fetchGemmaOrders, comDifficulty, performGoalKickRestart]);
 
   // COM観戦用: handleConfirmの最新参照を保持
   handleConfirmRef.current = handleConfirm;
@@ -1824,20 +1877,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       return;
     }
 
-    // ── 1ゾーン以下: 守備クリア = ゴールキック（ワイプ演出 → 専用再配置） ──
+    // ── 1ゾーン以下: 守備クリア = ゴールキック（ワイプ演出 → 専用再配置。G1と共通化） ──
     showOverlay(t('battle.clear_success'), { subText: zoneSummary, duration: 1600, color: '#4ade80', fontSize: 40 });
-    setCeremony('goalkick');
-    await wait(GOALKICK_WIPE_COVER_MS); // ワイプが画面を覆い切る瞬間まで待つ
-    const gkPieces = createGoalKickPieces(currentPieces, defenseTeam);
-    dispatch({
-      type: 'SET_BOARD',
-      board: { pieces: gkPieces, freeBallHex: null },
+    await performGoalKickRestart({
+      currentPieces, defenseTeam,
       turn: state.turn, scoreHome: state.scoreHome, scoreAway: state.scoreAway,
     });
-    await wait(GOALKICK_WIPE_TOTAL_MS - GOALKICK_WIPE_COVER_MS);
-    setCeremony(null);
-    dispatch({ type: 'NEXT_TURN' });
-  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers, showOverlay, comDifficulty, formationData, setCeremony]);
+  }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers, showOverlay, comDifficulty, formationData, setCeremony, performGoalKickRestart, launchFlyingBall]);
 
   // PC: 右クリックコンテキストメニュー（§3-2）
   const handleContextMenu = useCallback(

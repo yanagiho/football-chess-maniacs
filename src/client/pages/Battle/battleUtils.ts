@@ -13,7 +13,7 @@ import type {
   BoardContext,
 } from '../../../engine/types';
 import {
-  getMovementRange, getNeighbors, hexKey,
+  getMovementRange, getNeighbors, hexKey, hexDistance,
 } from '../../../engine/movement';
 
 // ============================================================
@@ -411,6 +411,23 @@ export function createGoalKickPieces(currentPieces: PieceData[], defenseTeam: Te
   if (gk) gk.hasBall = true;
   return result;
 }
+
+/**
+ * G1: 枠外シュート（outcome === 'missed'）を検出し、ゴールキックを行う守備側チームを返す。
+ * エンジンは missed をフェーズ外処理として hasBall をシューターに残したまま返すため、
+ * クライアントがこの検出結果を使って守備側ゴールキックへ遷移させる責務を持つ。
+ */
+export function getMissedShootRestart(
+  events: GameEvent[],
+): { shooterTeam: Team; defenseTeam: Team } | null {
+  const missed = events.find(e =>
+    e.type === 'SHOOT' && (e as { result?: { outcome?: string } }).result?.outcome === 'missed');
+  if (!missed) return null;
+  const shooterTeam: Team = String((missed as { shooterId?: unknown }).shooterId ?? '').startsWith('h')
+    ? 'home' : 'away';
+  return { shooterTeam, defenseTeam: shooterTeam === 'home' ? 'away' : 'home' };
+}
+
 
 /** 正確パス距離（§7-3: 基本6HEX, コスト3+1, OM+1） */
 export function getAccuratePassRange(piece: PieceData): number {

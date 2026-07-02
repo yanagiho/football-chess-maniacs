@@ -16,6 +16,7 @@ import {
   computeStats,
   computeMvp,
   calcPieceMoveDurationMs,
+  getMissedShootRestart,
   PIECE_MOVE_MIN_MS,
   PIECE_MOVE_MAX_MS,
   PIECE_MOVE_MS_PER_PX,
@@ -387,5 +388,59 @@ describe('calcPieceMoveDurationMs', () => {
   it('長距離は上限にクランプ（従来の0.8sと同じ）', () => {
     expect(calcPieceMoveDurationMs(300)).toBe(PIECE_MOVE_MAX_MS);
     expect(calcPieceMoveDurationMs(10000)).toBe(PIECE_MOVE_MAX_MS);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// getMissedShootRestart（G1: 枠外シュート → 守備側ゴールキック）
+// ────────────────────────────────────────────────────────────
+describe('getMissedShootRestart', () => {
+  it('homeのmissedシュートでawayがゴールキック側になる', () => {
+    const events: GameEvent[] = [
+      { type: 'SHOOT', phase: 2, shooterId: 'h09', result: { outcome: 'missed' } },
+    ] as unknown as GameEvent[];
+    expect(getMissedShootRestart(events)).toEqual({ shooterTeam: 'home', defenseTeam: 'away' });
+  });
+
+  it('awayのmissedシュートでhomeがゴールキック側になる', () => {
+    const events: GameEvent[] = [
+      { type: 'SHOOT', phase: 2, shooterId: 'a09', result: { outcome: 'missed' } },
+    ] as unknown as GameEvent[];
+    expect(getMissedShootRestart(events)).toEqual({ shooterTeam: 'away', defenseTeam: 'home' });
+  });
+
+  it('missed以外のoutcome（goal/blocked/saved_catch/saved_ck）ではnull', () => {
+    for (const outcome of ['goal', 'blocked', 'saved_catch', 'saved_ck']) {
+      const events: GameEvent[] = [
+        { type: 'SHOOT', phase: 2, shooterId: 'h09', result: { outcome } },
+      ] as unknown as GameEvent[];
+      expect(getMissedShootRestart(events)).toBeNull();
+    }
+    expect(getMissedShootRestart([])).toBeNull();
+  });
+
+  it('missed検出 → createGoalKickPiecesで守備側GKがボールを持ち専用陣形に再配置される', () => {
+    // シューター（home）がhasBallを持ったまま残るエンジン仕様を再現した盤面
+    const pieces = createInitialPieces(undefined);
+    const shooter = pieces.find(p => p.team === 'home' && p.position === 'FW' && !p.isBench)!;
+    for (const p of pieces) p.hasBall = false;
+    shooter.hasBall = true;
+    shooter.coord = { col: 10, row: 30 }; // 敵陣深く
+
+    const events: GameEvent[] = [
+      { type: 'SHOOT', phase: 2, shooterId: shooter.id, result: { outcome: 'missed' } },
+    ] as unknown as GameEvent[];
+    const restart = getMissedShootRestart(events);
+    expect(restart).not.toBeNull();
+
+    const gkPieces = createGoalKickPieces(pieces, restart!.defenseTeam);
+    const holders = gkPieces.filter(p => p.hasBall);
+    expect(holders).toHaveLength(1);
+    expect(holders[0].team).toBe('away');       // 守備側がボール保持
+    expect(holders[0].position).toBe('GK');     // 保持者はGK
+    // 守備側（away）は自陣（row 17〜33）に再配置される
+    for (const p of gkPieces.filter(pp => pp.team === 'away' && !pp.isBench)) {
+      expect(p.coord.row).toBeGreaterThanOrEqual(17);
+    }
   });
 });

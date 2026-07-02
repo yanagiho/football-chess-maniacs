@@ -14,7 +14,7 @@ export interface BallTrail {
   from: HexCoord;
   to: HexCoord;
   type: 'pass' | 'throughPass' | 'passCut' | 'dribble' | 'shoot';
-  result?: 'success' | 'blocked' | 'goal' | 'saved' | 'cut';
+  result?: 'success' | 'blocked' | 'goal' | 'saved' | 'cut' | 'missed';
   /**
    * FlyingBall の飛行と同期して線が伸びるアニメーション情報（D1）。
    * 未指定なら従来通り完成線を即描画する。
