@@ -8,8 +8,20 @@
 import { startAuthKit } from './online/authkit.mjs';
 import {
   launchBrowser, newPlayer, readBoard, waitForInput,
-  issueMove, confirmTurn, enterRandomMatch, check, failureCount, API_URL,
+  issueMove, confirmTurn, check, failureCount, API_URL,
 } from './online/helpers.mjs';
+
+/** Title → 対戦へ → オンライン対戦（ランクマッチ）→ この設定で開始
+ *  ELO更新の検証のため ranked 経由で入る（マイページの「ランダム対戦」はcasual=レート対象外） */
+async function enterRankedMatch(page) {
+  await page.locator('button', { hasText: '対戦へ' }).first().click();
+  await page.waitForTimeout(600);
+  await page.locator('button', { hasText: 'オンライン対戦' }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator('button', { hasText: 'ランクマッチ' }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator('button', { hasText: 'この設定で開始' }).first().click();
+}
 
 const kit = startAuthKit();
 const run = Date.now().toString(36);
@@ -19,9 +31,14 @@ const browser = await launchBrowser();
 const A = await newPlayer(browser, kit.signToken(userA));
 const B = await newPlayer(browser, kit.signToken(userB));
 
-await Promise.all([enterRandomMatch(A.page), enterRandomMatch(B.page)]);
+await Promise.all([enterRankedMatch(A.page), enterRankedMatch(B.page)]);
 const [ia, ib] = await Promise.all([waitForInput(A.page, 40000), waitForInput(B.page, 40000)]);
-check(!!ia && !!ib, 'マッチ成立');
+check(!!ia && !!ib, 'マッチ成立（ranked）');
+
+// rankedマッチは m_ プレフィックス（レーティング対象）
+const savedMatch = await A.page.evaluate(() => JSON.parse(sessionStorage.getItem('fcms_active_match') ?? 'null'));
+check(savedMatch?.matchId?.startsWith('m_') && savedMatch?.gameMode === 'ranked',
+  `rankedマッチはm_プレフィックス+mode=ranked (${savedMatch?.matchId?.slice(0, 10)}...)`);
 
 // FULL TIMEまで回す（最大45ターン分の安全弁）
 let finished = false;
@@ -85,7 +102,7 @@ for (let i = 0; i < 15; i++) {
   if (hasA && hasB) break;
   await new Promise(r => setTimeout(r, 4000));
 }
-check(hasA && hasB, `ELO更新: /api/ranking に両ユーザーが反映 (A=${hasA}, B=${hasB})`);
+check(hasA && hasB, `ELO更新(rankedのみ対象): /api/ranking に両ユーザーが反映 (A=${hasA}, B=${hasB})`);
 
 check(A.errors.length === 0 && B.errors.length === 0,
   `コンソールエラーなし (A=${A.errors.length}, B=${B.errors.length})`);

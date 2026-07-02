@@ -52,13 +52,16 @@ await Promise.all([confirmTurn(A.page), confirmTurn(B.page)]);
 const [na, nb] = await Promise.all([waitForInput(A.page, 75000), waitForInput(B.page, 75000)]);
 check(!!na && !!nb && na.turn === nb.turn, `復帰後: 次ターンが正常進行 (turn=${na?.turn})`);
 
-// ── ②ページリロード（現状仕様の記録） ──
+// ── ②ページリロード → 復帰バナー（リロード復帰導線） ──
 await B.page.reload();
 await B.page.waitForTimeout(2500);
-const afterReload = await readBoard(B.page);
-const bodyText = await B.page.evaluate(() => document.body.innerText.slice(0, 200));
-console.log(`INFO: リロード後のB: board=${afterReload ? 'battle継続' : 'null(タイトル等へ戻る)'} 画面先頭="${bodyText.replace(/\n/g, ' ').slice(0, 80)}"`);
-console.log('INFO: 現状仕様: クライアントは試合セッションのディープリンクを持たないため、リロードすると試合に戻れない（要決定リスト参照）');
+let bannerVisible = false;
+for (let i = 0; i < 20; i++) {
+  bannerVisible = (await B.page.locator('button', { hasText: '復帰する' }).count()) > 0;
+  if (bannerVisible) break;
+  await B.page.waitForTimeout(500);
+}
+check(bannerVisible, 'リロード後: マイページに「復帰する/棄権する」バナーが表示される');
 
 // ── ③明示的な切断（クローズフレームあり）→ 相手への切断通知 ──
 // リロードでBのWSはclose済み → Aに OPPONENT_DISCONNECTED バナーが出るはず
