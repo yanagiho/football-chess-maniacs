@@ -5,6 +5,7 @@
 import React from 'react';
 import type { Page } from '../types';
 import { type LastSetup, resolveTeamName } from '../utils/lastSetup';
+import type { ActiveMatchInfo } from '../utils/activeMatch';
 import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
 
@@ -16,9 +17,13 @@ interface TitleProps {
   onQuickMatch: () => void;
   /** T12: 「ランダム対戦」ボタン（対戦タイプ選択を経由せずオンライン/カジュアルへ直行。未ログイン時はログイン誘導） */
   onQuickOnlineMatch: () => void;
+  /** リロード復帰: サーバーで生存確認済みの進行中マッチ（null なら非表示） */
+  resumableMatch?: ActiveMatchInfo | null;
+  onResumeMatch?: () => void;
+  onAbandonMatch?: () => void;
 }
 
-export default function Title({ onNavigate, lastSetup, onQuickMatch, onQuickOnlineMatch }: TitleProps) {
+export default function Title({ onNavigate, lastSetup, onQuickMatch, onQuickOnlineMatch, resumableMatch, onResumeMatch, onAbandonMatch }: TitleProps) {
   return (
     <div
       style={{
@@ -50,6 +55,47 @@ export default function Title({ onNavigate, lastSetup, onQuickMatch, onQuickOnli
           ManiacS
         </h1>
       </div>
+
+      {/* リロード復帰バナー: 進行中の試合がある場合はマイページ最上部に目立たせて表示。
+          「復帰する」で既存のRECONNECTフローへ、「棄権する」でサーバーに離脱通知して破棄 */}
+      {resumableMatch && (
+        <div style={{
+          width: '100%', maxWidth: 380,
+          padding: '12px 16px',
+          borderRadius: 12,
+          border: '2px solid #ffd700',
+          background: 'rgba(255, 214, 0, 0.10)',
+          boxShadow: '0 0 20px rgba(255, 214, 0, 0.25)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#ffd700', textAlign: 'center' }}>
+            {t('title.resume_banner')}
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={onResumeMatch}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 8, border: 'none',
+                background: 'linear-gradient(135deg, #ffd700, #ffb300)',
+                color: '#000', fontSize: 14, fontWeight: 900, cursor: 'pointer',
+              }}
+            >
+              {t('title.resume_match')}
+            </button>
+            <button
+              onClick={onAbandonMatch}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.25)',
+                background: 'rgba(255,255,255,0.05)',
+                color: '#ccc', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              {t('title.abandon_match')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* T10c: ゲスト/ログイン状態表示 + ログイン導線 */}
       <AuthStatusBar />

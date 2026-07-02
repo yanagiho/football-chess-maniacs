@@ -190,6 +190,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
   // ── オンライン対戦: sequence/nonce管理 ──
   const sequenceRef = useRef(0);
+  // sequence違反時の自動再送は1ターンに1回だけ（無限再送防止。TURN_RESULTでリセット）
+  const seqRetryRef = useRef(false);
 
   // ── オンライン対戦: WS メッセージ処理 ──
   // showOverlay はこの下で宣言されるため ref 経由で参照（handleConfirmRef と同じパターン）
@@ -198,6 +200,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     const data = msg as WsMessage;
     switch (data.type) {
       case 'TURN_RESULT':
+        seqRetryRef.current = false; // ターンが進んだらsequence再送ガードをリセット
         // リプレイアニメーション（ローカル命令適用）→ 2.5秒後にサーバー状態を反映
         dispatch({ type: 'RESOLVE_TURN' });
         setTimeout(() => {
@@ -228,6 +231,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
         dispatch({ type: 'SET_STATUS', status: 'playing' });
         // WAITINGのままだと再確定できず詰むため、INPUTに戻して再試行可能にする
         dispatch({ type: 'SET_TURN_PHASE', phase: 'INPUT' });
+        // sequence違反（rule 2）はリロード復帰直後に必ず1回起きる（クライアントのsequenceが0に戻るため）。
+        // 再同期後に1回だけ自動再送してユーザーの再確定操作を不要にする
+        const isSeqViolation = Array.isArray(data.violations)
+          && (data.violations as Array<{ rule?: number }>).some(v => v.rule === 2);
+        if (isSeqViolation && typeof expected === 'number' && !seqRetryRef.current) {
+          seqRetryRef.current = true;
+          setTimeout(() => handleConfirmRef.current?.(), 150);
+        }
         break;
       }
 

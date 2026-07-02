@@ -42,6 +42,8 @@ export default function Matching({ onNavigate, onMatchFound, gameMode, authToken
           type: 'JOIN_QUEUE',
           rating: 0,
           teamId: teamIdRef.current,
+          // モード別プール（casualはレーティング対象外）。サーバーは未指定をranked扱い
+          mode: gameMode === 'casual' ? 'casual' : 'ranked',
         });
         break;
 

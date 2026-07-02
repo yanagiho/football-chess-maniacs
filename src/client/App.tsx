@@ -3,7 +3,7 @@
 // ページ遷移管理。ゲームモード追跡。
 // ============================================================
 
-import React, { useState, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import type { Page, GameMode, Team, FormationData, ComDifficulty, MatchEndData, MatchStats, MvpInfo, TurnSnapshot } from './types';
 
 import { SettingsProvider } from './contexts/SettingsContext';
@@ -34,6 +34,8 @@ import type { PresetTeam } from '../data/presetTeams';
 import { pickNpcOpponent, pickRandomNpcTeam } from '../data/presetTeams';
 import { MAX_ROW } from './types';
 import { loadLastSetup, saveLastSetup, type LastSetup } from './utils/lastSetup';
+import { saveActiveMatch, loadActiveMatch, clearActiveMatch, type ActiveMatchInfo } from './utils/activeMatch';
+import { apiUrl } from './types';
 import { useLocale } from './i18n/useLocale';
 import { t } from './i18n';
 
@@ -193,12 +195,77 @@ function AppShell() {
   // サーバーサイドCOM用のトークン（POST /match/com が返すuserId）
   const [comAuthToken, setComAuthToken] = useState<string | null>(null);
 
+  // handleMatchFound（deps空）から最新gameModeを読むためのref
+  const gameModeRef = useRef(gameMode);
+  gameModeRef.current = gameMode;
+
+  // ── リロード復帰導線（outgame_plan_v2 §7）──
+  // 起動時にsessionStorageの進行中マッチを確認し、サーバーで生存確認できたらバナー表示。
+  // 終了済み/参加者不一致なら黙って破棄する
+  const [resumableMatch, setResumableMatch] = useState<ActiveMatchInfo | null>(null);
+  useEffect(() => {
+    if (!authToken) return;
+    const saved = loadActiveMatch();
+    if (!saved) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(apiUrl(`/match/${saved.matchId}`), {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          const body = await res.json() as { status?: string };
+          if (body.status === 'playing') {
+            setResumableMatch(saved);
+            return;
+          }
+        }
+        // 終了済み・404等は黙って破棄
+        clearActiveMatch();
+      } catch {
+        // 生存確認に失敗した場合は破棄せず保持（次回起動で再確認）
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authToken]);
+
+  const handleResumeMatch = useCallback(() => {
+    if (!resumableMatch) return;
+    setGameMode(resumableMatch.gameMode);
+    setComOpponent(null);
+    setMatchId(resumableMatch.matchId);
+    setMyTeam(resumableMatch.team);
+    setResumableMatch(null);
+    setPage('battle'); // Battle側のWS接続→サーバーのRECONNECTフローで盤面復元される
+  }, [resumableMatch]);
+
+  const handleAbandonMatch = useCallback(() => {
+    if (!resumableMatch) return;
+    // サーバーへ離脱通知（即時不戦敗処理。失敗してもDISCONNECT_GRACE_MSで同じ結果になる）
+    if (authToken) {
+      fetch(apiUrl(`/match/${resumableMatch.matchId}/leave`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {});
+    }
+    clearActiveMatch();
+    setResumableMatch(null);
+  }, [resumableMatch, authToken]);
+
   const handleMatchFound = useCallback((id: string, team?: Team, serverComToken?: string) => {
     setMatchId(id);
     setMyTeam(team ?? 'home');
     if (serverComToken) {
       setComAuthToken(serverComToken);
     }
+    // リロード復帰用に進行中マッチを保存（COMセッションはヘルパー側で除外される）。
+    // friend_はレーティング非対象のcasual扱い
+    saveActiveMatch({
+      matchId: id,
+      team: team ?? 'home',
+      gameMode: id.startsWith('friend_') || gameModeRef.current !== 'ranked' ? 'casual' : 'ranked',
+    });
     setPage('battle');
   }, []);
 
@@ -210,6 +277,7 @@ function AppShell() {
   }, [handleMatchFound]);
 
   const handleMatchEnd = useCallback((data: MatchEndData) => {
+    clearActiveMatch(); // リザルト到達 = 進行中マッチ終了
     setMatchEndData(data);
     setReplayTurns(data.replayTurns ?? []);
     setPage('result');
@@ -254,7 +322,7 @@ function AppShell() {
           </div>
         }>
         {page === 'title' && (
-          <Title onNavigate={navigate} lastSetup={lastSetup} onQuickMatch={handleQuickMatch} onQuickOnlineMatch={handleQuickOnlineMatch} />
+          <Title onNavigate={navigate} lastSetup={lastSetup} onQuickMatch={handleQuickMatch} onQuickOnlineMatch={handleQuickOnlineMatch} resumableMatch={resumableMatch} onResumeMatch={handleResumeMatch} onAbandonMatch={handleAbandonMatch} />
         )}
         {page === 'modeSelect' && (
           <ModeSelect
