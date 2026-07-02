@@ -9,7 +9,7 @@ import {
   createDefaultHomePieces,
   createDefaultAwayPieces,
   createInitialPieces,
-  createGoalKickPieces,
+  createSetPieceRestartPieces,
   getAccuratePassRange,
   isShootZoneForPiece,
   getMatchTimeLabel,
@@ -229,51 +229,97 @@ describe('createInitialPieces', () => {
 });
 
 // ────────────────────────────────────────────────────────────
-// createGoalKickPieces
+// createSetPieceRestartPieces（Phase H: アンカー + 状況シフト + 揺らぎ）
 // ────────────────────────────────────────────────────────────
-describe('createGoalKickPieces', () => {
-  it('全22枚のコマを返す', () => {
-    const base = createInitialPieces();
-    const result = createGoalKickPieces(base, 'home');
-    expect(result).toHaveLength(22);
+describe('createSetPieceRestartPieces', () => {
+  const baseArgs = (over: Partial<Parameters<typeof createSetPieceRestartPieces>[0]> = {}) => ({
+    currentPieces: createInitialPieces(),
+    defenseTeam: 'home' as const,
+    restartType: 'goalkick' as const,
+    seed: 5,
+    scoreHome: 0,
+    scoreAway: 0,
+    turn: 5,
+    maxTurn: 32,
+    ...over,
   });
 
-  it('守備チームのGKがボールを保持', () => {
-    const base = createInitialPieces();
-    const result = createGoalKickPieces(base, 'home');
-    const gk = result.find(p => p.team === 'home' && p.position === 'GK' && !p.isBench);
-    expect(gk?.hasBall).toBe(true);
-    // 他のコマはボールを持たない
-    expect(result.filter(p => p.hasBall)).toHaveLength(1);
+  it('(a) 同一seed・同一状況で決定的に同じ配置になる（オンライン整合）', () => {
+    const r1 = createSetPieceRestartPieces(baseArgs());
+    const r2 = createSetPieceRestartPieces(baseArgs());
+    expect(r1.map(p => ({ id: p.id, coord: p.coord, hasBall: p.hasBall })))
+      .toEqual(r2.map(p => ({ id: p.id, coord: p.coord, hasBall: p.hasBall })));
   });
 
-  it('away守備時はawayのGKがボールを保持', () => {
-    const base = createInitialPieces();
-    const result = createGoalKickPieces(base, 'away');
-    const gk = result.find(p => p.team === 'away' && p.position === 'GK' && !p.isBench);
-    expect(gk?.hasBall).toBe(true);
-    expect(result.filter(p => p.hasBall)).toHaveLength(1);
+  it('(b) 異なるseed（別ターン）では配置が変化する（単調さの解消）', () => {
+    const r1 = createSetPieceRestartPieces(baseArgs({ seed: 5, turn: 5 }));
+    const r2 = createSetPieceRestartPieces(baseArgs({ seed: 9, turn: 9 }));
+    const coords1 = JSON.stringify(r1.map(p => p.coord));
+    const coords2 = JSON.stringify(r2.map(p => p.coord));
+    expect(coords1).not.toBe(coords2);
   });
 
-  it('フィールドコマ同士が同じ座標に重ならない', () => {
-    const base = createInitialPieces();
-    const result = createGoalKickPieces(base, 'home');
-    const fieldPieces = result.filter(p => !p.isBench);
-    const coords = fieldPieces.map(p => `${p.coord.col},${p.coord.row}`);
-    expect(new Set(coords).size).toBe(coords.length);
+  it('(c) 全コマ盤面範囲内・重なりなし・GKは自ゴール前・ボールは守備側GK保持', () => {
+    for (const defenseTeam of ['home', 'away'] as const) {
+      const result = createSetPieceRestartPieces(baseArgs({ defenseTeam }));
+      expect(result).toHaveLength(22);
+      const fieldPieces = result.filter(p => !p.isBench);
+      // 盤面範囲
+      for (const p of fieldPieces) {
+        expect(p.coord.col).toBeGreaterThanOrEqual(0);
+        expect(p.coord.col).toBeLessThanOrEqual(21);
+        expect(p.coord.row).toBeGreaterThanOrEqual(0);
+        expect(p.coord.row).toBeLessThanOrEqual(MAX_ROW);
+      }
+      // 重なりなし
+      const coords = fieldPieces.map(p => `${p.coord.col},${p.coord.row}`);
+      expect(new Set(coords).size).toBe(coords.length);
+      // GKは自ゴール前
+      const homeGk = fieldPieces.find(p => p.team === 'home' && p.position === 'GK');
+      const awayGk = fieldPieces.find(p => p.team === 'away' && p.position === 'GK');
+      expect(homeGk!.coord.row).toBeLessThanOrEqual(3);
+      expect(awayGk!.coord.row).toBeGreaterThanOrEqual(MAX_ROW - 3);
+      // ボールは守備側GKのみ
+      const holders = result.filter(p => p.hasBall);
+      expect(holders).toHaveLength(1);
+      expect(holders[0].team).toBe(defenseTeam);
+      expect(holders[0].position).toBe('GK');
+    }
   });
 
-  it('守備チームのコマは自陣側に配置される（home守備）', () => {
+  it('(d) フォーメーションの相対形状が概ね保存される（左サイドのコマは左サイドのまま）', () => {
     const base = createInitialPieces();
-    const result = createGoalKickPieces(base, 'home');
-    // home自陣 = row小さい側。GK以外のフィールドコマも自陣寄り
-    const homeField = result.filter(p => p.team === 'home' && !p.isBench);
-    homeField.forEach(p => {
-      expect(p.coord.row).toBeLessThanOrEqual(MAX_ROW);
-      expect(p.coord.row).toBeGreaterThanOrEqual(0);
-    });
-    const homeGk = homeField.find(p => p.position === 'GK');
-    expect(homeGk!.coord.row).toBeLessThanOrEqual(3);
+    // デフォルト4-4-2の home WG は col 4（左サイド）、SBは col 4/16
+    const result = createSetPieceRestartPieces(baseArgs({ currentPieces: base }));
+    const wg = result.find(p => p.team === 'home' && p.position === 'WG' && !p.isBench)!;
+    expect(wg.coord.col).toBeLessThan(10); // 揺らぎ±1+衝突回避±3があっても左サイドに留まる
+    // 守備側(home)のFPは自陣寄り、攻撃側(away)のFPはハーフライン付近に前進している
+    const homeFp = result.filter(p => p.team === 'home' && !p.isBench && p.position !== 'GK');
+    const awayFp = result.filter(p => p.team === 'away' && !p.isBench && p.position !== 'GK');
+    const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const homeAvgDepth = avg(homeFp.map(p => p.coord.row));            // home深度 = row
+    const awayAvgDepth = avg(awayFp.map(p => MAX_ROW - p.coord.row));  // away深度 = MAX_ROW - row
+    expect(homeAvgDepth).toBeLessThan(awayAvgDepth); // 守備側は深く、攻撃側は前進
+  });
+
+  it('(e) ビハインド終盤のチームは同点時より前方に配置される', () => {
+    const tied = createSetPieceRestartPieces(baseArgs({ scoreHome: 1, scoreAway: 1, turn: 28, maxTurn: 32 }));
+    const behind = createSetPieceRestartPieces(baseArgs({ scoreHome: 0, scoreAway: 1, turn: 28, maxTurn: 32 }));
+    const avgDepth = (pieces: typeof tied) => {
+      const fps = pieces.filter(p => p.team === 'home' && !p.isBench && p.position !== 'GK');
+      return fps.reduce((a, p) => a + p.coord.row, 0) / fps.length; // home深度 = row
+    };
+    expect(avgDepth(behind)).toBeGreaterThan(avgDepth(tied));
+  });
+
+  it("restartType 'fk_fail'/'pk_fail' は 'goalkick' より守備側のラインが高い", () => {
+    const gkick = createSetPieceRestartPieces(baseArgs({ restartType: 'goalkick' }));
+    const fkFail = createSetPieceRestartPieces(baseArgs({ restartType: 'fk_fail' }));
+    const avgDepth = (pieces: typeof gkick) => {
+      const fps = pieces.filter(p => p.team === 'home' && !p.isBench && p.position !== 'GK');
+      return fps.reduce((a, p) => a + p.coord.row, 0) / fps.length;
+    };
+    expect(avgDepth(fkFail)).toBeGreaterThan(avgDepth(gkick));
   });
 });
 
@@ -420,7 +466,7 @@ describe('getMissedShootRestart', () => {
     expect(getMissedShootRestart([])).toBeNull();
   });
 
-  it('missed検出 → createGoalKickPiecesで守備側GKがボールを持ち専用陣形に再配置される', () => {
+  it('missed検出 → createSetPieceRestartPiecesで守備側GKがボールを持ち再配置される', () => {
     // シューター（home）がhasBallを持ったまま残るエンジン仕様を再現した盤面
     const pieces = createInitialPieces(undefined);
     const shooter = pieces.find(p => p.team === 'home' && p.position === 'FW' && !p.isBench)!;
@@ -434,7 +480,10 @@ describe('getMissedShootRestart', () => {
     const restart = getMissedShootRestart(events);
     expect(restart).not.toBeNull();
 
-    const gkPieces = createGoalKickPieces(pieces, restart!.defenseTeam);
+    const gkPieces = createSetPieceRestartPieces({
+      currentPieces: pieces, defenseTeam: restart!.defenseTeam, restartType: 'goalkick',
+      seed: 10, scoreHome: 0, scoreAway: 0, turn: 10, maxTurn: 32,
+    });
     const holders = gkPieces.filter(p => p.hasBall);
     expect(holders).toHaveLength(1);
     expect(holders[0].team).toBe('away');       // 守備側がボール保持

@@ -355,34 +355,105 @@ export function createGoalRestartPieces(
   return resetPieces;
 }
 
+// ============================================================
+// Phase H: セットプレー後の動的再配置（アンカー + 状況シフト + 揺らぎ）
+// ============================================================
+
+export type SetPieceRestartType = 'goalkick' | 'fk_fail' | 'pk_fail';
+
 /**
- * ゴールキック用コマ配置。
- * 守備側（クリアした側）がGKでボールを持ち自陣でビルドアップ、
- * 攻撃側はハーフライン付近まで引いてプレス陣形を組む。
+ * mulberry32: シード付き決定的PRNG。
+ * 将来オンライン対戦でサーバー/両クライアントが同一配置を再現できるよう、
+ * 揺らぎに Math.random() は使わない。
+ */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface SetPieceRestartArgs {
+  currentPieces: PieceData[];
+  /** ボールを得る側（ゴールキックを行う側 / GKがセーブした側） */
+  defenseTeam: Team;
+  restartType: SetPieceRestartType;
+  formationData?: FormationData | null;
+  opponent?: PresetTeam | null;
+  /** 揺らぎのシード（ターン番号等、両クライアントで一致する値） */
+  seed: number;
+  scoreHome: number;
+  scoreAway: number;
+  turn: number;
+  maxTurn: number;
+}
+
+/**
+ * セットプレー後の再配置（旧 createGoalKickPieces を置換）。
+ * 3層アルゴリズム:
+ *  第1層 アンカー   — 各チームの編成フォーメーション座標を基準にし、守備側は自陣へ圧縮、
+ *                     攻撃側はハーフライン付近へ前進圧縮（縦方向の線形リマップで形を保存）
+ *  第2層 状況シフト — ビハインドは前へ+1（残り25%以下は+2）、リードは終盤のみ-1
+ *  第3層 揺らぎ     — シード付きPRNGで列・行±1（毎回同じ定型配置になる単調さの解消）
  *
  * depth = 自陣ゴールラインからの距離（home: row=depth, away: row=MAX_ROW-depth）
+ * GKは常に自ゴール前固定。ボールは守備側GK（不在時は守備側の任意コマ）。
  */
-export function createGoalKickPieces(currentPieces: PieceData[], defenseTeam: Team): PieceData[] {
-  // 守備側（ゴールキックを行う側）: 自陣でコンパクトに展開
-  const DEF_DEPTH: Record<Position, number> = {
-    GK: 1, DF: 5, SB: 6, VO: 9, MF: 11, OM: 13, WG: 12, FW: 15,
-  };
-  // 攻撃側（プレスする側）: 自陣ゴールから前進しハーフライン付近を圧縮
-  const ATK_DEPTH: Record<Position, number> = {
-    GK: 1, DF: 14, SB: 14, VO: 17, MF: 18, OM: 20, WG: 19, FW: 21,
-  };
-  // ポジション別の列プール（同ポジ複数を左右に振り分け）
-  const COLS: Record<Position, number[]> = {
-    GK: [10], DF: [7, 13, 4, 16], SB: [2, 18, 5, 15], VO: [10, 8, 12],
-    MF: [7, 13, 5, 15], OM: [10, 8, 12], WG: [4, 16, 2, 18], FW: [8, 12, 6, 14],
+export function createSetPieceRestartPieces(args: SetPieceRestartArgs): PieceData[] {
+  const {
+    currentPieces, defenseTeam, restartType, formationData, opponent,
+    seed, scoreHome, scoreAway, turn, maxTurn,
+  } = args;
+
+  const depthOf = (team: Team, row: number) => (team === 'home' ? row : MAX_ROW - row);
+  const rowOf = (team: Team, depth: number) => (team === 'home' ? depth : MAX_ROW - depth);
+
+  // ── 第1層: アンカー（編成フォーメーション由来の基準位置） ──
+  const anchorSource = createInitialPieces(formationData, 'home', opponent);
+  const anchorById = new Map(anchorSource.filter(p => !p.isBench).map(p => [p.id, p.coord]));
+  // アンカー不明（交代出場等）のフォールバック: 同ポジションのDEFAULT_TEMPLATE座標
+  const anchorFor = (p: PieceData): { col: number; depth: number } => {
+    const a = anchorById.get(p.id);
+    if (a) {
+      return { col: a.col, depth: Math.max(0, Math.min(HALF_LINE_ROW, depthOf(p.team, a.row))) };
+    }
+    const tpl = DEFAULT_TEMPLATE.find(t => t.pos === p.position) ?? DEFAULT_TEMPLATE[0];
+    return { col: tpl.col, depth: tpl.row }; // DEFAULT_TEMPLATE は自陣深度そのもの
   };
 
-  const rowFor = (team: Team, depth: number) => (team === 'home' ? depth : MAX_ROW - depth);
+  const field = currentPieces.filter(p => !p.isBench);
+  const bench = currentPieces.filter(p => p.isBench).map(p => ({ ...p, hasBall: false }));
+
+  // 深度レンジ: 守備側は自陣圧縮（FK/PK失敗はGKキャッチの流れなので2列浅く=ライン高め）、
+  // 攻撃側はハーフライン(16)付近まで前進圧縮
+  const defRange: [number, number] = restartType === 'goalkick' ? [4, 14] : [6, 15];
+  const atkRange: [number, number] = [13, 21];
+
+  // ── 第2層: 状況シフト（スコアと残り時間） ──
+  const remainingRatio = maxTurn > 0 ? (maxTurn - turn) / maxTurn : 1;
+  const shiftFor = (team: Team): number => {
+    const myScore = team === 'home' ? scoreHome : scoreAway;
+    const oppScore = team === 'home' ? scoreAway : scoreHome;
+    if (myScore < oppScore) return remainingRatio <= 0.25 ? 2 : 1; // ビハインド: 前へ
+    if (myScore > oppScore && remainingRatio <= 0.25) return -1;   // リード終盤: 後ろへ
+    return 0;
+  };
+
+  // チームごとの編成深度スパン（線形リマップ用）
+  const spanByTeam = new Map<Team, { min: number; max: number }>();
+  for (const team of ['home', 'away'] as Team[]) {
+    const ds = field.filter(p => p.team === team && p.position !== 'GK').map(p => anchorFor(p).depth);
+    spanByTeam.set(team, ds.length > 0
+      ? { min: Math.min(...ds), max: Math.max(...ds) }
+      : { min: 0, max: HALF_LINE_ROW });
+  }
+
+  // 衝突回避（既占有HEXなら列を左右にずらす）
   const occupied = new Set<string>();
-  const counter = new Map<string, number>();
-
-  // 既占有HEXとの衝突回避（列を左右にずらす）
-  const resolveCoord = (col: number, row: number): { col: number; row: number } => {
+  const claim = (col: number, row: number): HexCoord => {
     const tryOffsets = [0, 1, -1, 2, -2, 3, -3];
     for (const dc of tryOffsets) {
       const c = Math.max(0, Math.min(21, col + dc));
@@ -393,23 +464,41 @@ export function createGoalKickPieces(currentPieces: PieceData[], defenseTeam: Te
     return { col, row };
   };
 
-  const result = currentPieces.map((p) => {
-    if (p.isBench) return { ...p, hasBall: false };
+  // GKを先に確定（自ゴール前固定。シフト・揺らぎ対象外）
+  const coordById = new Map<string, HexCoord>();
+  for (const p of field) {
+    if (p.position === 'GK') coordById.set(p.id, claim(10, rowOf(p.team, 1)));
+  }
+
+  field.forEach((p, i) => {
+    if (p.position === 'GK') return;
+    // ── 第3層: 揺らぎ（シード+コマindexから決定的に生成） ──
+    const rand = mulberry32((Math.imul(seed, 1000003) + Math.imul(i + 1, 7919)) >>> 0);
     const isDef = p.team === defenseTeam;
-    const depth = (isDef ? DEF_DEPTH : ATK_DEPTH)[p.position];
-    const colPool = COLS[p.position];
-    const key = `${p.team}|${p.position}`;
-    const idx = counter.get(key) ?? 0;
-    counter.set(key, idx + 1);
-    const coord = resolveCoord(colPool[idx % colPool.length], rowFor(p.team, depth));
-    return { ...p, coord, hasBall: false };
+    const [t0, t1] = isDef ? defRange : atkRange;
+    const anchor = anchorFor(p);
+    const span = spanByTeam.get(p.team)!;
+    const denom = Math.max(1, span.max - span.min);
+    let depth = t0 + ((anchor.depth - span.min) * (t1 - t0)) / denom;
+    depth += shiftFor(p.team);
+    const jitterCol = Math.floor(rand() * 3) - 1;
+    const jitterDepth = Math.floor(rand() * 3) - 1;
+    depth = Math.round(depth) + jitterDepth;
+    // FPは自陣ゴール前(2)〜敵陣に深入りしない範囲(21)へクランプ
+    depth = Math.max(2, Math.min(21, depth));
+    const col = Math.max(0, Math.min(21, anchor.col + jitterCol));
+    const row = Math.max(0, Math.min(MAX_ROW, rowOf(p.team, depth)));
+    coordById.set(p.id, claim(col, row));
   });
 
+  const result = field.map(p => ({ ...p, coord: coordById.get(p.id)!, hasBall: false }));
+
   // ボールは守備側GK（不在時は守備側の任意FP）
-  const gk = result.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench)
-    ?? result.find(p => p.team === defenseTeam && !p.isBench);
+  const gk = result.find(p => p.team === defenseTeam && p.position === 'GK')
+    ?? result.find(p => p.team === defenseTeam);
   if (gk) gk.hasBall = true;
-  return result;
+
+  return [...result, ...bench];
 }
 
 /**

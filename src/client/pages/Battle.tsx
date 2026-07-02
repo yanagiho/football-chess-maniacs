@@ -53,9 +53,10 @@ import {
   // Types
   type MiniGameState, type CeremonyPhase, type GoalCelebrationInfo,
   // Functions
-  createInitialPieces, createGoalRestartPieces, createGoalKickPieces, toEnginePiece,
+  createInitialPieces, createGoalRestartPieces, createSetPieceRestartPieces, toEnginePiece,
   clientOrderToEngine, enginePiecesToClient, calcPieceMoveDurationMs,
   getMissedShootRestart, pickHeadingChanceReceiver,
+  type SetPieceRestartType,
   computeReachableHexes, isShootZoneForPiece, getAccuratePassRange,
   getMatchTimeLabel, computeStats, computeMvp,
 } from './Battle/battleUtils';
@@ -891,17 +892,29 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     flyingBallResolveRef.current = null;
   }, []);
 
-  // ── ゴールキック再配置（CK守備クリア / G1枠外シュートで共用） ──
-  // ワイプが画面を覆った瞬間に専用陣形へ再配置し、ワイプ明けにNEXT_TURN。
-  // COM観戦はワイプを省略して即再配置。呼び出し元のフェイルセーフ（.catch / 8秒安全弁）の
-  // 管轄内で await すること（clearReplayTimersは最後に行うため安全弁は再配置完了まで有効）。
+  // ── セットプレー再配置（CK守備クリア / G1枠外シュート / FK・PK失敗で共用） ──
+  // ワイプが画面を覆った瞬間に動的配置（Phase H: アンカー+状況シフト+揺らぎ）へ再配置し、
+  // ワイプ明けにNEXT_TURN。COM観戦はワイプを省略して即再配置。
+  // 呼び出し元のフェイルセーフ（.catch / 8秒安全弁）の管轄内で await すること
+  // （clearReplayTimersは最後に行うため安全弁は再配置完了まで有効）。
   const performGoalKickRestart = useCallback(async (args: {
-    currentPieces: PieceData[]; defenseTeam: Team;
-    turn: number; scoreHome: number; scoreAway: number;
+    currentPieces: PieceData[]; defenseTeam: Team; restartType: SetPieceRestartType;
+    turn: number; scoreHome: number; scoreAway: number; maxTurn: number;
   }) => {
     // ワイプはCSSアニメーション（固定時間）と同期するためanimSpeedでは割らない
     const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-    const gkPieces = createGoalKickPieces(args.currentPieces, args.defenseTeam);
+    const gkPieces = createSetPieceRestartPieces({
+      currentPieces: args.currentPieces,
+      defenseTeam: args.defenseTeam,
+      restartType: args.restartType,
+      formationData,
+      opponent,
+      seed: args.turn,
+      scoreHome: args.scoreHome,
+      scoreAway: args.scoreAway,
+      turn: args.turn,
+      maxTurn: args.maxTurn,
+    });
     const applyBoard = () => dispatch({
       type: 'SET_BOARD',
       board: { pieces: gkPieces, freeBallHex: null },
@@ -919,7 +932,7 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     setBallTrails([]);
     clearReplayTimers();
     dispatch({ type: 'NEXT_TURN' });
-  }, [dispatch, isComVsCom, clearReplayTimers]);
+  }, [dispatch, isComVsCom, clearReplayTimers, formationData, opponent]);
 
   const handleConfirm = useCallback(async () => {
     if (state.status !== 'playing' || state.turnPhase !== 'INPUT') return;
@@ -1362,13 +1375,18 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               } else {
                 showOverlay(guessedRight ? 'SAVE!' : 'MISS!', { duration: 1200, fontSize: 48 });
                 await wait(1200);
+                // Phase H: GKがボールを得て動的配置で仕切り直し（COM観戦は演出なしで盤面整合のみ）
                 const defenseTeam: Team = fouledTeam === 'home' ? 'away' : 'home';
-                const gk = state.board.pieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
-                const holderId = gk?.id ?? state.board.pieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
-                const ballState = setBallHolder(state.board.pieces, holderId);
+                const restartPieces = createSetPieceRestartPieces({
+                  currentPieces: state.board.pieces, defenseTeam,
+                  restartType: isPK ? 'pk_fail' : 'fk_fail',
+                  formationData, opponent, seed: state.turn,
+                  scoreHome: newScoreHome, scoreAway: newScoreAway,
+                  turn: state.turn, maxTurn,
+                });
                 dispatch({
                   type: 'SET_BOARD',
-                  board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
+                  board: { pieces: restartPieces, freeBallHex: null },
                   turn: state.turn,
                   scoreHome: newScoreHome,
                   scoreAway: newScoreAway,
@@ -1428,8 +1446,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                 boardPieces = ballState.pieces;
                 freeBallHex = ballState.freeBallHex;
               } else {
-                // 守備クリア = ゴールキック: 専用陣形に再配置（COM観戦はワイプ演出を省略）
-                boardPieces = createGoalKickPieces(state.board.pieces, defenseTeam);
+                // 守備クリア = ゴールキック: 動的配置で再配置（COM観戦はワイプ演出を省略）
+                boardPieces = createSetPieceRestartPieces({
+                  currentPieces: state.board.pieces, defenseTeam, restartType: 'goalkick',
+                  formationData, opponent, seed: state.turn,
+                  scoreHome: newScoreHome, scoreAway: newScoreAway,
+                  turn: state.turn, maxTurn,
+                });
               }
               dispatch({
                 type: 'SET_BOARD',
@@ -1462,9 +1485,11 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             await performGoalKickRestart({
               currentPieces: newPieces,
               defenseTeam: missedRestart.defenseTeam,
+              restartType: 'goalkick',
               turn: state.turn,
               scoreHome: newScoreHome,
               scoreAway: newScoreAway,
+              maxTurn,
             });
             return;
           }
@@ -1673,7 +1698,6 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     }
 
     const currentPieces = state.board.pieces;
-    let newHolderId: string | null;
     let newScoreHome = state.scoreHome;
     let newScoreAway = state.scoreAway;
 
@@ -1704,27 +1728,25 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       return;
     }
 
-    // FK失敗
-    const gk = currentPieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
-    newHolderId = gk?.id ?? currentPieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
+    // FK失敗: 守備側がボールを得て仕切り直し（Phase H: ワイプ演出 + 動的再配置）
     showOverlay(gkGuessedRight ? 'GREAT SAVE!' : 'MISSED!', {
       subText: `${matchup}\n${t('battle.kicker_vs_gk', { kicker: kickLabel, gk: gkLabel })}`,
       duration: 1500, color: '#4ade80', fontSize: 48,
     });
-
-    const ballState = setBallHolder(currentPieces, newHolderId);
     setMiniGame(null);
     setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
-    dispatch({
-      type: 'SET_BOARD',
-      board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
-      turn: state.turn,
-      scoreHome: state.scoreHome,
-      scoreAway: state.scoreAway,
+    performGoalKickRestart({
+      currentPieces, defenseTeam, restartType: 'fk_fail',
+      turn: state.turn, scoreHome: state.scoreHome, scoreAway: state.scoreAway,
+      maxTurn: HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2,
+    }).catch((e) => {
+      // フェイルセーフ: ワイプ中の例外でもターン進行を復旧
+      console.error('[Battle] FK restart error: forcing turn recovery', e);
+      setCeremony(null);
+      clearReplayTimers();
+      dispatch({ type: 'NEXT_TURN' });
     });
-    dispatch({ type: 'NEXT_TURN' });
-    clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom, performGoalKickRestart]);
 
   const handlePKComplete = useCallback((zone: number) => {
     if (!miniGame || miniGame.type !== 'pk') return;
@@ -1774,27 +1796,25 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       return;
     }
 
-    // PK失敗 → GKがボール獲得
-    const gk = currentPieces.find(p => p.team === defenseTeam && p.position === 'GK' && !p.isBench);
-    const newHolderId = gk?.id ?? currentPieces.find(p => p.team === defenseTeam && !p.isBench)?.id ?? null;
+    // PK失敗: 守備側（GK）がボールを得て仕切り直し（Phase H: ワイプ演出 + 動的再配置）
     showOverlay(gkGuessedRight ? 'GREAT SAVE!' : 'MISSED!', {
       subText: `${matchup}\n${t('battle.kicker_vs_gk', { kicker: kickLabel, gk: gkLabel })}`,
       duration: 1500, color: '#4ade80', fontSize: 48,
     });
-
-    const ballState = setBallHolder(currentPieces, newHolderId);
     setMiniGame(null);
     setMiniGameCountdown(MINIGAME_FK_PK_COUNTDOWN);
-    dispatch({
-      type: 'SET_BOARD',
-      board: { pieces: ballState.pieces, freeBallHex: ballState.freeBallHex },
-      turn: state.turn,
-      scoreHome: state.scoreHome,
-      scoreAway: state.scoreAway,
+    performGoalKickRestart({
+      currentPieces, defenseTeam, restartType: 'pk_fail',
+      turn: state.turn, scoreHome: state.scoreHome, scoreAway: state.scoreAway,
+      maxTurn: HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2,
+    }).catch((e) => {
+      // フェイルセーフ: ワイプ中の例外でもターン進行を復旧
+      console.error('[Battle] PK restart error: forcing turn recovery', e);
+      setCeremony(null);
+      clearReplayTimers();
+      dispatch({ type: 'NEXT_TURN' });
     });
-    dispatch({ type: 'NEXT_TURN' });
-    clearReplayTimers();
-  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom]);
+  }, [miniGame, state, dispatch, clearReplayTimers, formationData, showOverlay, pickComGkZone, isComVsCom, performGoalKickRestart]);
 
   // ── A7: CKミニゲーム完了ハンドラ（ゾーン対決を解決してボール所持者を設定） ──
   const handleCKComplete = useCallback(async (data: import('../components/minigame/CKGame').CKInput) => {
@@ -1899,11 +1919,12 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
       return;
     }
 
-    // ── 1ゾーン以下: 守備クリア = ゴールキック（ワイプ演出 → 専用再配置。G1と共通化） ──
+    // ── 1ゾーン以下: 守備クリア = ゴールキック（ワイプ演出 → 動的再配置。G1と共通化） ──
     showOverlay(t('battle.clear_success'), { subText: zoneSummary, duration: 1600, color: '#4ade80', fontSize: 40 });
     await performGoalKickRestart({
-      currentPieces, defenseTeam,
+      currentPieces, defenseTeam, restartType: 'goalkick',
       turn: state.turn, scoreHome: state.scoreHome, scoreAway: state.scoreAway,
+      maxTurn: HALF_TURNS * 2 + state.additionalTime1 + state.additionalTime2,
     });
   }, [miniGame, state.board.pieces, state.turn, state.scoreHome, state.scoreAway, dispatch, clearReplayTimers, showOverlay, comDifficulty, formationData, setCeremony, performGoalKickRestart, launchFlyingBall]);
 
