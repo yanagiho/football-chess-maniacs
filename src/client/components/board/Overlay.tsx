@@ -7,7 +7,7 @@
 
 import React, { useRef, useEffect } from 'react';
 import type { HexCoord, HexCell, PieceData, OrderData, ActionMode } from '../../types';
-import { renderBallTrails, renderPhaseEffects } from './overlay_renderers';
+import { renderBallTrails, renderPhaseEffects, hasFlyingTrail } from './overlay_renderers';
 
 /** ボール軌跡（EXECUTIONフェーズ中に表示） */
 export interface BallTrail {
@@ -15,6 +15,11 @@ export interface BallTrail {
   to: HexCoord;
   type: 'pass' | 'throughPass' | 'passCut' | 'dribble' | 'shoot';
   result?: 'success' | 'blocked' | 'goal' | 'saved' | 'cut';
+  /**
+   * FlyingBall の飛行と同期して線が伸びるアニメーション情報（D1）。
+   * 未指定なら従来通り完成線を即描画する。
+   */
+  flight?: { startedAt: number; durationMs: number };
 }
 
 interface OverlayProps {
@@ -127,226 +132,240 @@ export default function Overlay({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, width, height);
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
 
-    // セル検索用のMap（高速化）
-    const cellMap = new Map<string, HexCell>();
-    for (const c of hexMap) cellMap.set(`${c.col},${c.row}`, c);
-    const findCell = (coord: HexCoord) => cellMap.get(`${coord.col},${coord.row}`);
+      // セル検索用のMap（高速化）
+      const cellMap = new Map<string, HexCell>();
+      for (const c of hexMap) cellMap.set(`${c.col},${c.row}`, c);
+      const findCell = (coord: HexCoord) => cellMap.get(`${coord.col},${coord.row}`);
 
-    // ================================================================
-    // 1. ゾーン境界線（§1-3: 常時, ON/OFF切替可）
-    // ================================================================
-    if (showZoneBorders) {
-      drawZoneBorders(ctx, hexMap, cellMap);
-    }
+      // ================================================================
+      // 1. ゾーン境界線（§1-3: 常時, ON/OFF切替可）
+      // ================================================================
+      if (showZoneBorders) {
+        drawZoneBorders(ctx, hexMap, cellMap);
+      }
 
-    // ================================================================
-    // 2. ZOC表示（§1-3: コマ選択時のみ）
-    // ================================================================
-    if (selectedPieceId) {
-      for (const hex of zocHexes.own) {
+      // ================================================================
+      // 2. ZOC表示（§1-3: コマ選択時のみ）
+      // ================================================================
+      if (selectedPieceId) {
+        for (const hex of zocHexes.own) {
+          const cell = findCell(hex);
+          if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.ownZoc);
+        }
+        for (const hex of zocHexes.opponent) {
+          const cell = findCell(hex);
+          if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.opponentZoc);
+        }
+      }
+
+      // ================================================================
+      // 3. 移動可能範囲（§6-2）
+      // ================================================================
+      const opponentZocSet = new Set(zocHexes.opponent.map((z) => `${z.col},${z.row}`));
+
+      for (const hex of highlightHexes) {
         const cell = findCell(hex);
-        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.ownZoc);
+        if (!cell) continue;
+
+        if (opponentZocSet.has(`${hex.col},${hex.row}`)) {
+          drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.moveRangeZoc);
+          drawHexStripes(ctx, cell.x, cell.y, HEX_R);
+        } else {
+          drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.moveRange);
+        }
+        drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.moveRangeOutline, MOVE_RANGE_OUTLINE_WIDTH);
       }
-      for (const hex of zocHexes.opponent) {
+
+      // ================================================================
+      // 3b. スルーパス可能な空きHEX（シアン）— パスモード時
+      // ================================================================
+      for (const hex of throughPassHexes) {
         const cell = findCell(hex);
-        if (cell) drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.opponentZoc);
+        if (!cell) continue;
+        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.throughPassFill);
+        drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.throughPassOutline, MOVE_RANGE_OUTLINE_WIDTH);
       }
-    }
 
-    // ================================================================
-    // 3. 移動可能範囲（§6-2）
-    // ================================================================
-    const opponentZocSet = new Set(zocHexes.opponent.map((z) => `${z.col},${z.row}`));
-
-    for (const hex of highlightHexes) {
-      const cell = findCell(hex);
-      if (!cell) continue;
-
-      if (opponentZocSet.has(`${hex.col},${hex.row}`)) {
-        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.moveRangeZoc);
-        drawHexStripes(ctx, cell.x, cell.y, HEX_R);
-      } else {
-        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.moveRange);
+      // ================================================================
+      // 3c. パス可能な味方コマ（青リング）— パスモード時
+      // ================================================================
+      for (const hex of passTargetHexes) {
+        const cell = findCell(hex);
+        if (!cell) continue;
+        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.passTargetFill);
+        drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.passTargetRing, PASS_TARGET_RING_WIDTH);
       }
-      drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.moveRangeOutline, MOVE_RANGE_OUTLINE_WIDTH);
-    }
 
-    // ================================================================
-    // 3b. スルーパス可能な空きHEX（シアン）— パスモード時
-    // ================================================================
-    for (const hex of throughPassHexes) {
-      const cell = findCell(hex);
-      if (!cell) continue;
-      drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.throughPassFill);
-      drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.throughPassOutline, MOVE_RANGE_OUTLINE_WIDTH);
-    }
-
-    // ================================================================
-    // 3c. パス可能な味方コマ（青リング）— パスモード時
-    // ================================================================
-    for (const hex of passTargetHexes) {
-      const cell = findCell(hex);
-      if (!cell) continue;
-      drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.passTargetFill);
-      drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.passTargetRing, PASS_TARGET_RING_WIDTH);
-    }
-
-    // ================================================================
-    // 4. 指示済みコマの移動矢印（白）+ ドリブル矢印（緑）
-    // ================================================================
-    for (const [, order] of orders) {
-      if (!order.targetHex) continue;
-      if (order.action !== 'move' && order.action !== 'dribble') continue;
-      const piece = pieces.find((p) => p.id === order.pieceId);
-      if (!piece) continue;
-      const fromCell = findCell(piece.coord);
-      const toCell = findCell(order.targetHex);
-      if (!fromCell || !toCell) continue;
-      if (order.action === 'dribble') {
-        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.dribbleArrow, ARROW_WIDTH_ACTION, ARROW_HEAD_LEN);
-      } else {
-        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.moveArrow, ARROW_WIDTH_MOVE, ARROW_HEAD_LEN_MOVE);
+      // ================================================================
+      // 4. 指示済みコマの移動矢印（白）+ ドリブル矢印（緑）
+      // ================================================================
+      for (const [, order] of orders) {
+        if (!order.targetHex) continue;
+        if (order.action !== 'move' && order.action !== 'dribble') continue;
+        const piece = pieces.find((p) => p.id === order.pieceId);
+        if (!piece) continue;
+        const fromCell = findCell(piece.coord);
+        const toCell = findCell(order.targetHex);
+        if (!fromCell || !toCell) continue;
+        if (order.action === 'dribble') {
+          drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.dribbleArrow, ARROW_WIDTH_ACTION, ARROW_HEAD_LEN);
+        } else {
+          drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.moveArrow, ARROW_WIDTH_MOVE, ARROW_HEAD_LEN_MOVE);
+        }
       }
-    }
 
-    // ================================================================
-    // 5. パスライン（§6-2: 青い線 / ZOC通過でオレンジ）
-    // ================================================================
-    for (const [, order] of orders) {
-      if (order.action !== 'pass' || !order.targetPieceId) continue;
-      const passer = pieces.find((p) => p.id === order.pieceId);
-      const receiver = pieces.find((p) => p.id === order.targetPieceId);
-      if (!passer || !receiver) continue;
-      const fromCell = findCell(passer.coord);
-      const toCell = findCell(receiver.coord);
-      if (!fromCell || !toCell) continue;
-
-      const crossesZoc = doesLineCrossZoc(
-        fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
-      );
-      const color = crossesZoc ? COLORS.passLineDanger : COLORS.passLine;
-      drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, color, PASS_LINE_WIDTH, PASS_LINE_DASH);
-      drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, color);
-    }
-
-    // ================================================================
-    // 5b. スルーパスライン（シアン点線）
-    // ================================================================
-    for (const [, order] of orders) {
-      if (order.action !== 'throughPass' || !order.targetHex) continue;
-      const passer = pieces.find((p) => p.id === order.pieceId);
-      if (!passer) continue;
-      const fromCell = findCell(passer.coord);
-      const toCell = findCell(order.targetHex);
-      if (!fromCell || !toCell) continue;
-      drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.throughPassLine, PASS_LINE_WIDTH, PASS_LINE_DASH);
-      drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, COLORS.throughPassLine);
-    }
-
-    // ================================================================
-    // 6. シュートコース（§6-2: 赤い線）
-    // ================================================================
-    for (const [, order] of orders) {
-      if (order.action !== 'shoot' || !order.targetHex) continue;
-      const shooter = pieces.find((p) => p.id === order.pieceId);
-      if (!shooter) continue;
-      const fromCell = findCell(shooter.coord);
-      const toCell = findCell(order.targetHex);
-      if (!fromCell || !toCell) continue;
-      drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.shootArrow, ARROW_WIDTH_ACTION, ARROW_HEAD_LEN);
-    }
-
-    // ================================================================
-    // 6b. シュート可能範囲（§6-2: 赤い半透明ハイライト）
-    // ================================================================
-    for (const hex of shootRangeHexes) {
-      const cell = findCell(hex);
-      if (cell) {
-        drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.shootRange);
-        drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.shootRangeOutline, MOVE_RANGE_OUTLINE_WIDTH);
-      }
-    }
-
-    // ================================================================
-    // 6c. ロングパス警告（パスライン上に「LONG」テキスト）
-    // ================================================================
-    if (longPassWarnings) {
-      for (const [pieceId, dist] of longPassWarnings) {
-        const order = orders.get(pieceId);
-        if (!order || order.action !== 'pass' || !order.targetPieceId) continue;
-        const passer = pieces.find(p => p.id === order.pieceId);
-        const receiver = pieces.find(p => p.id === order.targetPieceId);
+      // ================================================================
+      // 5. パスライン（§6-2: 青い線 / ZOC通過でオレンジ）
+      // ================================================================
+      for (const [, order] of orders) {
+        if (order.action !== 'pass' || !order.targetPieceId) continue;
+        const passer = pieces.find((p) => p.id === order.pieceId);
+        const receiver = pieces.find((p) => p.id === order.targetPieceId);
         if (!passer || !receiver) continue;
         const fromCell = findCell(passer.coord);
         const toCell = findCell(receiver.coord);
         if (!fromCell || !toCell) continue;
-        const mx = (fromCell.x + toCell.x) / 2;
-        const my = (fromCell.y + toCell.y) / 2;
-        ctx.save();
-        ctx.font = 'bold 11px sans-serif';
-        ctx.fillStyle = COLORS.longPassWarning;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`LONG (${dist}HEX)`, mx, my - 10);
-        ctx.restore();
+
+        const crossesZoc = doesLineCrossZoc(
+          fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
+        );
+        const color = crossesZoc ? COLORS.passLineDanger : COLORS.passLine;
+        drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, color, PASS_LINE_WIDTH, PASS_LINE_DASH);
+        drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, color);
       }
-    }
 
-    // ================================================================
-    // 6c. ボール軌跡（EXECUTIONフェーズ）
-    // ================================================================
-    renderBallTrails(ctx, ballTrails, findCell);
-
-    // ================================================================
-    // 6d. フェーズ演出エフェクト（§5-1b: アイコン + テキスト）
-    // ================================================================
-    renderPhaseEffects(ctx, phaseEffects, findCell);
-
-    // ================================================================
-    // 7. オフサイドライン（§6-2: 黄色の点線, §1-3: 常時ON/OFF切替可）
-    // ================================================================
-    if (offsideLine !== null) {
-      // 同一 row の先頭セルの y を取得
-      const cell = hexMap.find((h) => h.row === offsideLine);
-      if (cell) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(0, cell.y);
-        ctx.lineTo(width, cell.y);
-        ctx.strokeStyle = COLORS.offsideLine;
-        ctx.lineWidth = OFFSIDE_LINE_WIDTH;
-        ctx.setLineDash(OFFSIDE_LINE_DASH);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
+      // ================================================================
+      // 5b. スルーパスライン（シアン点線）
+      // ================================================================
+      for (const [, order] of orders) {
+        if (order.action !== 'throughPass' || !order.targetHex) continue;
+        const passer = pieces.find((p) => p.id === order.pieceId);
+        if (!passer) continue;
+        const fromCell = findCell(passer.coord);
+        const toCell = findCell(order.targetHex);
+        if (!fromCell || !toCell) continue;
+        drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.throughPassLine, PASS_LINE_WIDTH, PASS_LINE_DASH);
+        drawDot(ctx, toCell.x, toCell.y, PASS_DOT_RADIUS, COLORS.throughPassLine);
       }
-    }
 
-    // ================================================================
-    // 8. PC マウスホバー予測線（§3-6）
-    // ================================================================
-    if (hoverCoord && selectedPieceId) {
-      const selPiece = pieces.find((p) => p.id === selectedPieceId);
-      if (selPiece) {
-        const fromCell = findCell(selPiece.coord);
-        const toCell = findCell(hoverCoord);
-        if (fromCell && toCell) {
-          if (actionMode === 'pass') {
-            const crosses = doesLineCrossZoc(
-              fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
-            );
-            const c = crosses ? COLORS.hoverPassDanger : COLORS.hoverPassSafe;
-            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, c, HOVER_LINE_WIDTH, HOVER_LINE_DASH);
-          } else if (actionMode === 'shoot') {
-            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.hoverShoot, HOVER_LINE_WIDTH, HOVER_LINE_DASH);
-          } else {
-            drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.hoverMove, HOVER_LINE_WIDTH, HOVER_MOVE_DASH);
+      // ================================================================
+      // 6. シュートコース（§6-2: 赤い線）
+      // ================================================================
+      for (const [, order] of orders) {
+        if (order.action !== 'shoot' || !order.targetHex) continue;
+        const shooter = pieces.find((p) => p.id === order.pieceId);
+        if (!shooter) continue;
+        const fromCell = findCell(shooter.coord);
+        const toCell = findCell(order.targetHex);
+        if (!fromCell || !toCell) continue;
+        drawArrow(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.shootArrow, ARROW_WIDTH_ACTION, ARROW_HEAD_LEN);
+      }
+
+      // ================================================================
+      // 6b. シュート可能範囲（§6-2: 赤い半透明ハイライト）
+      // ================================================================
+      for (const hex of shootRangeHexes) {
+        const cell = findCell(hex);
+        if (cell) {
+          drawHex(ctx, cell.x, cell.y, HEX_R, COLORS.shootRange);
+          drawHexOutline(ctx, cell.x, cell.y, HEX_R, COLORS.shootRangeOutline, MOVE_RANGE_OUTLINE_WIDTH);
+        }
+      }
+
+      // ================================================================
+      // 6c. ロングパス警告（パスライン上に「LONG」テキスト）
+      // ================================================================
+      if (longPassWarnings) {
+        for (const [pieceId, dist] of longPassWarnings) {
+          const order = orders.get(pieceId);
+          if (!order || order.action !== 'pass' || !order.targetPieceId) continue;
+          const passer = pieces.find(p => p.id === order.pieceId);
+          const receiver = pieces.find(p => p.id === order.targetPieceId);
+          if (!passer || !receiver) continue;
+          const fromCell = findCell(passer.coord);
+          const toCell = findCell(receiver.coord);
+          if (!fromCell || !toCell) continue;
+          const mx = (fromCell.x + toCell.x) / 2;
+          const my = (fromCell.y + toCell.y) / 2;
+          ctx.save();
+          ctx.font = 'bold 11px sans-serif';
+          ctx.fillStyle = COLORS.longPassWarning;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`LONG (${dist}HEX)`, mx, my - 10);
+          ctx.restore();
+        }
+      }
+
+      // ================================================================
+      // 6c. ボール軌跡（EXECUTIONフェーズ）
+      // ================================================================
+      renderBallTrails(ctx, ballTrails, findCell, performance.now());
+
+      // ================================================================
+      // 6d. フェーズ演出エフェクト（§5-1b: アイコン + テキスト）
+      // ================================================================
+      renderPhaseEffects(ctx, phaseEffects, findCell);
+
+      // ================================================================
+      // 7. オフサイドライン（§6-2: 黄色の点線, §1-3: 常時ON/OFF切替可）
+      // ================================================================
+      if (offsideLine !== null) {
+        // 同一 row の先頭セルの y を取得
+        const cell = hexMap.find((h) => h.row === offsideLine);
+        if (cell) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(0, cell.y);
+          ctx.lineTo(width, cell.y);
+          ctx.strokeStyle = COLORS.offsideLine;
+          ctx.lineWidth = OFFSIDE_LINE_WIDTH;
+          ctx.setLineDash(OFFSIDE_LINE_DASH);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+        }
+      }
+
+      // ================================================================
+      // 8. PC マウスホバー予測線（§3-6）
+      // ================================================================
+      if (hoverCoord && selectedPieceId) {
+        const selPiece = pieces.find((p) => p.id === selectedPieceId);
+        if (selPiece) {
+          const fromCell = findCell(selPiece.coord);
+          const toCell = findCell(hoverCoord);
+          if (fromCell && toCell) {
+            if (actionMode === 'pass') {
+              const crosses = doesLineCrossZoc(
+                fromCell.x, fromCell.y, toCell.x, toCell.y, zocHexes.opponent, cellMap,
+              );
+              const c = crosses ? COLORS.hoverPassDanger : COLORS.hoverPassSafe;
+              drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, c, HOVER_LINE_WIDTH, HOVER_LINE_DASH);
+            } else if (actionMode === 'shoot') {
+              drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.hoverShoot, HOVER_LINE_WIDTH, HOVER_LINE_DASH);
+            } else {
+              drawDashedLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, COLORS.hoverMove, HOVER_LINE_WIDTH, HOVER_MOVE_DASH);
+            }
           }
         }
       }
-    }
+    };
+
+    // D1: 飛行中の軌跡がある間は毎フレーム再描画し、線をボール位置まで伸ばす。
+    // 飛行が終われば（または飛行軌跡が無ければ）ループは回らず従来通り静的描画のまま。
+    let rafId = 0;
+    const tick = () => {
+      draw();
+      if (hasFlyingTrail(ballTrails, performance.now())) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    tick();
+    return () => cancelAnimationFrame(rafId);
   }, [
     width, height, highlightHexes, zocHexes, offsideLine,
     selectedPieceId, actionMode, orders, pieces, hexMap,

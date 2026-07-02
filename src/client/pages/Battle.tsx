@@ -867,17 +867,29 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
     return cell ? { x: cell.x, y: cell.y } : { x: 500, y: 900 };
   }, [state.myTeam]);
 
+  // ── ボール飛行時間（距離比例）— FlyingBall と軌跡線(D1)で共有 ──
+  const flightDurationMs = useCallback((from: HexCoord, to: HexCoord): number => {
+    const fromPx = hexToPixel(from);
+    const toPx = hexToPixel(to);
+    const dist = Math.hypot(toPx.x - fromPx.x, toPx.y - fromPx.y);
+    return Math.round(Math.max(200, Math.min(500, dist * 0.8)) / animSpeed);
+  }, [hexToPixel, animSpeed]);
+
+  // ── D1: 軌跡線をボール飛行に同期させる flight 情報 ──
+  const trailFlight = useCallback((from: HexCoord, to: HexCoord) => ({
+    startedAt: performance.now(),
+    durationMs: flightDurationMs(from, to),
+  }), [flightDurationMs]);
+
   // ── ボール飛行 → Promise ──
   const launchFlyingBall = useCallback((from: HexCoord, to: HexCoord, type: FlyingBallData['type']): Promise<void> => {
     const fromPx = hexToPixel(from);
     const toPx = hexToPixel(to);
-    const dist = Math.hypot(toPx.x - fromPx.x, toPx.y - fromPx.y);
-    const durationMs = Math.round(Math.max(200, Math.min(500, dist * 0.8)) / animSpeed);
     return new Promise<void>(resolve => {
       flyingBallResolveRef.current = resolve;
-      setFlyingBall({ fromX: fromPx.x, fromY: fromPx.y, toX: toPx.x, toY: toPx.y, type, durationMs });
+      setFlyingBall({ fromX: fromPx.x, fromY: fromPx.y, toX: toPx.x, toY: toPx.y, type, durationMs: flightDurationMs(from, to) });
     });
-  }, [hexToPixel, animSpeed]);
+  }, [hexToPixel, flightDurationMs]);
 
   const handleFlyingBallComplete = useCallback(() => {
     setFlyingBall(null);
@@ -1134,8 +1146,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const pe = ev as PassDeliveredEvent;
               const passer = postPieces.find(pp => pp.id === pe.passerId);
               if (passer) {
-                // 軌跡を先に表示（ボール飛行と同時に線が見える）
-                trails.push({ from: passer.coord, to: pe.receiverCoord, type: 'pass', result: 'success' });
+                // 軌跡を先に表示（D1: flightでボール飛行進捗と同期して線が伸びる）
+                trails.push({ from: passer.coord, to: pe.receiverCoord, type: 'pass', result: 'success', flight: trailFlight(passer.coord, pe.receiverCoord) });
                 setBallTrails([...trails]);
                 soundManager.play('pass');
                 // ボール飛行アニメーション
@@ -1162,8 +1174,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                   : se.result.outcome === 'blocked' ? 'blocked' as const
                   : (se.result.outcome === 'saved_catch' || se.result.outcome === 'saved_ck') ? 'saved' as const
                   : 'success' as const;
-                // 軌跡を先に表示
-                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result });
+                // 軌跡を先に表示（D1: flightでボール飛行進捗と同期して線が伸びる）
+                trails.push({ from: shooter.coord, to: goalCoord, type: 'shoot', result, flight: trailFlight(shooter.coord, goalCoord) });
                 setBallTrails([...trails]);
                 soundManager.play('shoot');
                 // ボール飛行アニメーション
@@ -1198,8 +1210,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               const interceptorId = pc.result.cut1?.interceptor?.id ?? pc.result.cut2?.interceptor?.id;
               const interceptor = interceptorId ? turnResult.board.pieces.find(p => p.id === interceptorId) : null;
               if (passer && interceptor) {
-                // 軌跡を先に表示 → ボール飛行
-                trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut' });
+                // 軌跡を先に表示 → ボール飛行（D1: flightで飛行進捗と同期）
+                trails.push({ from: passer.coord, to: interceptor.coord, type: 'passCut', result: 'cut', flight: trailFlight(passer.coord, interceptor.coord) });
                 setBallTrails([...trails]);
                 await launchFlyingBall(passer.coord, interceptor.coord, 'pass');
               }

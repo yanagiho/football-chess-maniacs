@@ -13,6 +13,25 @@ type FindCell = (coord: HexCoord) => HexCell | undefined;
 // ボール軌跡（EXECUTIONフェーズ）
 // ================================================================
 
+const reducedMotion =
+  typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * 軌跡の飛行進捗（0〜1）。
+ * flight情報なし（静的軌跡）と prefers-reduced-motion 時は常に 1（＝従来通り完成線を即描画）。
+ */
+export function trailProgress(trail: BallTrail, now: number): number {
+  if (!trail.flight || reducedMotion) return 1;
+  const { startedAt, durationMs } = trail.flight;
+  if (durationMs <= 0) return 1;
+  return Math.max(0, Math.min(1, (now - startedAt) / durationMs));
+}
+
+/** 飛行中（進捗<1）の軌跡が1本でもあるか。Overlay が rAF 再描画を続けるかの判定に使う */
+export function hasFlyingTrail(trails: BallTrail[], now: number): boolean {
+  return trails.some(t => trailProgress(t, now) < 1);
+}
+
 /** 黒縁付きラインを描画 */
 function drawTrailLine(
   ctx: CanvasRenderingContext2D,
@@ -71,48 +90,65 @@ function drawGoalStar(ctx: CanvasRenderingContext2D, sx: number, sy: number): vo
   drawStar(16, 8, '#FFD700');
 }
 
-/** ボール軌跡レイヤーを描画 */
+/**
+ * ボール軌跡レイヤーを描画。
+ * flight付き軌跡は進捗に応じて from→ボール現在位置まで線が伸び、
+ * 完成（進捗1）した時点で終端マーカー（着地点・×・星）を描く。
+ */
 export function renderBallTrails(
   ctx: CanvasRenderingContext2D,
   trails: BallTrail[],
   findCell: FindCell,
+  now: number,
 ): void {
   for (const trail of trails) {
     const fromCell = findCell(trail.from);
     const toCell = findCell(trail.to);
     if (!fromCell || !toCell) continue;
 
+    const progress = trailProgress(trail, now);
+    if (progress <= 0) continue;
+    const done = progress >= 1;
+    // 線の現在の先端（飛行中はボール位置、完了後は着地点）
+    const tipX = fromCell.x + (toCell.x - fromCell.x) * progress;
+    const tipY = fromCell.y + (toCell.y - fromCell.y) * progress;
+
     ctx.save();
     switch (trail.type) {
       case 'pass':
-        drawTrailLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, '#3B82F6', 6, [10, 6]);
-        drawTrailCircle(ctx, toCell.x, toCell.y, 8, '#3B82F6');
+        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#3B82F6', 6, [10, 6]);
+        if (done) drawTrailCircle(ctx, toCell.x, toCell.y, 8, '#3B82F6');
         break;
       case 'throughPass':
-        drawTrailLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, '#06B6D4', 6, [10, 6]);
-        drawTrailCircle(ctx, toCell.x, toCell.y, 8, '#06B6D4');
+        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#06B6D4', 6, [10, 6]);
+        if (done) drawTrailCircle(ctx, toCell.x, toCell.y, 8, '#06B6D4');
         break;
       case 'passCut':
-        drawTrailLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, '#F59E0B', 6, [10, 6]);
-        drawXMark(ctx, toCell.x, toCell.y, 10);
+        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#F59E0B', 6, [10, 6]);
+        if (done) drawXMark(ctx, toCell.x, toCell.y, 10);
         break;
       case 'dribble': {
-        drawTrailLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, '#22C55E', 7);
-        const bx = (fromCell.x + toCell.x) / 2;
-        const by = (fromCell.y + toCell.y) / 2;
-        drawTrailCircle(ctx, bx, by, 8, '#fff');
-        ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(bx, by, 8, 0, Math.PI * 2); ctx.stroke();
+        // ドリブルはコマ移動後に静的表示（flightなし）— 従来通り
+        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#22C55E', 7);
+        if (done) {
+          const bx = (fromCell.x + toCell.x) / 2;
+          const by = (fromCell.y + toCell.y) / 2;
+          drawTrailCircle(ctx, bx, by, 8, '#fff');
+          ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(bx, by, 8, 0, Math.PI * 2); ctx.stroke();
+        }
         break;
       }
       case 'shoot': {
-        drawTrailLine(ctx, fromCell.x, fromCell.y, toCell.x, toCell.y, '#EF4444', 8);
-        if (trail.result === 'goal') {
-          drawGoalStar(ctx, toCell.x, toCell.y);
-        } else if (trail.result === 'blocked' || trail.result === 'saved') {
-          const mx = (fromCell.x * 0.3 + toCell.x * 0.7);
-          const my = (fromCell.y * 0.3 + toCell.y * 0.7);
-          drawXMark(ctx, mx, my, 12);
+        drawTrailLine(ctx, fromCell.x, fromCell.y, tipX, tipY, '#EF4444', 8);
+        if (done) {
+          if (trail.result === 'goal') {
+            drawGoalStar(ctx, toCell.x, toCell.y);
+          } else if (trail.result === 'blocked' || trail.result === 'saved') {
+            const mx = (fromCell.x * 0.3 + toCell.x * 0.7);
+            const my = (fromCell.y * 0.3 + toCell.y * 0.7);
+            drawXMark(ctx, mx, my, 12);
+          }
         }
         break;
       }
