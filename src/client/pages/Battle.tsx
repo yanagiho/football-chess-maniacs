@@ -28,6 +28,7 @@ import type {
   Piece as EnginePiece, Board as EngineBoard, Order as EngineOrder,
   ShootEvent, FoulEvent as EngineFoulEvent, GameEvent as EngineGameEvent,
   CollisionEvent, TackleEvent, PassCutEvent, OffsideEvent, PassDeliveredEvent,
+  BallAcquiredEvent, BattleDelayEvent,
 } from '../../engine/types';
 import FKGame from '../components/minigame/FKGame';
 import CKGame from '../components/minigame/CKGame';
@@ -1193,6 +1194,14 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
                   showOverlay('OFFSIDE!', { duration: 1200, color: '#FACC15', fontSize: 48 });
                   await wait(800);
                   setPhaseEffects([]);
+                  // G2: 審判がボールを守備側GKへ戻す飛行（瞬間移動の解消。軌跡線は残さない）
+                  const acquired = evts.find((e): e is BallAcquiredEvent =>
+                    e.type === 'BALL_ACQUIRED' && (e as BallAcquiredEvent).phase === 3);
+                  const restartHolder = acquired
+                    ? turnResult.board.pieces.find(p => p.id === acquired.pieceId) : undefined;
+                  if (restartHolder) {
+                    await launchFlyingBall(pe.receiverCoord, restartHolder.coord, 'pass');
+                  }
                 }
                 await wait(150);
               }
@@ -1281,6 +1290,13 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
             if (ev.type === 'BATTLE_DELAY') {
               showOverlay('DELAY!', { duration: 1200, color: '#FACC15', fontSize: 44 });
               await wait(500);
+              // G2: 審判がボールを相手GKへ戻す飛行（瞬間移動の解消。軌跡線は残さない）
+              const de = ev as BattleDelayEvent;
+              const awarded = de.awardedToPieceId
+                ? turnResult.board.pieces.find(p => p.id === de.awardedToPieceId) : undefined;
+              if (awarded) {
+                await launchFlyingBall(de.coord, awarded.coord, 'pass');
+              }
             }
             if (ev.type === 'PASSIVE_TACTICS') {
               showOverlay('PASSIVE TACTICS!', { duration: 1200, color: '#FB7185', fontSize: 38 });
