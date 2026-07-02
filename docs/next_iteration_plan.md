@@ -151,6 +151,56 @@ D1/D2とも実装済み。テスト724件全通過・型チェッククリーン
 
 ---
 
+## Phase E: 演出の総点検（2026-07-02追加）
+
+> 演出システムは CeremonyLayer.tsx（試合の節目・全画面暗転系）と CenterOverlay.tsx（TACKLE!等のイベント黒箱・showOverlayキュー）の2系統が併存しており、監査で以下の問題を特定済み。E1→E2→E3→E4 の順に実装する。
+
+### 監査で特定済みの問題
+
+1. KICKOFF の `fcms-slide-up` が %ベース縦移動(-40%→-50%)と pxベース縦移動(40px→0)を二重合成し、さらにアニメーション全体に ease-out が掛かってキーフレーム配分が歪み、「フラフラ浮遊する」締まりのない動きになっている
+2. Turn 1 では KICKOFF ceremony と `showOverlay('Turn 1')`（Battle.tsx の TURN_START 効果、`state.turn > 0` で発火）が同時期に重なって表示される
+3. 毎ターン `setCeremony('turn')`（35%暗転1.2秒 + Turn N 表示）が走り、1試合22ターンで22回画面が明滅する
+4. CeremonyLayer の暗転背景(rgba 0.7/0.35)がフェードなしで1フレームで出現・消滅する（文字だけフェードし背景がブツ切り）
+5. FULL TIME の `animation: 'fcms-whistle 0.5s, fcms-scale-in 0.6s forwards'` は同一 transform プロパティへの二重指定で後者が勝ち、ホイッスル振動が実際には表示されないデッドコード
+6. TACKLE!/BLOCKED!等のイベントカットイン（CenterOverlay）が黒角丸トースト風で安っぽい。一方 goalkick 演出には斜め帯ワイプ（fcms-wipe / fcms-wipe-label）というよくできた視覚言語が既にある
+7. タイミング定数がバラバラ（KICKOFF 2500ms / turn 1200ms / イベント800〜1200ms、in 200ms / out 300ms 等）で一元管理されていない
+8. KICKOFF 前半/後半の JSX がほぼ完全重複
+
+### タスク
+
+**E1. システム統一とテンポ設計**
+- 演出タイミング定数を battleUtils.ts に一元化（CEREMONY_BACKDROP_FADE_MS / CUTIN_IN_MS / CUTIN_HOLD_MS / CUTIN_OUT_MS / KICKOFF_CEREMONY_MS 等。既存の KICKOFF_CEREMONY_MS / HALFTIME_CEREMONY_MS / SECOND_HALF_DELAY_MS / TURN_FLASH_MS はこの体系に統合）
+- 毎ターンの `setCeremony('turn')`（全画面暗転）を廃止。Turn 表示は画面上部の試合時間ラベル付近で小さくフェード切替する控えめな表示に格下げ（暗転なし・0.6秒程度）。`showOverlay('Turn N')` も廃止し新方式の1系統のみに
+- CeremonyPhase から 'turn' を除去、fcms-turn-flash keyframe も削除
+- ターンフェーズ進行のタイミング（TURN_START → INPUT の normalDelay 等）は現行値を維持
+
+**E2. KICKOFF 演出の作り直し**
+- fcms-slide-up を廃止し、キレのあるカットインに: 入り=左から高速スライドイン(0.25s, cubic-bezier(0.16,1,0.3,1))して中央で静止 / ホールド1.2s程度 / 抜け=右へスナップアウト(0.2s)。transform は translate(-50%,-50%) 基準に translateX のみ
+- 暗転背景に CEREMONY_BACKDROP_FADE_MS のフェードイン/アウト（halftime / secondhalf / fulltime にも適用）
+- `soundManager.play('whistle_start')` を文字が静止する瞬間に同期
+- KICKOFF 前半/後半の重複 JSX を共通化（subText 差し替え）
+- 演出全体の長さは現行 KICKOFF_CEREMONY_MS(2500ms) から大きく変えない
+
+**E3. イベントカットインの質感向上**
+- CenterOverlay の黒角丸トースト箱を廃止し、goalkick の斜め帯ワイプの視覚言語に統一（高さ80〜100px程度の帯が高速ワイプイン → テキストスライドイン → ホールド → 帯ごとワイプアウト）
+- 帯の色はイベント種別で変える（showOverlay color 引数を帯グラデーションに反映: TACKLE!=オレンジ系 / GOAL!!=金 / GREAT SAVE!=緑 / OFFSIDE!・DELAY!=黄 / BLOCKED!=白系 等）
+- キュー処理と duration 引数の互換維持、pointerEvents: none 維持
+- in/out は CUTIN_IN_MS / CUTIN_OUT_MS に統一。reduced-motion 時はワイプせずシンプルなフェードにフォールバック
+
+**E4. バグ修正・整理**
+- FULL TIME のホイッスル振動: transform 二重指定を解消し振動を復活（内側に振動用 div を挟み、外側=配置transform / 内側=シェイクanimation に分離）
+- 使われなくなった keyframes（fcms-slide-up, fcms-turn-flash 等）と関連スタイルを削除
+- CeremonyLayer / CenterOverlay に残るマジックナンバーを E1 の定数に置換
+
+### 品質ゲート（全タスク共通）
+
+- 型チェック・既存テストスイート全通過
+- 演出タイミング変更時はターン進行（TURN_START→INPUT、リプレイチェーン、8秒安全弁、`61085c0`のフェイルセーフ）との整合を確認
+- `e2e/mobile_battle_failsafe.mjs` を両デバイスプロファイルで全項目 PASS
+- reduced-motion 環境での動作維持、COM vs COM 観戦モードの演出スキップ挙動（isComVsCom 分岐）を壊さない
+
+---
+
 ## 未決事項
 
 - [x] Phase Aの事前プレビュー（A2）はシュートのみに絞った（2026-07-01決定・理由は上記Phase A完了メモ参照）
