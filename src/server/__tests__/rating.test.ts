@@ -70,6 +70,14 @@ describe('isRatedMatch', () => {
     expect(isRatedMatch('m_abc', 'u1', 'com_ai')).toBe(false);
     expect(isRatedMatch('m_abc', 'com_player_x', 'u2')).toBe(false);
   });
+  it('カジュアルマッチ（casual_）は対象外、ランク（m_）は対象', () => {
+    // カジュアルと銘打ちながらELOが動くのは約束違反（outgame_plan_v2 §7 課題2）
+    expect(isRatedMatch('casual_abc', 'u1', 'u2')).toBe(false);
+    expect(isRatedMatch('m_abc', 'u1', 'u2')).toBe(true);
+    // Bot補完はどちらのモードでも com_ai によりもともと対象外（現仕様維持）
+    expect(isRatedMatch('casual_abc', 'u1', 'com_ai')).toBe(false);
+    expect(isRatedMatch('m_abc', 'u1', 'com_ai')).toBe(false);
+  });
 });
 
 describe('getRating', () => {

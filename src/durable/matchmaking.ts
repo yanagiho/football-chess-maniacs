@@ -16,6 +16,8 @@ interface WaitingPlayer {
   teamId: string;
   joinedAt: number;
   region: string;
+  /** マッチングプールはモード別に分離（ranked同士/casual同士のみ）。casualはレーティング対象外 */
+  mode: 'ranked' | 'casual';
 }
 
 /** WebSocketにアタッチするメタデータ */
@@ -133,7 +135,7 @@ export class Matchmaking extends DurableObject<Env['Bindings']> {
   private async handleJoinQueue(
     ws: WebSocket,
     attachment: MmAttachment,
-    data: { rating: number; teamId: string },
+    data: { rating: number; teamId: string; mode?: string },
   ): Promise<void> {
     // レーティングはクライアント申告を信用せず、D1 のサーバー権威値を使う（詐称防止）
     const rating = await getRating(this.env.DB, attachment.userId);
@@ -143,6 +145,8 @@ export class Matchmaking extends DurableObject<Env['Bindings']> {
       teamId: data.teamId,
       joinedAt: Date.now(),
       region: attachment.region,
+      // 未指定（旧クライアント）はranked扱い
+      mode: data.mode === 'casual' ? 'casual' : 'ranked',
     };
 
     this.waitingPlayers.set(attachment.userId, player);
@@ -203,6 +207,9 @@ export class Matchmaking extends DurableObject<Env['Bindings']> {
 
       for (let j = i + 1; j < players.length; j++) {
         if (matchedIds.has(players[j].userId)) continue;
+        // モード別プール: ranked同士/casual同士のみマッチさせる
+        // （分けないと「相手はランク戦のつもり、自分はカジュアル」の非対称が生まれる）
+        if (players[i].mode !== players[j].mode) continue;
 
         const ratingDiff = Math.abs(players[i].rating - players[j].rating);
         if (ratingDiff <= ratingRange) {
@@ -216,7 +223,9 @@ export class Matchmaking extends DurableObject<Env['Bindings']> {
 
     // マッチ成立処理
     for (const [p1, p2] of matched) {
-      const matchId = `m_${crypto.randomUUID()}`;
+      // カジュアルは casual_ プレフィックス（isRatedMatch がレーティング対象外として認識する。
+      // friend_/com_ と同じプレフィックス方式でモードをマッチレコード(matches.id)に保存）
+      const matchId = p1.mode === 'casual' ? `casual_${crypto.randomUUID()}` : `m_${crypto.randomUUID()}`;
 
       // GameSession DOを作成
       const doId = this.env.GAME_SESSION.idFromName(matchId);
@@ -261,7 +270,9 @@ export class Matchmaking extends DurableObject<Env['Bindings']> {
   // ── Botで補完（一定時間、対戦相手が見つからない場合のフォールバック） ──
 
   private async assignBotMatch(player: WaitingPlayer): Promise<void> {
-    const matchId = `m_${crypto.randomUUID()}`;
+    // Bot補完は両モードで有効。matchIdプレフィックスはモードに従う
+    // （Bot戦はもともと awayUserId='com_ai' によりレーティング対象外）
+    const matchId = player.mode === 'casual' ? `casual_${crypto.randomUUID()}` : `m_${crypto.randomUUID()}`;
     // 'com_ai' は既存の isRatedMatch（src/server/rating.ts）がレーティング対象外として
     // 認識する予約IDのため、Bot補完マッチはそのままレーティング/ランキング対象から除外される。
     const botUserId = 'com_ai';

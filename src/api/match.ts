@@ -76,6 +76,34 @@ match.get('/:matchId', async (c) => {
   return c.json(result);
 });
 
+// ── 進行中マッチの棄権（リロード復帰バナーの「棄権する」用） ──
+// GameSession DO に離脱を通知し、即座に不戦敗処理（endMatch reason=disconnect）を行う。
+// （通知しなくてもDISCONNECT_GRACE_MS超過で同じ結果になるが、相手を30秒待たせない）
+match.post('/:matchId/leave', async (c) => {
+  const userId = c.get('userId');
+  const matchId = c.req.param('matchId');
+  if (!MATCH_ID_PATTERN.test(matchId)) {
+    return c.json({ error: 'Invalid matchId format' }, 400);
+  }
+
+  // 参加者チェック（D1のマッチレコードで確認）
+  const row = await c.env.DB.prepare(
+    'SELECT id FROM matches WHERE id = ? AND (home_user_id = ? OR away_user_id = ?)',
+  ).bind(matchId, userId, userId).first();
+  if (!row) {
+    return c.json({ error: 'Match not found' }, 404);
+  }
+
+  const doId = c.env.GAME_SESSION.idFromName(matchId);
+  const stub = c.env.GAME_SESSION.get(doId);
+  const res = await stub.fetch(new Request('https://do/leave', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  }));
+  return c.json(await res.json(), res.status as 200);
+});
+
 // ── マッチ履歴取得 ──
 match.get('/', async (c) => {
   const userId = c.get('userId');

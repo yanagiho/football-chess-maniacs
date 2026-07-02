@@ -36,6 +36,30 @@ export class GameSession extends DurableObject<Env['Bindings']> {
       return this.handleInit(request);
     }
 
+    // /leave: プレイヤーの明示的な棄権（リロード復帰バナーの「棄権する」）。
+    // 離脱者を不戦敗として即座に試合を終了し、相手にMATCH_ENDを通知する
+    if (url.pathname.endsWith('/leave') && request.method === 'POST') {
+      let body: { userId?: string };
+      try {
+        body = await request.json() as { userId?: string };
+      } catch {
+        return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+      }
+      const state = await this.getGameState();
+      if (!state) {
+        return Response.json({ ok: true, alreadyEnded: true });
+      }
+      if (body.userId !== state.homeUserId && body.userId !== state.awayUserId) {
+        return Response.json({ error: 'Not a participant' }, { status: 403 });
+      }
+      if (state.status !== 'playing') {
+        return Response.json({ ok: true, alreadyEnded: true });
+      }
+      const loser = body.userId === state.homeUserId ? 'home' : 'away';
+      await this.endMatch(state, 'disconnect', loser);
+      return Response.json({ ok: true });
+    }
+
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader?.toLowerCase() !== 'websocket') {
       return new Response('Expected WebSocket upgrade', { status: 426 });
