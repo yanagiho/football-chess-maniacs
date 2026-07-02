@@ -428,6 +428,27 @@ export function getMissedShootRestart(
   return { shooterTeam, defenseTeam: shooterTeam === 'home' ? 'away' : 'home' };
 }
 
+/**
+ * G3: ヘディングチャンス（CK 2ゾーン勝利）のボール受け手を選ぶ。
+ * 攻撃側の非GKコマのうち相手ゴールに最も近いコマ（距離が第一条件、同距離ならFW優先）。
+ * 非GKが1体もいない場合は攻撃側の任意のコマにフォールバック。
+ */
+export function pickHeadingChanceReceiver(pieces: PieceData[], attackTeam: Team): PieceData | null {
+  const goalCoord: HexCoord = { col: 10, row: attackTeam === 'home' ? MAX_ROW : 0 };
+  const candidates = pieces.filter(p => p.team === attackTeam && !p.isBench && p.position !== 'GK');
+  if (candidates.length === 0) {
+    return pieces.find(p => p.team === attackTeam && !p.isBench) ?? null;
+  }
+  let best: PieceData | null = null;
+  let bestScore = Infinity;
+  for (const c of candidates) {
+    // 距離×2 + FW以外は+1 → 距離が第一条件、同距離のときだけFWが勝つ
+    const score = hexDistance(c.coord, goalCoord) * 2 + (c.position === 'FW' ? 0 : 1);
+    if (score < bestScore) { bestScore = score; best = c; }
+  }
+  return best;
+}
+
 
 /** 正確パス距離（§7-3: 基本6HEX, コスト3+1, OM+1） */
 export function getAccuratePassRange(piece: PieceData): number {

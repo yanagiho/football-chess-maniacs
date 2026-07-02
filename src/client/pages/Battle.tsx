@@ -55,7 +55,7 @@ import {
   // Functions
   createInitialPieces, createGoalRestartPieces, createGoalKickPieces, toEnginePiece,
   clientOrderToEngine, enginePiecesToClient, calcPieceMoveDurationMs,
-  getMissedShootRestart,
+  getMissedShootRestart, pickHeadingChanceReceiver,
   computeReachableHexes, isShootZoneForPiece, getAccuratePassRange,
   getMatchTimeLabel, computeStats, computeMvp,
 } from './Battle/battleUtils';
@@ -1422,8 +1422,8 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
               let boardPieces: PieceData[];
               let freeBallHex: HexCoord | null = null;
               if (attackerWon) {
-                const holder = state.board.pieces.find(p => p.team === ckAttackTeam && !p.isBench && p.position !== 'GK')
-                  ?? state.board.pieces.find(p => p.team === ckAttackTeam && !p.isBench);
+                // G3: 相手ゴールに最も近い非GKへ（距離第一・FW優先はタイブレーク）
+                const holder = pickHeadingChanceReceiver(state.board.pieces, ckAttackTeam);
                 const ballState = setBallHolder(state.board.pieces, holder?.id ?? null);
                 boardPieces = ballState.pieces;
                 freeBallHex = ballState.freeBallHex;
@@ -1880,9 +1880,15 @@ export default function Battle({ onNavigate, matchId, gameMode, authToken, myTea
 
     // ── 2ゾーン勝利: ヘディングチャンス（攻撃継続・コマ位置はそのまま） ──
     if (attackWins === 2) {
-      const candidate = currentPieces.find(p => p.team === attackTeam && p.position === 'FW' && !p.isBench)
-        ?? currentPieces.find(p => p.team === attackTeam && !p.isBench && p.position !== 'GK');
+      // G3: 相手ゴールに最も近い非GKへ（距離第一・FW優先はタイブレーク）。
+      // 遠くのFWに飛ばすと着地点までボールがワープして見えるため
+      const candidate = pickHeadingChanceReceiver(currentPieces, attackTeam);
       showOverlay(t('battle.heading_chance'), { subText: zoneSummary, duration: 2000, color: '#ffd700', fontSize: 40 });
+      // G2同様: 旧ボール位置から受け手への飛行を挟む（軌跡線は残さない）
+      const prevHolder = currentPieces.find(p => p.hasBall && !p.isBench);
+      if (candidate && prevHolder && prevHolder.id !== candidate.id) {
+        await launchFlyingBall(prevHolder.coord, candidate.coord, 'pass');
+      }
       const ballState = setBallHolder(currentPieces, candidate?.id ?? null);
       dispatch({
         type: 'SET_BOARD',

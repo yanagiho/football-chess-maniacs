@@ -17,6 +17,7 @@ import {
   computeMvp,
   calcPieceMoveDurationMs,
   getMissedShootRestart,
+  pickHeadingChanceReceiver,
   PIECE_MOVE_MIN_MS,
   PIECE_MOVE_MAX_MS,
   PIECE_MOVE_MS_PER_PX,
@@ -442,5 +443,54 @@ describe('getMissedShootRestart', () => {
     for (const p of gkPieces.filter(pp => pp.team === 'away' && !pp.isBench)) {
       expect(p.coord.row).toBeGreaterThanOrEqual(17);
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// pickHeadingChanceReceiver（G3: CKヘディングチャンスの受け手選定）
+// ────────────────────────────────────────────────────────────
+describe('pickHeadingChanceReceiver', () => {
+  const mk = (id: string, position: string, col: number, row: number, isBench = false): PieceData => ({
+    id, team: 'home', position: position as PieceData['position'], cost: 1,
+    coord: { col, row }, hasBall: false, moveRange: 4, isBench,
+  });
+
+  it('遠くのFWより相手ゴールに近い非GKを選ぶ（距離が第一条件）', () => {
+    const pieces = [
+      mk('h_gk', 'GK', 10, 30),            // GKは対象外（ゴール前でも選ばれない）
+      mk('h_fw', 'FW', 10, 16),            // FWだがハーフライン付近（遠い）
+      mk('h_mf', 'MF', 10, 31),            // ゴール至近のMF
+    ];
+    expect(pickHeadingChanceReceiver(pieces, 'home')?.id).toBe('h_mf');
+  });
+
+  it('同距離ならFWを優先する', () => {
+    const pieces = [
+      mk('h_mf', 'MF', 8, 30),
+      mk('h_fw', 'FW', 12, 30), // 対称位置（ゴールcol10から同距離）
+    ];
+    expect(pickHeadingChanceReceiver(pieces, 'home')?.id).toBe('h_fw');
+  });
+
+  it('ベンチのコマは対象外', () => {
+    const pieces = [
+      mk('h_bench_fw', 'FW', 10, 32, true),
+      mk('h_mf', 'MF', 10, 20),
+    ];
+    expect(pickHeadingChanceReceiver(pieces, 'home')?.id).toBe('h_mf');
+  });
+
+  it('非GKが1体もいなければ攻撃側の任意のコマにフォールバック', () => {
+    const pieces = [mk('h_gk', 'GK', 10, 1)];
+    expect(pickHeadingChanceReceiver(pieces, 'home')?.id).toBe('h_gk');
+    expect(pickHeadingChanceReceiver([], 'home')).toBeNull();
+  });
+
+  it('away攻撃はrow 0側のゴールに近いコマを選ぶ', () => {
+    const pieces = [
+      { ...mk('a_fw', 'FW', 10, 20), team: 'away' as const },
+      { ...mk('a_mf', 'MF', 10, 3), team: 'away' as const },
+    ];
+    expect(pickHeadingChanceReceiver(pieces, 'away')?.id).toBe('a_mf');
   });
 });
